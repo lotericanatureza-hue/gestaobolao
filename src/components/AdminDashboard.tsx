@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { TrendingUp, Package, Store, AlertTriangle, CheckCircle2, Clock, DollarSign, ShoppingBag } from 'lucide-react';
+import { TrendingUp, Package, Store, AlertTriangle, CheckCircle2, Clock, DollarSign, ShoppingBag, Percent, TrendingDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Badge, Spinner, EmptyState } from './ui';
@@ -9,39 +9,64 @@ import type { Bolao, Branch } from '../lib/types';
 interface DashboardStats {
   totalBoloes: number;
   totalValue: number;
+  bolaoValue: number;
+  commissionValue: number;
+  operatorCommission: number;
+  lotericaCommission: number;
   soldCount: number;
   soldValue: number;
+  soldCommission: number;
+  soldOperatorCommission: number;
   partialCount: number;
   partialValue: number;
   unsoldShares: number;
   unsoldValue: number;
+  unsoldBolaoValue: number;
+  unsoldCommission: number;
+  encalheLoss: number;
   totalBranches: number;
   totalProducts: number;
 }
 
 function computeStats(boloes: Bolao[]): DashboardStats {
-  const totalValue = boloes.reduce((s, b) => s + Number(b.price) + Number(b.service_fee), 0);
+  const shareVal = (b: Bolao) => b.total_shares > 0
+    ? (Number(b.price) + Number(b.service_fee)) / b.total_shares
+    : 0;
+  const sharePrice = (b: Bolao) => b.total_shares > 0 ? Number(b.price) / b.total_shares : 0;
+  const shareFee = (b: Bolao) => b.total_shares > 0 ? Number(b.service_fee) / b.total_shares : 0;
+
+  const bolaoValue = boloes.reduce((s, b) => s + Number(b.price), 0);
+  const commissionValue = boloes.reduce((s, b) => s + Number(b.service_fee), 0);
+
   const soldBoloes = boloes.filter((b) => b.status === 'sold');
   const partialBoloes = boloes.filter((b) => b.status === 'partial');
 
-  const shareValue = (b: Bolao) => b.total_shares > 0
-    ? (Number(b.price) + Number(b.service_fee)) / b.total_shares
-    : 0;
+  const soldValue = boloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0);
+  const soldCommission = boloes.reduce((s, b) => s + shareFee(b) * b.sold_shares, 0);
 
-  const soldValue = boloes.reduce((s, b) => s + shareValue(b) * b.sold_shares, 0);
   const unsoldShares = boloes.reduce((s, b) => s + (b.total_shares - b.sold_shares), 0);
-  const unsoldValue = boloes.reduce((s, b) => s + shareValue(b) * (b.total_shares - b.sold_shares), 0);
-  const partialValue = partialBoloes.reduce((s, b) => s + shareValue(b) * b.sold_shares, 0);
+  const unsoldValue = boloes.reduce((s, b) => s + shareVal(b) * (b.total_shares - b.sold_shares), 0);
+  const unsoldBolaoValue = boloes.reduce((s, b) => s + sharePrice(b) * (b.total_shares - b.sold_shares), 0);
+  const unsoldCommission = boloes.reduce((s, b) => s + shareFee(b) * (b.total_shares - b.sold_shares), 0);
 
   return {
     totalBoloes: boloes.length,
-    totalValue,
+    totalValue: bolaoValue + commissionValue,
+    bolaoValue,
+    commissionValue,
+    operatorCommission: commissionValue * 0.3,
+    lotericaCommission: commissionValue * 0.7,
     soldCount: soldBoloes.length,
     soldValue,
+    soldCommission,
+    soldOperatorCommission: soldCommission * 0.3,
     partialCount: partialBoloes.length,
-    partialValue,
+    partialValue: partialBoloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0),
     unsoldShares,
     unsoldValue,
+    unsoldBolaoValue,
+    unsoldCommission,
+    encalheLoss: unsoldBolaoValue,
     totalBranches: 0,
     totalProducts: 0,
   };
@@ -99,11 +124,9 @@ export function AdminDashboard() {
     return <Badge color="red">Encalhado</Badge>;
   };
 
-  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? '—';
-
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Visão geral de bolões, filiais e produtos" />
+      <PageHeader title="Dashboard" subtitle="Visão geral de bolões, comissões e encalhes" />
 
       {/* Branch filter */}
       <div className="flex flex-wrap gap-2 mb-6">
@@ -133,11 +156,19 @@ export function AdminDashboard() {
       </div>
 
       {/* Main KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <KpiCard icon={<Package size={22} />} label="Total de Bolões" bigValue={`R$ ${stats.totalValue.toFixed(2)}`} smallValue={`${stats.totalBoloes} bolões`} color="brand" />
         <KpiCard icon={<ShoppingBag size={22} />} label="Vendidos" bigValue={`R$ ${stats.soldValue.toFixed(2)}`} smallValue={`${stats.soldCount} bolões`} color="emerald" />
         <KpiCard icon={<TrendingUp size={22} />} label="Parciais" bigValue={`R$ ${stats.partialValue.toFixed(2)}`} smallValue={`${stats.partialCount} bolões`} color="amber" />
         <KpiCard icon={<AlertTriangle size={22} />} label="Encalhados" bigValue={`R$ ${stats.unsoldValue.toFixed(2)}`} smallValue={`${stats.unsoldShares} cotas não vendidas`} color="red" />
+      </div>
+
+      {/* Commission breakdown */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <KpiCard icon={<DollarSign size={22} />} label="Valor dos Bolões" bigValue={`R$ ${stats.bolaoValue.toFixed(2)}`} smallValue="Soma dos preços" color="brand" />
+        <KpiCard icon={<Percent size={22} />} label="Comissão Total" bigValue={`R$ ${stats.commissionValue.toFixed(2)}`} smallValue="Taxa de serviço" color="accent" />
+        <KpiCard icon={<DollarSign size={22} />} label="Comissão Operador (30%)" bigValue={`R$ ${stats.operatorCommission.toFixed(2)}`} smallValue={`Vendida: R$ ${stats.soldOperatorCommission.toFixed(2)}`} color="emerald" />
+        <KpiCard icon={<TrendingDown size={22} />} label="Prejuízo (Encalhe)" bigValue={`R$ ${stats.encalheLoss.toFixed(2)}`} smallValue={`${stats.unsoldShares} cotas encalhadas`} color="red" />
       </div>
 
       {/* Secondary stats */}
@@ -162,9 +193,10 @@ export function AdminDashboard() {
                   <th className="px-5 py-3 font-medium">Produto</th>
                   <th className="px-5 py-3 font-medium">Filial</th>
                   <th className="px-5 py-3 font-medium">Concurso</th>
-                  <th className="px-5 py-3 font-medium">Dezenas</th>
                   <th className="px-5 py-3 font-medium">Cotas</th>
-                  <th className="px-5 py-3 font-medium">Preço</th>
+                  <th className="px-5 py-3 font-medium">Bolão</th>
+                  <th className="px-5 py-3 font-medium">Comissão</th>
+                  <th className="px-5 py-3 font-medium">Operador (30%)</th>
                   <th className="px-5 py-3 font-medium">Status</th>
                 </tr>
               </thead>
@@ -177,11 +209,12 @@ export function AdminDashboard() {
                         <span className="font-medium text-slate-900">{b.product?.name ?? '—'}</span>
                       </div>
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{selectedBranchId === 'all' ? (b.branch?.name ?? '—') : branchName(b.branch_id)}</td>
+                    <td className="px-5 py-3 text-slate-600">{selectedBranchId === 'all' ? (b.branch?.name ?? '—') : (b.branch?.name ?? '—')}</td>
                     <td className="px-5 py-3 text-slate-600">{b.contest_number}</td>
-                    <td className="px-5 py-3 text-slate-600">{b.dezenas}</td>
                     <td className="px-5 py-3 text-slate-600">{b.sold_shares}/{b.total_shares}</td>
                     <td className="px-5 py-3 text-slate-600">R$ {Number(b.price).toFixed(2)}</td>
+                    <td className="px-5 py-3 text-slate-600">R$ {Number(b.service_fee).toFixed(2)}</td>
+                    <td className="px-5 py-3 text-slate-600">R$ {(Number(b.service_fee) * 0.3).toFixed(2)}</td>
                     <td className="px-5 py-3">{statusBadge(b.status)}</td>
                   </tr>
                 ))}
@@ -226,6 +259,14 @@ export function AdminDashboard() {
                         <span className="flex items-center gap-1 text-slate-500"><AlertTriangle size={14} className="text-red-500" /> Encalhados</span>
                         <span className="font-semibold text-slate-700">{brStats.unsoldShares} cotas · R$ {brStats.unsoldValue.toFixed(2)}</span>
                       </div>
+                      <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
+                        <span className="flex items-center gap-1 text-slate-500"><Percent size={14} className="text-accent-500" /> Comissão Operador</span>
+                        <span className="font-semibold text-brand-700">R$ {brStats.operatorCommission.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1 text-slate-500"><TrendingDown size={14} className="text-red-500" /> Prejuízo</span>
+                        <span className="font-semibold text-red-600">R$ {brStats.encalheLoss.toFixed(2)}</span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -244,6 +285,7 @@ function KpiCard({ icon, label, bigValue, smallValue, color }: { icon: React.Rea
     emerald: 'bg-emerald-50 text-emerald-600',
     red: 'bg-red-50 text-red-600',
     amber: 'bg-amber-50 text-amber-600',
+    accent: 'bg-accent-50 text-accent-600',
   };
   return (
     <Card className="p-5">

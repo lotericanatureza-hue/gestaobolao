@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { CheckCircle2, Clock, AlertTriangle, Trash2, Pencil, ShoppingBag, Plus, Minus } from 'lucide-react';
+import { CheckCircle2, Clock, AlertTriangle, Trash2, Pencil, ShoppingBag, Plus, Minus, DollarSign, Percent, TrendingDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -12,29 +12,63 @@ type FilterStatus = 'all' | BolaoStatus;
 interface OpStats {
   total: number;
   totalValue: number;
+  bolaoValue: number;
+  commissionValue: number;
+  operatorCommission: number;
+  lotericaCommission: number;
   soldCount: number;
   soldValue: number;
+  soldCommission: number;
+  soldOperatorCommission: number;
   partialCount: number;
   partialValue: number;
   unsoldShares: number;
   unsoldValue: number;
+  unsoldBolaoValue: number;
+  unsoldCommission: number;
+  encalheLoss: number;
 }
 
 function computeOpStats(boloes: Bolao[]): OpStats {
-  const shareValue = (b: Bolao) => b.total_shares > 0
+  const shareVal = (b: Bolao) => b.total_shares > 0
     ? (Number(b.price) + Number(b.service_fee)) / b.total_shares
     : 0;
+  const sharePrice = (b: Bolao) => b.total_shares > 0 ? Number(b.price) / b.total_shares : 0;
+  const shareFee = (b: Bolao) => b.total_shares > 0 ? Number(b.service_fee) / b.total_shares : 0;
+
+  const bolaoValue = boloes.reduce((s, b) => s + Number(b.price), 0);
+  const commissionValue = boloes.reduce((s, b) => s + Number(b.service_fee), 0);
+
   const soldBoloes = boloes.filter((b) => b.status === 'sold');
   const partialBoloes = boloes.filter((b) => b.status === 'partial');
+
+  const soldValue = boloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0);
+  const soldCommission = boloes.reduce((s, b) => s + shareFee(b) * b.sold_shares, 0);
+  const soldOperatorCommission = soldCommission * 0.3;
+
+  const unsoldShares = boloes.reduce((s, b) => s + (b.total_shares - b.sold_shares), 0);
+  const unsoldValue = boloes.reduce((s, b) => s + shareVal(b) * (b.total_shares - b.sold_shares), 0);
+  const unsoldBolaoValue = boloes.reduce((s, b) => s + sharePrice(b) * (b.total_shares - b.sold_shares), 0);
+  const unsoldCommission = boloes.reduce((s, b) => s + shareFee(b) * (b.total_shares - b.sold_shares), 0);
+
   return {
     total: boloes.length,
-    totalValue: boloes.reduce((s, b) => s + Number(b.price) + Number(b.service_fee), 0),
+    totalValue: bolaoValue + commissionValue,
+    bolaoValue,
+    commissionValue,
+    operatorCommission: commissionValue * 0.3,
+    lotericaCommission: commissionValue * 0.7,
     soldCount: soldBoloes.length,
-    soldValue: boloes.reduce((s, b) => s + shareValue(b) * b.sold_shares, 0),
+    soldValue,
+    soldCommission,
+    soldOperatorCommission,
     partialCount: partialBoloes.length,
-    partialValue: partialBoloes.reduce((s, b) => s + shareValue(b) * b.sold_shares, 0),
-    unsoldShares: boloes.reduce((s, b) => s + (b.total_shares - b.sold_shares), 0),
-    unsoldValue: boloes.reduce((s, b) => s + shareValue(b) * (b.total_shares - b.sold_shares), 0),
+    partialValue: partialBoloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0),
+    unsoldShares,
+    unsoldValue,
+    unsoldBolaoValue,
+    unsoldCommission,
+    encalheLoss: unsoldBolaoValue,
   };
 }
 
@@ -47,6 +81,8 @@ export function OperatorManage() {
   const [editing, setEditing] = useState<Bolao | null>(null);
   const [editSold, setEditSold] = useState(0);
   const [editTotal, setEditTotal] = useState(1);
+  const [editPrice, setEditPrice] = useState(0);
+  const [editFee, setEditFee] = useState(0);
   const [editNotes, setEditNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -77,6 +113,8 @@ export function OperatorManage() {
     setEditing(b);
     setEditSold(b.sold_shares);
     setEditTotal(b.total_shares);
+    setEditPrice(Number(b.price));
+    setEditFee(Number(b.service_fee));
     setEditNotes(b.notes ?? '');
   };
 
@@ -90,6 +128,8 @@ export function OperatorManage() {
     await supabase.from('boloes').update({
       sold_shares: sold,
       total_shares: Number(editTotal),
+      price: Number(editPrice),
+      service_fee: Number(editFee),
       status,
       notes: editNotes.trim() || null,
     }).eq('id', editing.id);
@@ -132,14 +172,22 @@ export function OperatorManage() {
 
   return (
     <div>
-      <PageHeader title="Gestão de Bolões" subtitle="Gerencie bolões vendidos e pendentes da sua filial" />
+      <PageHeader title="Gestão de Bolões" subtitle="Gerencie bolões, comissões e encalhes da sua filial" />
 
       {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
         <KpiCard icon={<ShoppingBag size={22} />} label="Total" bigValue={`R$ ${stats.totalValue.toFixed(2)}`} smallValue={`${stats.total} bolões`} color="brand" />
         <KpiCard icon={<CheckCircle2 size={22} />} label="Vendidos" bigValue={`R$ ${stats.soldValue.toFixed(2)}`} smallValue={`${stats.soldCount} bolões`} color="emerald" />
         <KpiCard icon={<Clock size={22} />} label="Parciais" bigValue={`R$ ${stats.partialValue.toFixed(2)}`} smallValue={`${stats.partialCount} bolões`} color="amber" />
         <KpiCard icon={<AlertTriangle size={22} />} label="Encalhados" bigValue={`R$ ${stats.unsoldValue.toFixed(2)}`} smallValue={`${stats.unsoldShares} cotas não vendidas`} color="red" />
+      </div>
+
+      {/* Commission breakdown */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <KpiCard icon={<DollarSign size={22} />} label="Valor dos Bolões" bigValue={`R$ ${stats.bolaoValue.toFixed(2)}`} smallValue="Soma dos preços" color="brand" />
+        <KpiCard icon={<Percent size={22} />} label="Comissão Total" bigValue={`R$ ${stats.commissionValue.toFixed(2)}`} smallValue="Taxa de serviço" color="accent" />
+        <KpiCard icon={<DollarSign size={22} />} label="Comissão Operador (30%)" bigValue={`R$ ${stats.operatorCommission.toFixed(2)}`} smallValue={`Vendida: R$ ${stats.soldOperatorCommission.toFixed(2)}`} color="emerald" />
+        <KpiCard icon={<TrendingDown size={22} />} label="Prejuízo (Encalhe)" bigValue={`R$ ${stats.encalheLoss.toFixed(2)}`} smallValue={`${stats.unsoldShares} cotas encalhadas`} color="red" />
       </div>
 
       {/* Filters */}
@@ -176,6 +224,7 @@ export function OperatorManage() {
             const pct = b.total_shares > 0 ? Math.round((b.sold_shares / b.total_shares) * 100) : 0;
             const nextQuota = b.sold_shares + 1;
             const shareValue = b.total_shares > 0 ? (Number(b.price) + Number(b.service_fee)) / b.total_shares : 0;
+            const operatorShare = (Number(b.service_fee) / b.total_shares) * 0.3;
             return (
               <Card key={b.id} className="p-4 hover:shadow-md transition-shadow">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -190,7 +239,9 @@ export function OperatorManage() {
                         <span>Concurso: {b.contest_number}</span>
                         <span>Dezenas: {b.dezenas}</span>
                         <span>Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')}</span>
-                        <span>Preço: R$ {Number(b.price).toFixed(2)}</span>
+                        <span>Bolão: R$ {Number(b.price).toFixed(2)}</span>
+                        <span>Comissão: R$ {Number(b.service_fee).toFixed(2)}</span>
+                        <span>Operador (30%): R$ {(Number(b.service_fee) * 0.3).toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
@@ -201,7 +252,7 @@ export function OperatorManage() {
                           <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : pct > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
                         </div>
                       </div>
-                      <p className="text-xs text-slate-500">{b.sold_shares}/{b.total_shares} cotas</p>
+                      <p className="text-xs text-slate-500">{b.sold_shares}/{b.total_shares} cotas · R$ {shareValue.toFixed(2)}/cota</p>
                     </div>
                     {b.sold_shares < b.total_shares && (
                       <Button size="sm" variant="accent" onClick={() => quickSellShare(b)}>
@@ -268,6 +319,17 @@ export function OperatorManage() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
+              <Input label="Preço do bolão (R$)" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} />
+              <Input label="Comissão / Taxa (R$)" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} />
+            </div>
+
+            <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-4 gap-y-1">
+              <span>Comissão total: <strong>R$ {Number(editFee).toFixed(2)}</strong></span>
+              <span>Loterica (70%): <strong>R$ {(Number(editFee) * 0.7).toFixed(2)}</strong></span>
+              <span>Operador (30%): <strong>R$ {(Number(editFee) * 0.3).toFixed(2)}</strong></span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
               <Input label="Cotas vendidas" type="number" value={editSold} onChange={(v) => setEditSold(Number(v))} min={0} />
               <Input label="Total de cotas" type="number" value={editTotal} onChange={(v) => setEditTotal(Number(v))} min={1} />
             </div>
@@ -303,6 +365,7 @@ function KpiCard({ icon, label, bigValue, smallValue, color }: { icon: React.Rea
     emerald: 'bg-emerald-50 text-emerald-600',
     red: 'bg-red-50 text-red-600',
     amber: 'bg-amber-50 text-amber-600',
+    accent: 'bg-accent-50 text-accent-600',
   };
   return (
     <Card className="p-5">
