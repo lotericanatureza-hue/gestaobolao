@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Package, Plus, Pencil, Trash2, Calendar, Hash, DollarSign } from 'lucide-react';
+import { Package, Plus, Pencil, Trash2, Calendar, Hash, DollarSign, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Modal, Badge, Spinner, EmptyState } from './ui';
@@ -7,7 +7,7 @@ import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Product } from '../lib/types';
 
 const emptyForm = {
-  name: '', slug: '', min_dezenas: 6, max_dezenas: 20, base_price: 0, service_fee: 0, draw_frequency: '', active: true,
+  name: '', slug: '', min_dezenas: 6, max_dezenas: 20, base_price: 0, service_fee: 0, draw_frequency: '', default_draw_time: '20:00', active: true,
 };
 
 export function AdminProducts() {
@@ -39,7 +39,8 @@ export function AdminProducts() {
     setEditing(p);
     setForm({
       name: p.name, slug: p.slug, min_dezenas: p.min_dezenas, max_dezenas: p.max_dezenas,
-      base_price: p.base_price, service_fee: p.service_fee, draw_frequency: p.draw_frequency ?? '', active: p.active,
+      base_price: p.base_price, service_fee: p.service_fee, draw_frequency: p.draw_frequency ?? '',
+      default_draw_time: p.default_draw_time?.slice(0, 5) ?? '20:00', active: p.active,
     });
     setError(null);
     setModalOpen(true);
@@ -48,6 +49,10 @@ export function AdminProducts() {
   const save = async () => {
     if (!form.name.trim() || !form.slug.trim()) {
       setError('Nome e slug são obrigatórios.');
+      return;
+    }
+    if (!form.default_draw_time) {
+      setError('Informe o horário padrão do sorteio.');
       return;
     }
     setSaving(true);
@@ -60,6 +65,7 @@ export function AdminProducts() {
       base_price: Number(form.base_price),
       service_fee: Number(form.service_fee),
       draw_frequency: form.draw_frequency.trim() || null,
+      default_draw_time: `${form.default_draw_time}:00`,
       active: form.active,
     };
     if (editing) {
@@ -117,6 +123,7 @@ export function AdminProducts() {
                 <div className="flex items-center gap-2"><DollarSign size={14} /> Preço base: R$ {Number(p.base_price).toFixed(2)}</div>
                 <div className="flex items-center gap-2"><DollarSign size={14} /> Taxa de serviço: R$ {Number(p.service_fee).toFixed(2)}</div>
                 {p.draw_frequency && <div className="flex items-center gap-2"><Calendar size={14} /> Sorteio: {p.draw_frequency}</div>}
+                <div className="flex items-center gap-2"><Clock size={14} /> Horário padrão: {p.default_draw_time?.slice(0, 5) ?? '—'}</div>
               </div>
               <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
                 <Button size="sm" variant="secondary" onClick={() => openEdit(p)}><Pencil size={14} /> Editar</Button>
@@ -141,7 +148,16 @@ export function AdminProducts() {
             <Input label="Preço base (R$)" type="number" value={form.base_price} onChange={(v) => setForm({ ...form, base_price: Number(v) })} step="0.01" min={0} />
             <Input label="Taxa de serviço (R$)" type="number" value={form.service_fee} onChange={(v) => setForm({ ...form, service_fee: Number(v) })} step="0.01" min={0} />
           </div>
-          <Input label="Frequência do sorteio" value={form.draw_frequency} onChange={(v) => setForm({ ...form, draw_frequency: v })} placeholder="Ex: quarta/sábado" />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Frequência do sorteio" value={form.draw_frequency} onChange={(v) => setForm({ ...form, draw_frequency: v })} placeholder="Ex: quarta/sábado" />
+            <Input
+              label="Horário padrão do sorteio *"
+              type="time"
+              value={form.default_draw_time}
+              onChange={(v) => setForm({ ...form, default_draw_time: v })}
+              required
+            />
+          </div>
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500" />
             <span className="text-sm text-slate-700">Produto ativo</span>
