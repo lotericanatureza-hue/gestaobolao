@@ -1,93 +1,96 @@
 import { useEffect, useState, useCallback } from 'react';
-import { TrendingUp, Package, Store, AlertTriangle, CheckCircle2, Clock, DollarSign, ShoppingBag, Percent, TrendingDown } from 'lucide-react';
+import { Store, AlertTriangle, ShoppingBag, DollarSign, Percent, TrendingDown, Calendar, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import type { Bolao, Branch } from '../lib/types';
+import type { Bolao, Branch, Profile } from '../lib/types';
 
-interface DashboardStats {
-  totalBoloes: number;
-  totalValue: number;
+const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+interface Kpis {
   bolaoValue: number;
   commissionValue: number;
-  operatorCommission: number;
   lotericaCommission: number;
-  soldCount: number;
-  soldValue: number;
+  operatorCommission: number;
+  soldTotal: number;
   soldCommission: number;
-  soldOperatorCommission: number;
-  partialCount: number;
-  partialValue: number;
-  unsoldShares: number;
-  unsoldValue: number;
-  unsoldBolaoValue: number;
-  unsoldCommission: number;
-  encalheLoss: number;
-  totalBranches: number;
-  totalProducts: number;
+  encalheValue: number;
+  encalheShares: number;
+  bolaoCount: number;
+  soldCount: number;
 }
 
-function computeStats(boloes: Bolao[]): DashboardStats {
-  const shareVal = (b: Bolao) => b.total_shares > 0
-    ? (Number(b.price) + Number(b.service_fee)) / b.total_shares
-    : 0;
-  const sharePrice = (b: Bolao) => b.total_shares > 0 ? Number(b.price) / b.total_shares : 0;
+function computeKpis(boloes: Bolao[]): Kpis {
+  const shareVal = (b: Bolao) => b.total_shares > 0 ? (Number(b.price) + Number(b.service_fee)) / b.total_shares : 0;
   const shareFee = (b: Bolao) => b.total_shares > 0 ? Number(b.service_fee) / b.total_shares : 0;
 
   const bolaoValue = boloes.reduce((s, b) => s + Number(b.price), 0);
   const commissionValue = boloes.reduce((s, b) => s + Number(b.service_fee), 0);
 
-  const soldBoloes = boloes.filter((b) => b.status === 'sold');
-  const partialBoloes = boloes.filter((b) => b.status === 'partial');
-
-  const soldValue = boloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0);
+  const soldTotal = boloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0);
   const soldCommission = boloes.reduce((s, b) => s + shareFee(b) * b.sold_shares, 0);
 
   const unsoldShares = boloes.reduce((s, b) => s + (b.total_shares - b.sold_shares), 0);
-  const unsoldValue = boloes.reduce((s, b) => s + shareVal(b) * (b.total_shares - b.sold_shares), 0);
-  const unsoldBolaoValue = boloes.reduce((s, b) => s + sharePrice(b) * (b.total_shares - b.sold_shares), 0);
-  const unsoldCommission = boloes.reduce((s, b) => s + shareFee(b) * (b.total_shares - b.sold_shares), 0);
+  const encalheValue = boloes.reduce((s, b) => s + shareVal(b) * (b.total_shares - b.sold_shares), 0);
 
   return {
-    totalBoloes: boloes.length,
-    totalValue: bolaoValue + commissionValue,
     bolaoValue,
     commissionValue,
-    operatorCommission: commissionValue * 0.3,
     lotericaCommission: commissionValue * 0.7,
-    soldCount: soldBoloes.length,
-    soldValue,
+    operatorCommission: commissionValue * 0.3,
+    soldTotal,
     soldCommission,
-    soldOperatorCommission: soldCommission * 0.3,
-    partialCount: partialBoloes.length,
-    partialValue: partialBoloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0),
-    unsoldShares,
-    unsoldValue,
-    unsoldBolaoValue,
-    unsoldCommission,
-    encalheLoss: unsoldBolaoValue,
-    totalBranches: 0,
-    totalProducts: 0,
+    encalheValue,
+    encalheShares: unsoldShares,
+    bolaoCount: boloes.length,
+    soldCount: boloes.filter((b) => b.status === 'sold').length,
   };
+}
+
+interface MonthGroup {
+  key: string;
+  label: string;
+  boloes: Bolao[];
+  kpis: Kpis;
+}
+
+function groupByMonth(boloes: Bolao[]): MonthGroup[] {
+  const map = new Map<string, MonthGroup>();
+  for (const b of boloes) {
+    const d = new Date(b.created_at);
+    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
+    if (!map.has(key)) {
+      map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeKpis([]) });
+    }
+    map.get(key)!.boloes.push(b);
+  }
+  const groups = Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
+  for (const g of groups) g.kpis = computeKpis(g.boloes);
+  return groups;
+}
+
+interface OperatorStats {
+  operator: Profile;
+  kpis: Kpis;
 }
 
 export function AdminDashboard() {
   const [allBoloes, setAllBoloes] = useState<Bolao[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [productCount, setProductCount] = useState(0);
+  const [operators, setOperators] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
 
   const fetchData = useCallback(async () => {
-    const [{ data: boloes }, { data: branchList }, { count }] = await Promise.all([
+    const [{ data: boloes }, { data: branchList }, { data: opList }] = await Promise.all([
       supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false }),
       supabase.from('branches').select('*').order('name'),
-      supabase.from('products').select('*', { count: 'exact', head: true }),
+      supabase.from('profiles').select('*').eq('role', 'operator').order('name'),
     ]);
     setAllBoloes((boloes ?? []) as Bolao[]);
     setBranches((branchList ?? []) as Branch[]);
-    setProductCount(count ?? 0);
+    setOperators((opList ?? []) as Profile[]);
     setLoading(false);
   }, []);
 
@@ -106,10 +109,6 @@ export function AdminDashboard() {
     ? allBoloes
     : allBoloes.filter((b) => b.branch_id === selectedBranchId);
 
-  const stats = computeStats(filteredBoloes);
-  stats.totalBranches = branches.length;
-  stats.totalProducts = productCount;
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -118,15 +117,21 @@ export function AdminDashboard() {
     );
   }
 
-  const statusBadge = (status: string) => {
-    if (status === 'sold') return <Badge color="green">Vendido</Badge>;
-    if (status === 'partial') return <Badge color="amber">Parcial</Badge>;
-    return <Badge color="red">Encalhado</Badge>;
-  };
+  const allKpis = computeKpis(filteredBoloes);
+  const monthGroups = groupByMonth(filteredBoloes);
+
+  // Per-operator stats
+  const operatorStats: OperatorStats[] = operators
+    .map((op) => {
+      const opBoloes = filteredBoloes.filter((b) => b.operator_id === op.id);
+      return { operator: op, kpis: computeKpis(opBoloes) };
+    })
+    .filter((s) => s.kpis.bolaoCount > 0)
+    .sort((a, b) => b.kpis.soldTotal - a.kpis.soldTotal);
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Visão geral de bolões, comissões e encalhes" />
+      <PageHeader title="Dashboard" subtitle="Visão consolidada de bolões, comissões e encalhes" />
 
       {/* Branch filter */}
       <div className="flex flex-wrap gap-2 mb-6">
@@ -155,131 +160,159 @@ export function AdminDashboard() {
         ))}
       </div>
 
-      {/* Main KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <KpiCard icon={<Package size={22} />} label="Total de Bolões" bigValue={`R$ ${stats.totalValue.toFixed(2)}`} smallValue={`${stats.totalBoloes} bolões`} color="brand" />
-        <KpiCard icon={<ShoppingBag size={22} />} label="Vendidos" bigValue={`R$ ${stats.soldValue.toFixed(2)}`} smallValue={`${stats.soldCount} bolões`} color="emerald" />
-        <KpiCard icon={<TrendingUp size={22} />} label="Parciais" bigValue={`R$ ${stats.partialValue.toFixed(2)}`} smallValue={`${stats.partialCount} bolões`} color="amber" />
-        <KpiCard icon={<AlertTriangle size={22} />} label="Encalhados" bigValue={`R$ ${stats.unsoldValue.toFixed(2)}`} smallValue={`${stats.unsoldShares} cotas não vendidas`} color="red" />
+      {/* General KPIs */}
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <KpiCard icon={<ShoppingBag size={22} />} label="Valor do Bolão" bigValue={`R$ ${allKpis.bolaoValue.toFixed(2)}`} smallValue={`${allKpis.bolaoCount} bolões`} color="brand" />
+
+        <KpiCard
+          icon={<Percent size={22} />}
+          label="Valor da Comissão"
+          bigValue={`R$ ${allKpis.commissionValue.toFixed(2)}`}
+          color="accent"
+          lines={[
+            { label: 'Casa (70%)', value: `R$ ${allKpis.lotericaCommission.toFixed(2)}` },
+            { label: 'Operador (30%)', value: `R$ ${allKpis.operatorCommission.toFixed(2)}` },
+          ]}
+        />
+
+        <KpiCard
+          icon={<DollarSign size={22} />}
+          label="Valor Vendido"
+          bigValue={`R$ ${allKpis.soldTotal.toFixed(2)}`}
+          color="emerald"
+          lines={[
+            { label: 'Bolão + Comissão', value: `R$ ${allKpis.soldTotal.toFixed(2)}` },
+            { label: 'Só Comissões', value: `R$ ${allKpis.soldCommission.toFixed(2)}` },
+          ]}
+        />
+
+        <KpiCard
+          icon={<TrendingDown size={22} />}
+          label="Valor do Encalhe"
+          bigValue={`R$ ${allKpis.encalheValue.toFixed(2)}`}
+          smallValue={`${allKpis.encalheShares} cotas não vendidas`}
+          color="red"
+        />
       </div>
 
-      {/* Commission breakdown */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-        <KpiCard icon={<DollarSign size={22} />} label="Valor dos Bolões" bigValue={`R$ ${stats.bolaoValue.toFixed(2)}`} smallValue="Soma dos preços" color="brand" />
-        <KpiCard icon={<Percent size={22} />} label="Comissão Total" bigValue={`R$ ${stats.commissionValue.toFixed(2)}`} smallValue="Taxa de serviço" color="accent" />
-        <KpiCard icon={<DollarSign size={22} />} label="Comissão Operador (30%)" bigValue={`R$ ${stats.operatorCommission.toFixed(2)}`} smallValue={`Vendida: R$ ${stats.soldOperatorCommission.toFixed(2)}`} color="emerald" />
-        <KpiCard icon={<TrendingDown size={22} />} label="Prejuízo (Encalhe)" bigValue={`R$ ${stats.encalheLoss.toFixed(2)}`} smallValue={`${stats.unsoldShares} cotas encalhadas`} color="red" />
-      </div>
+      {/* Monthly breakdown */}
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Calendar size={16} /> Por Mês
+      </h2>
 
-      {/* Secondary stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <MiniKpi icon={<Store size={20} />} label="Filiais" value={stats.totalBranches} />
-        <MiniKpi icon={<Package size={20} />} label="Produtos" value={stats.totalProducts} />
-        <MiniKpi icon={<DollarSign size={20} />} label="Receita Realizada" value={`R$ ${stats.soldValue.toFixed(2)}`} />
-      </div>
-
-      {/* Recent bolões */}
-      <Card className="mb-6">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-brand-950">Bolões Recentes</h2>
+      {monthGroups.length === 0 ? (
+        <Card className="mb-8">
+          <EmptyState icon={<ShoppingBag size={48} />} title="Nenhum bolão criado" description="Os bolões criados pelos operadores aparecerão aqui." />
+        </Card>
+      ) : (
+        <div className="space-y-6 mb-8">
+          {monthGroups.map((group) => (
+            <Card key={group.key} className="overflow-hidden">
+              <div className="px-5 py-3 bg-brand-50 border-b border-brand-100">
+                <h3 className="font-semibold text-brand-900">{group.label}</h3>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
+                <KpiCard icon={<ShoppingBag size={20} />} label="Valor do Bolão" bigValue={`R$ ${group.kpis.bolaoValue.toFixed(2)}`} smallValue={`${group.kpis.bolaoCount} bolões`} color="brand" />
+                <KpiCard
+                  icon={<Percent size={20} />}
+                  label="Valor da Comissão"
+                  bigValue={`R$ ${group.kpis.commissionValue.toFixed(2)}`}
+                  color="accent"
+                  lines={[
+                    { label: 'Casa (70%)', value: `R$ ${group.kpis.lotericaCommission.toFixed(2)}` },
+                    { label: 'Operador (30%)', value: `R$ ${group.kpis.operatorCommission.toFixed(2)}` },
+                  ]}
+                />
+                <KpiCard
+                  icon={<DollarSign size={20} />}
+                  label="Valor Vendido"
+                  bigValue={`R$ ${group.kpis.soldTotal.toFixed(2)}`}
+                  color="emerald"
+                  lines={[
+                    { label: 'Bolão + Comissão', value: `R$ ${group.kpis.soldTotal.toFixed(2)}` },
+                    { label: 'Só Comissões', value: `R$ ${group.kpis.soldCommission.toFixed(2)}` },
+                  ]}
+                />
+                <KpiCard icon={<TrendingDown size={20} />} label="Valor do Encalhe" bigValue={`R$ ${group.kpis.encalheValue.toFixed(2)}`} smallValue={`${group.kpis.encalheShares} cotas`} color="red" />
+              </div>
+            </Card>
+          ))}
         </div>
-        {filteredBoloes.length === 0 ? (
-          <EmptyState icon={<Package size={48} />} title="Nenhum bolão criado" description="Os bolões criados pelos operadores aparecerão aqui." />
-        ) : (
+      )}
+
+      {/* Per-operator breakdown */}
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Users size={16} /> Por Operador
+      </h2>
+
+      {operatorStats.length === 0 ? (
+        <Card>
+          <EmptyState icon={<Users size={48} />} title="Nenhum operador com bolões" description="Quando operadores criarem bolões, o desempenho de cada um aparecerá aqui." />
+        </Card>
+      ) : (
+        <Card className="overflow-hidden mb-8">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-100">
-                  <th className="px-5 py-3 font-medium">Produto</th>
+                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                  <th className="px-5 py-3 font-medium">Operador</th>
                   <th className="px-5 py-3 font-medium">Filial</th>
-                  <th className="px-5 py-3 font-medium">Concurso</th>
-                  <th className="px-5 py-3 font-medium">Cotas</th>
-                  <th className="px-5 py-3 font-medium">Bolão</th>
-                  <th className="px-5 py-3 font-medium">Comissão</th>
-                  <th className="px-5 py-3 font-medium">Operador (30%)</th>
-                  <th className="px-5 py-3 font-medium">Status</th>
+                  <th className="px-5 py-3 font-medium text-right">Bolões</th>
+                  <th className="px-5 py-3 font-medium text-right">Valor Bolão</th>
+                  <th className="px-5 py-3 font-medium text-right">Comissão Total</th>
+                  <th className="px-5 py-3 font-medium text-right">Operador (30%)</th>
+                  <th className="px-5 py-3 font-medium text-right">Vendido</th>
+                  <th className="px-5 py-3 font-medium text-right">Encalhe</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredBoloes.slice(0, 10).map((b) => (
-                  <tr key={b.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        <LotteryIcon slug={b.product?.slug ?? ''} size={20} />
-                        <span className="font-medium text-slate-900">{b.product?.name ?? '—'}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">{selectedBranchId === 'all' ? (b.branch?.name ?? '—') : (b.branch?.name ?? '—')}</td>
-                    <td className="px-5 py-3 text-slate-600">{b.contest_number}</td>
-                    <td className="px-5 py-3 text-slate-600">{b.sold_shares}/{b.total_shares}</td>
-                    <td className="px-5 py-3 text-slate-600">R$ {Number(b.price).toFixed(2)}</td>
-                    <td className="px-5 py-3 text-slate-600">R$ {Number(b.service_fee).toFixed(2)}</td>
-                    <td className="px-5 py-3 text-slate-600">R$ {(Number(b.service_fee) * 0.3).toFixed(2)}</td>
-                    <td className="px-5 py-3">{statusBadge(b.status)}</td>
-                  </tr>
-                ))}
+                {operatorStats.map(({ operator: op, kpis: k }) => {
+                  const branchName = branches.find((br) => br.id === op.branch_id)?.name ?? '—';
+                  return (
+                    <tr key={op.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold">
+                            {op.name.charAt(0).toUpperCase()}
+                          </div>
+                          <span className="font-medium text-slate-900">{op.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-slate-600">{branchName}</td>
+                      <td className="px-5 py-3 text-right text-slate-600">{k.bolaoCount}</td>
+                      <td className="px-5 py-3 text-right text-slate-600">R$ {k.bolaoValue.toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right text-slate-600">R$ {k.commissionValue.toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {k.operatorCommission.toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.soldTotal.toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalheValue.toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
-        )}
-      </Card>
-
-      {/* Branches overview */}
-      {selectedBranchId === 'all' && (
-        <Card>
-          <div className="px-5 py-4 border-b border-slate-100">
-            <h2 className="font-semibold text-brand-950">Visão por Filial</h2>
-          </div>
-          {branches.length === 0 ? (
-            <EmptyState icon={<Store size={48} />} title="Nenhuma filial cadastrada" description="Cadastre filiais para começar a operar." />
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-5">
-              {branches.map((br) => {
-                const branchBoloes = allBoloes.filter((b) => b.branch_id === br.id);
-                const brStats = computeStats(branchBoloes);
-                return (
-                  <div key={br.id} className="border border-slate-200 rounded-lg p-4 hover:border-brand-300 transition-colors">
-                    <div className="flex items-center justify-between mb-3">
-                      <div>
-                        <p className="font-semibold text-brand-950">{br.name}</p>
-                        <p className="text-xs text-slate-400">{br.code} · {br.city}/{br.state}</p>
-                      </div>
-                      <Badge color={br.active ? 'green' : 'slate'}>{br.active ? 'Ativa' : 'Inativa'}</Badge>
-                    </div>
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1 text-slate-500"><CheckCircle2 size={14} className="text-emerald-500" /> Vendidos</span>
-                        <span className="font-semibold text-slate-700">{brStats.soldCount} · R$ {brStats.soldValue.toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1 text-slate-500"><Clock size={14} className="text-amber-500" /> Parciais</span>
-                        <span className="font-semibold text-slate-700">{brStats.partialCount} · R$ {brStats.partialValue.toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1 text-slate-500"><AlertTriangle size={14} className="text-red-500" /> Encalhados</span>
-                        <span className="font-semibold text-slate-700">{brStats.unsoldShares} cotas · R$ {brStats.unsoldValue.toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-                        <span className="flex items-center gap-1 text-slate-500"><Percent size={14} className="text-accent-500" /> Comissão Operador</span>
-                        <span className="font-semibold text-brand-700">R$ {brStats.operatorCommission.toFixed(2)}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="flex items-center gap-1 text-slate-500"><TrendingDown size={14} className="text-red-500" /> Prejuízo</span>
-                        <span className="font-semibold text-red-600">R$ {brStats.encalheLoss.toFixed(2)}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
         </Card>
       )}
     </div>
   );
 }
 
-function KpiCard({ icon, label, bigValue, smallValue, color }: { icon: React.ReactNode; label: string; bigValue: string; smallValue: string; color: string }) {
+function KpiCard({
+  icon,
+  label,
+  bigValue,
+  smallValue,
+  lines,
+  color,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  bigValue: string;
+  smallValue?: string;
+  lines?: { label: string; value: string }[];
+  color: string;
+}) {
   const colors: Record<string, string> = {
     brand: 'bg-brand-50 text-brand-600',
     emerald: 'bg-emerald-50 text-emerald-600',
@@ -296,21 +329,17 @@ function KpiCard({ icon, label, bigValue, smallValue, color }: { icon: React.Rea
         <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">{label}</p>
       </div>
       <p className="text-2xl font-bold text-brand-950">{bigValue}</p>
-      <p className="text-sm text-slate-500 mt-1">{smallValue}</p>
-    </Card>
-  );
-}
-
-function MiniKpi({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
-  return (
-    <Card className="p-4">
-      <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">{icon}</div>
-        <div>
-          <p className="text-xs text-slate-400">{label}</p>
-          <p className="text-lg font-bold text-brand-950">{value}</p>
+      {smallValue && <p className="text-sm text-slate-500 mt-1">{smallValue}</p>}
+      {lines && (
+        <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
+          {lines.map((l, i) => (
+            <div key={i} className="flex items-center justify-between text-xs">
+              <span className="text-slate-500">{l.label}</span>
+              <span className="font-semibold text-slate-700">{l.value}</span>
+            </div>
+          ))}
         </div>
-      </div>
+      )}
     </Card>
   );
 }
