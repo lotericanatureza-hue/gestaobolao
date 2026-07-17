@@ -1,64 +1,22 @@
 import { useEffect, useState, useCallback } from 'react';
-import { CheckCircle2, Clock, AlertTriangle, Trash2, Pencil, ShoppingBag, Plus, Minus, DollarSign, Percent, TrendingDown, Calendar } from 'lucide-react';
+import { Trash2, Pencil, ShoppingBag, Plus, Minus, DollarSign, Percent, TrendingDown, Calendar, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
+import { computeBolaoKpis, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
 import type { Bolao, BolaoStatus } from '../lib/types';
 
 type FilterStatus = 'all' | BolaoStatus;
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
-interface MonthKpis {
-  bolaoValue: number;
-  commissionValue: number;
-  lotericaCommission: number;
-  operatorCommission: number;
-  soldTotal: number;
-  soldCommission: number;
-  encalheValue: number;
-  encalheShares: number;
-  bolaoCount: number;
-  soldCount: number;
-}
-
-function computeMonthKpis(boloes: Bolao[]): MonthKpis {
-  const shareVal = (b: Bolao) => b.total_shares > 0 ? (Number(b.price) + Number(b.service_fee)) / b.total_shares : 0;
-  const sharePrice = (b: Bolao) => b.total_shares > 0 ? Number(b.price) / b.total_shares : 0;
-  const shareFee = (b: Bolao) => b.total_shares > 0 ? Number(b.service_fee) / b.total_shares : 0;
-
-  const bolaoValue = boloes.reduce((s, b) => s + Number(b.price), 0);
-  const commissionValue = boloes.reduce((s, b) => s + Number(b.service_fee), 0);
-
-  const soldTotal = boloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0);
-  const soldCommission = boloes.reduce((s, b) => s + shareFee(b) * b.sold_shares, 0);
-
-  const unsoldShares = boloes.reduce((s, b) => s + (b.total_shares - b.sold_shares), 0);
-  const encalheValue = boloes.reduce((s, b) => s + shareVal(b) * (b.total_shares - b.sold_shares), 0);
-
-  const soldCount = boloes.filter((b) => b.status === 'sold').length;
-
-  return {
-    bolaoValue,
-    commissionValue,
-    lotericaCommission: commissionValue * 0.7,
-    operatorCommission: commissionValue * 0.3,
-    soldTotal,
-    soldCommission,
-    encalheValue,
-    encalheShares: unsoldShares,
-    bolaoCount: boloes.length,
-    soldCount,
-  };
-}
-
 interface MonthGroup {
   key: string;
   label: string;
   boloes: Bolao[];
-  kpis: MonthKpis;
+  kpis: BolaoKpis;
 }
 
 function groupByMonth(boloes: Bolao[]): MonthGroup[] {
@@ -67,12 +25,12 @@ function groupByMonth(boloes: Bolao[]): MonthGroup[] {
     const d = new Date(b.created_at);
     const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
     if (!map.has(key)) {
-      map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeMonthKpis([]) });
+      map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeBolaoKpis([]) });
     }
     map.get(key)!.boloes.push(b);
   }
   const groups = Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
-  for (const g of groups) g.kpis = computeMonthKpis(g.boloes);
+  for (const g of groups) g.kpis = computeBolaoKpis(g.boloes);
   return groups;
 }
 
@@ -87,6 +45,7 @@ export function OperatorManage() {
   const [editTotal, setEditTotal] = useState(1);
   const [editPrice, setEditPrice] = useState(0);
   const [editFee, setEditFee] = useState(0);
+  const [editDrawTime, setEditDrawTime] = useState('20:00');
   const [editNotes, setEditNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -119,6 +78,7 @@ export function OperatorManage() {
     setEditTotal(b.total_shares);
     setEditPrice(Number(b.price));
     setEditFee(Number(b.service_fee));
+    setEditDrawTime(b.draw_time?.slice(0, 5) ?? '20:00');
     setEditNotes(b.notes ?? '');
   };
 
@@ -126,14 +86,18 @@ export function OperatorManage() {
     if (!editing) return;
     setSaving(true);
     const sold = Math.min(Number(editSold), Number(editTotal));
-    let status: BolaoStatus = 'pending';
+    // Não sobrescrevemos 'encalhado' aqui manualmente — quem decide isso é o
+    // banco (draw_datetime + pg_cron). Só ajustamos o progresso de venda.
+    let status: BolaoStatus = editing.status === 'encalhado' ? 'encalhado' : 'pending';
     if (sold >= Number(editTotal)) status = 'sold';
-    else if (sold > 0) status = 'partial';
+    else if (sold > 0 && editing.status !== 'encalhado') status = 'partial';
+
     await supabase.from('boloes').update({
       sold_shares: sold,
       total_shares: Number(editTotal),
       price: Number(editPrice),
       service_fee: Number(editFee),
+      draw_time: `${editDrawTime}:00`,
       status,
       notes: editNotes.trim() || null,
     }).eq('id', editing.id);
@@ -166,56 +130,48 @@ export function OperatorManage() {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
 
-  const statusBadge = (status: string) => {
-    if (status === 'sold') return <Badge color="green">Vendido</Badge>;
-    if (status === 'partial') return <Badge color="amber">Parcial</Badge>;
-    return <Badge color="red">Encalhado</Badge>;
-  };
-
   const monthGroups = groupByMonth(boloes);
-  const allKpis = computeMonthKpis(boloes);
+  const kpis = computeBolaoKpis(boloes);
 
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="Gestão de bolões, comissões e encalhes da sua filial" />
 
-      {/* General KPIs */}
+      {/* General KPIs — Gerado / Vendido / Encalhado, mesma base de valor (bolão + comissão) */}
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {/* Valor do Bolão */}
-        <KpiCard icon={<ShoppingBag size={22} />} label="Valor do Bolão" bigValue={`R$ ${allKpis.bolaoValue.toFixed(2)}`} smallValue={`${allKpis.bolaoCount} bolões`} color="brand" />
-
-        {/* Valor da Comissão */}
         <KpiCard
-          icon={<Percent size={22} />}
-          label="Valor da Comissão"
-          bigValue={`R$ ${allKpis.commissionValue.toFixed(2)}`}
-          color="accent"
-          lines={[
-            { label: 'Casa (70%)', value: `R$ ${allKpis.lotericaCommission.toFixed(2)}` },
-            { label: 'Operador (30%)', value: `R$ ${allKpis.operatorCommission.toFixed(2)}` },
-          ]}
+          icon={<ShoppingBag size={22} />}
+          label="Gerado"
+          bigValue={`R$ ${kpis.gerado.value.toFixed(2)}`}
+          smallValue={`${kpis.gerado.count} bolões`}
+          color="brand"
+          lines={[{ label: 'Comissão total', value: `R$ ${kpis.gerado.commission.toFixed(2)}` }]}
         />
-
-        {/* Valor Vendido */}
         <KpiCard
           icon={<DollarSign size={22} />}
-          label="Valor Vendido"
-          bigValue={`R$ ${allKpis.soldTotal.toFixed(2)}`}
+          label="Vendido"
+          bigValue={`R$ ${kpis.vendido.value.toFixed(2)}`}
+          smallValue={`${kpis.vendido.count} bolões 100% vendidos`}
           color="emerald"
           lines={[
-            { label: 'Bolão + Comissão', value: `R$ ${allKpis.soldTotal.toFixed(2)}` },
-            { label: 'Só Comissões', value: `R$ ${allKpis.soldCommission.toFixed(2)}` },
+            { label: 'Casa (70%)', value: `R$ ${kpis.vendido.lotericaCommission.toFixed(2)}` },
+            { label: 'Operador (30%)', value: `R$ ${kpis.vendido.operatorCommission.toFixed(2)}` },
           ]}
         />
-
-        {/* Valor do Encalhe */}
         <KpiCard
           icon={<TrendingDown size={22} />}
-          label="Valor do Encalhe"
-          bigValue={`R$ ${allKpis.encalheValue.toFixed(2)}`}
-          smallValue={`${allKpis.encalheShares} cotas não vendidas`}
+          label="Encalhado"
+          bigValue={`R$ ${kpis.encalhado.value.toFixed(2)}`}
+          smallValue={`${kpis.encalhado.count} bolões após o sorteio`}
           color="red"
+        />
+        <KpiCard
+          icon={<Clock size={22} />}
+          label="Em Aberto"
+          bigValue={`R$ ${kpis.emAberto.value.toFixed(2)}`}
+          smallValue={`${kpis.emAberto.count} aguardando sorteio`}
+          color="accent"
         />
       </div>
 
@@ -226,11 +182,7 @@ export function OperatorManage() {
 
       {monthGroups.length === 0 ? (
         <Card>
-          <EmptyState
-            icon={<ShoppingBag size={48} />}
-            title="Nenhum bolão criado"
-            description="Crie bolões na aba 'Criar Bolão' para começar."
-          />
+          <EmptyState icon={<ShoppingBag size={48} />} title="Nenhum bolão criado" description="Crie bolões na aba 'Criar Bolão' para começar." />
         </Card>
       ) : (
         <div className="space-y-6 mb-8">
@@ -240,28 +192,10 @@ export function OperatorManage() {
                 <h3 className="font-semibold text-brand-900">{group.label}</h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
-                <KpiCard icon={<ShoppingBag size={20} />} label="Valor do Bolão" bigValue={`R$ ${group.kpis.bolaoValue.toFixed(2)}`} smallValue={`${group.kpis.bolaoCount} bolões`} color="brand" />
-                <KpiCard
-                  icon={<Percent size={20} />}
-                  label="Valor da Comissão"
-                  bigValue={`R$ ${group.kpis.commissionValue.toFixed(2)}`}
-                  color="accent"
-                  lines={[
-                    { label: 'Casa (70%)', value: `R$ ${group.kpis.lotericaCommission.toFixed(2)}` },
-                    { label: 'Operador (30%)', value: `R$ ${group.kpis.operatorCommission.toFixed(2)}` },
-                  ]}
-                />
-                <KpiCard
-                  icon={<DollarSign size={20} />}
-                  label="Valor Vendido"
-                  bigValue={`R$ ${group.kpis.soldTotal.toFixed(2)}`}
-                  color="emerald"
-                  lines={[
-                    { label: 'Bolão + Comissão', value: `R$ ${group.kpis.soldTotal.toFixed(2)}` },
-                    { label: 'Só Comissões', value: `R$ ${group.kpis.soldCommission.toFixed(2)}` },
-                  ]}
-                />
-                <KpiCard icon={<TrendingDown size={20} />} label="Valor do Encalhe" bigValue={`R$ ${group.kpis.encalheValue.toFixed(2)}`} smallValue={`${group.kpis.encalheShares} cotas`} color="red" />
+                <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${group.kpis.gerado.value.toFixed(2)}`} smallValue={`${group.kpis.gerado.count} bolões`} color="brand" />
+                <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${group.kpis.vendido.value.toFixed(2)}`} smallValue={`${group.kpis.vendido.count} bolões`} color="emerald" />
+                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${group.kpis.encalhado.value.toFixed(2)}`} smallValue={`${group.kpis.encalhado.count} bolões`} color="red" />
+                <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${group.kpis.emAberto.value.toFixed(2)}`} smallValue={`${group.kpis.emAberto.count} bolões`} color="accent" />
               </div>
             </Card>
           ))}
@@ -280,9 +214,10 @@ export function OperatorManage() {
             onChange={(v) => setFilter(v as FilterStatus)}
             options={[
               { value: 'all', label: 'Todos' },
-              { value: 'pending', label: 'Encalhados' },
+              { value: 'pending', label: 'Aguardando venda' },
               { value: 'partial', label: 'Parciais' },
               { value: 'sold', label: 'Vendidos' },
+              { value: 'encalhado', label: 'Encalhados' },
             ]}
           />
         </div>
@@ -292,8 +227,8 @@ export function OperatorManage() {
         <Card>
           <EmptyState
             icon={<ShoppingBag size={48} />}
-            title={boloes.length === 0 ? "Nenhum bolão criado" : "Nenhum bolão encontrado"}
-            description={boloes.length === 0 ? "Crie bolões na aba 'Criar Bolão' para começar." : "Tente outro filtro ou busca."}
+            title={boloes.length === 0 ? 'Nenhum bolão criado' : 'Nenhum bolão encontrado'}
+            description={boloes.length === 0 ? "Crie bolões na aba 'Criar Bolão' para começar." : 'Tente outro filtro ou busca.'}
           />
         </Card>
       ) : (
@@ -302,6 +237,7 @@ export function OperatorManage() {
             const pct = b.total_shares > 0 ? Math.round((b.sold_shares / b.total_shares) * 100) : 0;
             const nextQuota = b.sold_shares + 1;
             const shareValue = b.total_shares > 0 ? (Number(b.price) + Number(b.service_fee)) / b.total_shares : 0;
+            const statusInfo = STATUS_LABELS[b.status];
             return (
               <Card key={b.id} className="p-4 hover:shadow-md transition-shadow">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -310,12 +246,12 @@ export function OperatorManage() {
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-brand-950">{b.product?.name ?? '—'}</h3>
-                        {statusBadge(b.status)}
+                        <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-400 mt-1">
                         <span>Concurso: {b.contest_number}</span>
                         <span>Dezenas: {b.dezenas}</span>
-                        <span>Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')}</span>
+                        <span>Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
                         <span>Bolão: R$ {Number(b.price).toFixed(2)}</span>
                         <span>Comissão: R$ {Number(b.service_fee).toFixed(2)}</span>
                       </div>
@@ -330,7 +266,7 @@ export function OperatorManage() {
                       </div>
                       <p className="text-xs text-slate-500">{b.sold_shares}/{b.total_shares} cotas · R$ {shareValue.toFixed(2)}/cota</p>
                     </div>
-                    {b.sold_shares < b.total_shares && (
+                    {b.sold_shares < b.total_shares && b.status !== 'encalhado' && (
                       <Button size="sm" variant="accent" onClick={() => quickSellShare(b)}>
                         <Plus size={14} /> Cota {nextQuota}
                       </Button>
@@ -359,6 +295,12 @@ export function OperatorManage() {
               </div>
             </div>
 
+            {editing.status === 'encalhado' && (
+              <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-xs text-red-700">
+                Este bolão já passou da data/hora do sorteio e está marcado como encalhado. As cotas restantes não podem mais ser vendidas.
+              </div>
+            )}
+
             <div className="bg-brand-50 rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-medium text-brand-900">Baixa de Cota Vendida</span>
@@ -380,23 +322,20 @@ export function OperatorManage() {
                 <button
                   type="button"
                   onClick={() => setEditSold(Math.min(editTotal, editSold + 1))}
-                  disabled={editSold >= editTotal}
+                  disabled={editSold >= editTotal || editing.status === 'encalhado'}
                   className="w-10 h-10 rounded-lg bg-accent-500 text-white flex items-center justify-center hover:bg-accent-600 disabled:opacity-40 transition-all"
                 >
                   <Plus size={18} />
                 </button>
               </div>
-              {editSold < editTotal && (
-                <p className="text-center text-xs text-slate-500 mt-3">
-                  Ao confirmar, a cota <span className="font-semibold text-accent-600">#{editSold + 1}</span> será a próxima a ser vendida.
-                </p>
-              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <Input label="Preço do bolão (R$)" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} />
               <Input label="Comissão / Taxa (R$)" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} />
             </div>
+
+            <Input label="Horário do sorteio" type="time" value={editDrawTime} onChange={setEditDrawTime} />
 
             <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-4 gap-y-1">
               <span>Comissão total: <strong>R$ {Number(editFee).toFixed(2)}</strong></span>
