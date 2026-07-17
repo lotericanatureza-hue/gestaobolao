@@ -1,58 +1,18 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Store, AlertTriangle, ShoppingBag, DollarSign, Percent, TrendingDown, Calendar, Users } from 'lucide-react';
+import { Store, ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
-import { Card, Badge, Spinner, EmptyState } from './ui';
-import { LotteryIcon } from '../lib/lotteryIcons';
+import { Card, Spinner, EmptyState } from './ui';
 import type { Bolao, Branch, Profile } from '../lib/types';
+import { computeBolaoKpis, type BolaoKpis } from '../lib/bolaoKpis';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-
-interface Kpis {
-  bolaoValue: number;
-  commissionValue: number;
-  lotericaCommission: number;
-  operatorCommission: number;
-  soldTotal: number;
-  soldCommission: number;
-  encalheValue: number;
-  encalheShares: number;
-  bolaoCount: number;
-  soldCount: number;
-}
-
-function computeKpis(boloes: Bolao[]): Kpis {
-  const shareVal = (b: Bolao) => b.total_shares > 0 ? (Number(b.price) + Number(b.service_fee)) / b.total_shares : 0;
-  const shareFee = (b: Bolao) => b.total_shares > 0 ? Number(b.service_fee) / b.total_shares : 0;
-
-  const bolaoValue = boloes.reduce((s, b) => s + Number(b.price), 0);
-  const commissionValue = boloes.reduce((s, b) => s + Number(b.service_fee), 0);
-
-  const soldTotal = boloes.reduce((s, b) => s + shareVal(b) * b.sold_shares, 0);
-  const soldCommission = boloes.reduce((s, b) => s + shareFee(b) * b.sold_shares, 0);
-
-  const unsoldShares = boloes.reduce((s, b) => s + (b.total_shares - b.sold_shares), 0);
-  const encalheValue = boloes.reduce((s, b) => s + shareVal(b) * (b.total_shares - b.sold_shares), 0);
-
-  return {
-    bolaoValue,
-    commissionValue,
-    lotericaCommission: commissionValue * 0.7,
-    operatorCommission: commissionValue * 0.3,
-    soldTotal,
-    soldCommission,
-    encalheValue,
-    encalheShares: unsoldShares,
-    bolaoCount: boloes.length,
-    soldCount: boloes.filter((b) => b.status === 'sold').length,
-  };
-}
 
 interface MonthGroup {
   key: string;
   label: string;
   boloes: Bolao[];
-  kpis: Kpis;
+  kpis: BolaoKpis;
 }
 
 function groupByMonth(boloes: Bolao[]): MonthGroup[] {
@@ -61,18 +21,23 @@ function groupByMonth(boloes: Bolao[]): MonthGroup[] {
     const d = new Date(b.created_at);
     const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
     if (!map.has(key)) {
-      map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeKpis([]) });
+      map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeBolaoKpis([]) });
     }
     map.get(key)!.boloes.push(b);
   }
   const groups = Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
-  for (const g of groups) g.kpis = computeKpis(g.boloes);
+  for (const g of groups) g.kpis = computeBolaoKpis(g.boloes);
   return groups;
 }
 
 interface OperatorStats {
   operator: Profile;
-  kpis: Kpis;
+  kpis: BolaoKpis;
+}
+
+interface BranchStats {
+  branch: Branch;
+  kpis: BolaoKpis;
 }
 
 export function AdminDashboard() {
@@ -117,17 +82,19 @@ export function AdminDashboard() {
     );
   }
 
-  const allKpis = computeKpis(filteredBoloes);
+  const kpis = computeBolaoKpis(filteredBoloes);
   const monthGroups = groupByMonth(filteredBoloes);
 
-  // Per-operator stats
+  // Consolidado por filial (sempre visível, independente do filtro acima)
+  const branchStats: BranchStats[] = branches
+    .map((br) => ({ branch: br, kpis: computeBolaoKpis(allBoloes.filter((b) => b.branch_id === br.id)) }))
+    .filter((s) => s.kpis.gerado.count > 0);
+
+  // Desempenho por operador
   const operatorStats: OperatorStats[] = operators
-    .map((op) => {
-      const opBoloes = filteredBoloes.filter((b) => b.operator_id === op.id);
-      return { operator: op, kpis: computeKpis(opBoloes) };
-    })
-    .filter((s) => s.kpis.bolaoCount > 0)
-    .sort((a, b) => b.kpis.soldTotal - a.kpis.soldTotal);
+    .map((op) => ({ operator: op, kpis: computeBolaoKpis(filteredBoloes.filter((b) => b.operator_id === op.id)) }))
+    .filter((s) => s.kpis.gerado.count > 0)
+    .sort((a, b) => b.kpis.vendido.value - a.kpis.vendido.value);
 
   return (
     <div>
@@ -160,39 +127,41 @@ export function AdminDashboard() {
         ))}
       </div>
 
-      {/* General KPIs */}
+      {/* General KPIs — Gerado / Vendido / Encalhado / Em Aberto, mesma base de valor */}
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <KpiCard icon={<ShoppingBag size={22} />} label="Valor do Bolão" bigValue={`R$ ${allKpis.bolaoValue.toFixed(2)}`} smallValue={`${allKpis.bolaoCount} bolões`} color="brand" />
-
         <KpiCard
-          icon={<Percent size={22} />}
-          label="Valor da Comissão"
-          bigValue={`R$ ${allKpis.commissionValue.toFixed(2)}`}
-          color="accent"
-          lines={[
-            { label: 'Casa (70%)', value: `R$ ${allKpis.lotericaCommission.toFixed(2)}` },
-            { label: 'Operador (30%)', value: `R$ ${allKpis.operatorCommission.toFixed(2)}` },
-          ]}
+          icon={<ShoppingBag size={22} />}
+          label="Gerado"
+          bigValue={`R$ ${kpis.gerado.value.toFixed(2)}`}
+          smallValue={`${kpis.gerado.count} bolões`}
+          color="brand"
+          lines={[{ label: 'Comissão total', value: `R$ ${kpis.gerado.commission.toFixed(2)}` }]}
         />
-
         <KpiCard
           icon={<DollarSign size={22} />}
-          label="Valor Vendido"
-          bigValue={`R$ ${allKpis.soldTotal.toFixed(2)}`}
+          label="Vendido"
+          bigValue={`R$ ${kpis.vendido.value.toFixed(2)}`}
+          smallValue={`${kpis.vendido.count} bolões 100% vendidos`}
           color="emerald"
           lines={[
-            { label: 'Bolão + Comissão', value: `R$ ${allKpis.soldTotal.toFixed(2)}` },
-            { label: 'Só Comissões', value: `R$ ${allKpis.soldCommission.toFixed(2)}` },
+            { label: 'Casa (70%)', value: `R$ ${kpis.vendido.lotericaCommission.toFixed(2)}` },
+            { label: 'Operador (30%)', value: `R$ ${kpis.vendido.operatorCommission.toFixed(2)}` },
           ]}
         />
-
         <KpiCard
           icon={<TrendingDown size={22} />}
-          label="Valor do Encalhe"
-          bigValue={`R$ ${allKpis.encalheValue.toFixed(2)}`}
-          smallValue={`${allKpis.encalheShares} cotas não vendidas`}
+          label="Encalhado"
+          bigValue={`R$ ${kpis.encalhado.value.toFixed(2)}`}
+          smallValue={`${kpis.encalhado.count} bolões após o sorteio`}
           color="red"
+        />
+        <KpiCard
+          icon={<Clock size={22} />}
+          label="Em Aberto"
+          bigValue={`R$ ${kpis.emAberto.value.toFixed(2)}`}
+          smallValue={`${kpis.emAberto.count} aguardando sorteio`}
+          color="accent"
         />
       </div>
 
@@ -213,35 +182,55 @@ export function AdminDashboard() {
                 <h3 className="font-semibold text-brand-900">{group.label}</h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
-                <KpiCard icon={<ShoppingBag size={20} />} label="Valor do Bolão" bigValue={`R$ ${group.kpis.bolaoValue.toFixed(2)}`} smallValue={`${group.kpis.bolaoCount} bolões`} color="brand" />
-                <KpiCard
-                  icon={<Percent size={20} />}
-                  label="Valor da Comissão"
-                  bigValue={`R$ ${group.kpis.commissionValue.toFixed(2)}`}
-                  color="accent"
-                  lines={[
-                    { label: 'Casa (70%)', value: `R$ ${group.kpis.lotericaCommission.toFixed(2)}` },
-                    { label: 'Operador (30%)', value: `R$ ${group.kpis.operatorCommission.toFixed(2)}` },
-                  ]}
-                />
-                <KpiCard
-                  icon={<DollarSign size={20} />}
-                  label="Valor Vendido"
-                  bigValue={`R$ ${group.kpis.soldTotal.toFixed(2)}`}
-                  color="emerald"
-                  lines={[
-                    { label: 'Bolão + Comissão', value: `R$ ${group.kpis.soldTotal.toFixed(2)}` },
-                    { label: 'Só Comissões', value: `R$ ${group.kpis.soldCommission.toFixed(2)}` },
-                  ]}
-                />
-                <KpiCard icon={<TrendingDown size={20} />} label="Valor do Encalhe" bigValue={`R$ ${group.kpis.encalheValue.toFixed(2)}`} smallValue={`${group.kpis.encalheShares} cotas`} color="red" />
+                <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${group.kpis.gerado.value.toFixed(2)}`} smallValue={`${group.kpis.gerado.count} bolões`} color="brand" />
+                <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${group.kpis.vendido.value.toFixed(2)}`} smallValue={`${group.kpis.vendido.count} bolões`} color="emerald" />
+                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${group.kpis.encalhado.value.toFixed(2)}`} smallValue={`${group.kpis.encalhado.count} bolões`} color="red" />
+                <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${group.kpis.emAberto.value.toFixed(2)}`} smallValue={`${group.kpis.emAberto.count} bolões`} color="accent" />
               </div>
             </Card>
           ))}
         </div>
       )}
 
-      {/* Per-operator breakdown */}
+      {/* Per-branch breakdown — consolidado, sempre olhando todas as filiais */}
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Store size={16} /> Por Filial
+      </h2>
+
+      {branchStats.length === 0 ? (
+        <Card className="mb-8">
+          <EmptyState icon={<Store size={48} />} title="Nenhuma filial com bolões" description="Quando as filiais criarem bolões, o consolidado aparecerá aqui." />
+        </Card>
+      ) : (
+        <Card className="overflow-hidden mb-8">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                  <th className="px-5 py-3 font-medium">Filial</th>
+                  <th className="px-5 py-3 font-medium text-right">Gerado</th>
+                  <th className="px-5 py-3 font-medium text-right">Vendido</th>
+                  <th className="px-5 py-3 font-medium text-right">Encalhado</th>
+                  <th className="px-5 py-3 font-medium text-right">Em Aberto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {branchStats.map(({ branch, kpis: k }) => (
+                  <tr key={branch.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3 font-medium text-slate-900">{branch.name}</td>
+                    <td className="px-5 py-3 text-right text-slate-600">R$ {k.gerado.value.toFixed(2)} <span className="text-slate-400">({k.gerado.count})</span></td>
+                    <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.vendido.value.toFixed(2)} <span className="text-slate-400 font-normal">({k.vendido.count})</span></td>
+                    <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalhado.value.toFixed(2)} <span className="text-slate-400 font-normal">({k.encalhado.count})</span></td>
+                    <td className="px-5 py-3 text-right text-slate-600">R$ {k.emAberto.value.toFixed(2)} <span className="text-slate-400">({k.emAberto.count})</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* Per-operator breakdown (respeita o filtro de filial selecionado acima) */}
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
         <Users size={16} /> Por Operador
       </h2>
@@ -258,12 +247,10 @@ export function AdminDashboard() {
                 <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
                   <th className="px-5 py-3 font-medium">Operador</th>
                   <th className="px-5 py-3 font-medium">Filial</th>
-                  <th className="px-5 py-3 font-medium text-right">Bolões</th>
-                  <th className="px-5 py-3 font-medium text-right">Valor Bolão</th>
-                  <th className="px-5 py-3 font-medium text-right">Comissão Total</th>
-                  <th className="px-5 py-3 font-medium text-right">Operador (30%)</th>
+                  <th className="px-5 py-3 font-medium text-right">Gerado</th>
+                  <th className="px-5 py-3 font-medium text-right">Comissão Operador (30%)</th>
                   <th className="px-5 py-3 font-medium text-right">Vendido</th>
-                  <th className="px-5 py-3 font-medium text-right">Encalhe</th>
+                  <th className="px-5 py-3 font-medium text-right">Encalhado</th>
                 </tr>
               </thead>
               <tbody>
@@ -280,12 +267,10 @@ export function AdminDashboard() {
                         </div>
                       </td>
                       <td className="px-5 py-3 text-slate-600">{branchName}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">{k.bolaoCount}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">R$ {k.bolaoValue.toFixed(2)}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">R$ {k.commissionValue.toFixed(2)}</td>
-                      <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {k.operatorCommission.toFixed(2)}</td>
-                      <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.soldTotal.toFixed(2)}</td>
-                      <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalheValue.toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right text-slate-600">R$ {k.gerado.value.toFixed(2)} <span className="text-slate-400">({k.gerado.count})</span></td>
+                      <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {k.vendido.operatorCommission.toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.vendido.value.toFixed(2)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalhado.value.toFixed(2)}</td>
                     </tr>
                   );
                 })}
