@@ -1,5 +1,4 @@
 export type UserRole = 'admin' | 'operator';
-
 export interface Profile {
   id: string;
   name: string;
@@ -9,7 +8,6 @@ export interface Profile {
   active: boolean;
   created_at: string;
 }
-
 export interface Branch {
   id: string;
   name: string;
@@ -21,7 +19,6 @@ export interface Branch {
   active: boolean;
   created_at: string;
 }
-
 export interface Product {
   id: string;
   name: string;
@@ -31,10 +28,10 @@ export interface Product {
   base_price: number;
   service_fee: number;
   draw_frequency: string | null;
+  default_draw_time: string; // "HH:MM:SS" — horário padrão do sorteio, usado para pré-preencher o bolão
   active: boolean;
   created_at: string;
 }
-
 export interface BranchProduct {
   id: string;
   branch_id: string;
@@ -46,9 +43,7 @@ export interface BranchProduct {
   product?: Product;
   branch?: Branch;
 }
-
-export type BolaoStatus = 'pending' | 'partial' | 'sold';
-
+export type BolaoStatus = 'pending' | 'partial' | 'sold' | 'encalhado';
 export interface Bolao {
   id: string;
   branch_id: string;
@@ -59,6 +54,8 @@ export interface Bolao {
   price: number;
   service_fee: number;
   draw_date: string;
+  draw_time: string; // "HH:MM:SS" — horário do sorteio
+  draw_datetime: string; // gerado pelo banco (draw_date + draw_time), timestamp
   total_shares: number;
   sold_shares: number;
   status: BolaoStatus;
