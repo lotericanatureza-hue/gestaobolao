@@ -7,9 +7,9 @@ export function Spinner({ className = '' }: { className?: string }) {
 
 export function LoadingScreen() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-950">
+    <div className="min-h-screen flex items-center justify-center bg-brand-950">
       <div className="flex flex-col items-center gap-4">
-        <Spinner className="text-emerald-400" />
+        <Spinner className="text-accent-500" />
         <p className="text-slate-400 text-sm">Carregando...</p>
       </div>
     </div>
@@ -36,13 +36,14 @@ export function Button({
   children: ReactNode;
   onClick?: () => void;
   type?: 'button' | 'submit';
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'accent';
   size?: 'sm' | 'md' | 'lg';
   disabled?: boolean;
   className?: string;
 }) {
   const variants = {
-    primary: 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm',
+    primary: 'bg-brand-600 hover:bg-brand-700 text-white shadow-sm',
+    accent: 'bg-accent-500 hover:bg-accent-600 text-white shadow-sm',
     secondary: 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200',
     danger: 'bg-red-600 hover:bg-red-700 text-white shadow-sm',
     ghost: 'hover:bg-slate-100 text-slate-600',
@@ -100,7 +101,7 @@ export function Input({
         max={max}
         step={step}
         disabled={disabled}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none transition-all disabled:bg-slate-50 disabled:text-slate-400"
+        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all disabled:bg-slate-50 disabled:text-slate-400"
       />
     </label>
   );
@@ -131,7 +132,7 @@ export function Select({
         onChange={(e) => onChange(e.target.value)}
         required={required}
         disabled={disabled}
-        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 bg-white focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none transition-all disabled:bg-slate-50 disabled:text-slate-400"
+        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all disabled:bg-slate-50 disabled:text-slate-400"
       >
         {placeholder && <option value="">{placeholder}</option>}
         {options.map((opt) => (
@@ -146,9 +147,10 @@ export function Badge({ children, color = 'slate' }: { children: ReactNode; colo
   const colors: Record<string, string> = {
     slate: 'bg-slate-100 text-slate-600',
     green: 'bg-emerald-100 text-emerald-700',
+    orange: 'bg-accent-100 text-accent-700',
     amber: 'bg-amber-100 text-amber-700',
     red: 'bg-red-100 text-red-700',
-    blue: 'bg-blue-100 text-blue-700',
+    blue: 'bg-brand-100 text-brand-700',
   };
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${colors[color] ?? colors.slate}`}>
@@ -173,10 +175,10 @@ export function Modal({
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="fixed inset-0 bg-brand-950/60 backdrop-blur-sm" onClick={onClose} />
       <div className={`relative bg-white rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] overflow-y-auto`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 sticky top-0 bg-white rounded-t-2xl">
-          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+          <h2 className="text-lg font-semibold text-brand-950">{title}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
               <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />

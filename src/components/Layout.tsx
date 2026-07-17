@@ -1,5 +1,5 @@
 import { ReactNode, useState } from 'react';
-import { Ticket, LogOut, Menu, X } from 'lucide-react';
+import { LogOut, Menu, X } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { Badge } from './ui';
 
@@ -18,21 +18,21 @@ export function Layout({ children, activeView, onNavigate, navItems }: LayoutPro
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen bg-slate-100 flex">
       {/* Sidebar */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-64 bg-slate-900 text-slate-300 flex flex-col transition-transform duration-300 ${
+        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-64 bg-brand-950 text-slate-300 flex flex-col transition-transform duration-300 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
-        <div className="flex items-center gap-3 px-5 py-5 border-b border-slate-800">
-          <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-700">
-            <Ticket className="text-white" size={20} />
-          </div>
-          <div>
-            <h1 className="text-white font-bold text-sm">Bolão Caixa</h1>
-            <p className="text-slate-500 text-xs">Gestão de Loterias</p>
-          </div>
+        {/* Logo */}
+        <div className="flex items-center justify-center px-5 py-5 border-b border-brand-900">
+          <img
+            src="/assets/1000448454-removebg-preview.png"
+            alt="Mega Bolão Brasil"
+            className="h-16 w-auto object-contain"
+            style={{ filter: 'brightness(0) invert(1)' }}
+          />
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
@@ -42,8 +42,8 @@ export function Layout({ children, activeView, onNavigate, navItems }: LayoutPro
               onClick={() => { onNavigate(item.id); setSidebarOpen(false); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
                 activeView === item.id
-                  ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/30'
-                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  ? 'bg-accent-500 text-white shadow-lg shadow-accent-900/30'
+                  : 'text-slate-400 hover:text-white hover:bg-brand-900'
               }`}
             >
               {item.icon}
@@ -52,21 +52,21 @@ export function Layout({ children, activeView, onNavigate, navItems }: LayoutPro
           ))}
         </nav>
 
-        <div className="px-3 py-4 border-t border-slate-800">
+        <div className="px-3 py-4 border-t border-brand-900">
           <div className="flex items-center gap-3 px-3 py-2 mb-2">
-            <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-white text-sm font-semibold">
+            <div className="w-9 h-9 rounded-full bg-brand-800 border border-accent-500/40 flex items-center justify-center text-white text-sm font-semibold">
               {profile?.name?.charAt(0).toUpperCase() ?? '?'}
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-white text-sm font-medium truncate">{profile?.name}</p>
-              <Badge color={profile?.role === 'admin' ? 'green' : 'blue'}>
+              <Badge color={profile?.role === 'admin' ? 'orange' : 'blue'}>
                 {profile?.role === 'admin' ? 'Administrador' : 'Operador'}
               </Badge>
             </div>
           </div>
           <button
             onClick={signOut}
-            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800 transition-all"
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-white hover:bg-brand-900 transition-all"
           >
             <LogOut size={18} /> Sair
           </button>
@@ -79,12 +79,17 @@ export function Layout({ children, activeView, onNavigate, navItems }: LayoutPro
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
-        <header className="lg:hidden flex items-center justify-between bg-slate-900 text-white px-4 py-3 sticky top-0 z-20">
+        <header className="lg:hidden flex items-center justify-between bg-brand-950 text-white px-4 py-3 sticky top-0 z-20">
           <button onClick={() => setSidebarOpen(true)}>
             <Menu size={24} />
           </button>
-          <span className="font-semibold text-sm">Bolão Caixa</span>
-          <button onClick={() => setSidebarOpen(false)} className={sidebarOpen ? 'hidden' : ''}>
+          <img
+            src="/assets/1000448454-removebg-preview.png"
+            alt="Mega Bolão Brasil"
+            className="h-8 w-auto object-contain"
+            style={{ filter: 'brightness(0) invert(1)' }}
+          />
+          <button onClick={() => setSidebarOpen(false)} className={sidebarOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}>
             <X size={24} />
           </button>
         </header>
@@ -99,7 +104,7 @@ export function PageHeader({ title, subtitle, action }: { title: string; subtitl
   return (
     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
+        <h1 className="text-2xl font-bold text-brand-950">{title}</h1>
         {subtitle && <p className="text-slate-500 text-sm mt-1">{subtitle}</p>}
       </div>
       {action}

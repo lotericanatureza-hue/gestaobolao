@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Ticket, LogIn, UserPlus, AlertCircle } from 'lucide-react';
+import { LogIn, UserPlus, AlertCircle } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { Button, Input } from './ui';
 
@@ -32,13 +32,21 @@ export function LoginScreen() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-emerald-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 shadow-lg shadow-emerald-900/50 mb-4">
-            <Ticket className="text-white" size={32} />
+    <div className="min-h-screen bg-gradient-to-br from-brand-950 via-brand-900 to-brand-950 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Decorative accent glow */}
+      <div className="absolute top-1/4 -left-20 w-72 h-72 bg-accent-500/20 rounded-full blur-3xl" />
+      <div className="absolute bottom-1/4 -right-20 w-72 h-72 bg-brand-500/20 rounded-full blur-3xl" />
+
+      <div className="w-full max-w-md relative z-10">
+        <div className="flex flex-col items-center mb-8">
+          <div className="bg-white rounded-2xl p-3 shadow-2xl shadow-brand-950/50 mb-4">
+            <img
+              src="/assets/1000448454-removebg-preview.png"
+              alt="Mega Bolão Brasil"
+              className="h-20 w-auto object-contain"
+            />
           </div>
-          <h1 className="text-2xl font-bold text-white">Bolão Caixa</h1>
+          <h1 className="text-2xl font-bold text-white">Mega Bolão Brasil</h1>
           <p className="text-slate-400 text-sm mt-1">Sistema de Gestão de Bolões de Loterias</p>
         </div>
 
@@ -46,13 +54,13 @@ export function LoginScreen() {
           <div className="flex gap-1 mb-6 bg-slate-100 rounded-lg p-1">
             <button
               onClick={() => { setMode('login'); setError(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${mode === 'login' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500'}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${mode === 'login' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500'}`}
             >
               <LogIn size={16} /> Entrar
             </button>
             <button
               onClick={() => { setMode('signup'); setError(null); }}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${mode === 'signup' ? 'bg-white text-emerald-700 shadow-sm' : 'text-slate-500'}`}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-md text-sm font-medium transition-all ${mode === 'signup' ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500'}`}
             >
               <UserPlus size={16} /> Cadastrar
             </button>

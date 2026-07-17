@@ -54,7 +54,7 @@ export function AdminUsers() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><Spinner className="text-emerald-500" /></div>;
+    return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
 
   return (
@@ -85,7 +85,7 @@ export function AdminUsers() {
                     <td className="px-5 py-3 font-medium text-slate-900">{p.name}</td>
                     <td className="px-5 py-3 text-slate-600">{p.email}</td>
                     <td className="px-5 py-3">
-                      <Badge color={p.role === 'admin' ? 'green' : 'blue'}>
+                      <Badge color={p.role === 'admin' ? 'orange' : 'blue'}>
                         {p.role === 'admin' ? 'Administrador' : 'Operador'}
                       </Badge>
                     </td>
@@ -139,7 +139,7 @@ export function AdminUsers() {
               </p>
             )}
             <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500" />
+              <input type="checkbox" checked={editActive} onChange={(e) => setEditActive(e.target.checked)} className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500" />
               <span className="text-sm text-slate-700">Usuário ativo</span>
             </label>
             <div className="flex justify-end gap-2 pt-2">

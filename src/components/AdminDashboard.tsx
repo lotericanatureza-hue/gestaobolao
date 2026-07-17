@@ -1,58 +1,94 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { TrendingUp, Package, Store, AlertTriangle, CheckCircle2, Clock, DollarSign, ShoppingBag } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Badge, Spinner, EmptyState } from './ui';
+import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Bolao, Branch } from '../lib/types';
 
 interface DashboardStats {
   totalBoloes: number;
-  sold: number;
-  pending: number;
-  partial: number;
-  totalRevenue: number;
+  totalValue: number;
+  soldCount: number;
+  soldValue: number;
+  partialCount: number;
+  partialValue: number;
+  unsoldShares: number;
+  unsoldValue: number;
   totalBranches: number;
   totalProducts: number;
 }
 
+function computeStats(boloes: Bolao[]): DashboardStats {
+  const totalValue = boloes.reduce((s, b) => s + Number(b.price) + Number(b.service_fee), 0);
+  const soldBoloes = boloes.filter((b) => b.status === 'sold');
+  const partialBoloes = boloes.filter((b) => b.status === 'partial');
+
+  const shareValue = (b: Bolao) => b.total_shares > 0
+    ? (Number(b.price) + Number(b.service_fee)) / b.total_shares
+    : 0;
+
+  const soldValue = boloes.reduce((s, b) => s + shareValue(b) * b.sold_shares, 0);
+  const unsoldShares = boloes.reduce((s, b) => s + (b.total_shares - b.sold_shares), 0);
+  const unsoldValue = boloes.reduce((s, b) => s + shareValue(b) * (b.total_shares - b.sold_shares), 0);
+  const partialValue = partialBoloes.reduce((s, b) => s + shareValue(b) * b.sold_shares, 0);
+
+  return {
+    totalBoloes: boloes.length,
+    totalValue,
+    soldCount: soldBoloes.length,
+    soldValue,
+    partialCount: partialBoloes.length,
+    partialValue,
+    unsoldShares,
+    unsoldValue,
+    totalBranches: 0,
+    totalProducts: 0,
+  };
+}
+
 export function AdminDashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [recentBoloes, setRecentBoloes] = useState<Bolao[]>([]);
+  const [allBoloes, setAllBoloes] = useState<Bolao[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
+  const [productCount, setProductCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
+
+  const fetchData = useCallback(async () => {
+    const [{ data: boloes }, { data: branchList }, { count }] = await Promise.all([
+      supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false }),
+      supabase.from('branches').select('*').order('name'),
+      supabase.from('products').select('*', { count: 'exact', head: true }),
+    ]);
+    setAllBoloes((boloes ?? []) as Bolao[]);
+    setBranches((branchList ?? []) as Branch[]);
+    setProductCount(count ?? 0);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    (async () => {
-      const [{ data: boloes }, { data: branchList }, { count }] = await Promise.all([
-        supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false }),
-        supabase.from('branches').select('*').order('name'),
-        supabase.from('products').select('*', { count: 'exact', head: true }),
-      ]);
+    fetchData();
 
-      const bList = (branchList ?? []) as Branch[];
-      setBranches(bList);
-      setRecentBoloes((boloes ?? []) as Bolao[]);
+    const channel = supabase
+      .channel('admin-dashboard-boloes')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => fetchData())
+      .subscribe();
 
-      const allBoloes = (boloes ?? []) as Bolao[];
-      setStats({
-        totalBoloes: allBoloes.length,
-        sold: allBoloes.filter((b) => b.status === 'sold').length,
-        pending: allBoloes.filter((b) => b.status === 'pending').length,
-        partial: allBoloes.filter((b) => b.status === 'partial').length,
-        totalRevenue: allBoloes
-          .filter((b) => b.status !== 'pending')
-          .reduce((sum, b) => sum + Number(b.price) + Number(b.service_fee), 0),
-        totalBranches: bList.length,
-        totalProducts: count ?? 0,
-      });
-      setLoading(false);
-    })();
-  }, []);
+    return () => { supabase.removeChannel(channel); };
+  }, [fetchData]);
+
+  const filteredBoloes = selectedBranchId === 'all'
+    ? allBoloes
+    : allBoloes.filter((b) => b.branch_id === selectedBranchId);
+
+  const stats = computeStats(filteredBoloes);
+  stats.totalBranches = branches.length;
+  stats.totalProducts = productCount;
 
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Spinner className="text-emerald-500" />
+        <Spinner className="text-brand-500" />
       </div>
     );
   }
@@ -63,30 +99,60 @@ export function AdminDashboard() {
     return <Badge color="red">Encalhado</Badge>;
   };
 
+  const branchName = (id: string) => branches.find((b) => b.id === id)?.name ?? '—';
+
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="Visão geral de bolões, filiais e produtos" />
 
-      {/* Stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard icon={<Package />} label="Total de Bolões" value={stats?.totalBoloes ?? 0} color="emerald" />
-        <StatCard icon={<ShoppingBag />} label="Vendidos" value={stats?.sold ?? 0} color="blue" />
-        <StatCard icon={<AlertTriangle />} label="Encalhados" value={stats?.pending ?? 0} color="red" />
-        <StatCard icon={<DollarSign />} label="Receita Total" value={`R$ ${(stats?.totalRevenue ?? 0).toFixed(2)}`} color="amber" />
+      {/* Branch filter */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        <button
+          onClick={() => setSelectedBranchId('all')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
+            selectedBranchId === 'all'
+              ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+              : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
+          }`}
+        >
+          <Store size={16} /> Todas as Filiais
+        </button>
+        {branches.map((b) => (
+          <button
+            key={b.id}
+            onClick={() => setSelectedBranchId(b.id)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
+              selectedBranchId === b.id
+                ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
+            }`}
+          >
+            <Store size={16} /> {b.name}
+          </button>
+        ))}
       </div>
 
+      {/* Main KPI cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <KpiCard icon={<Package size={22} />} label="Total de Bolões" bigValue={`R$ ${stats.totalValue.toFixed(2)}`} smallValue={`${stats.totalBoloes} bolões`} color="brand" />
+        <KpiCard icon={<ShoppingBag size={22} />} label="Vendidos" bigValue={`R$ ${stats.soldValue.toFixed(2)}`} smallValue={`${stats.soldCount} bolões`} color="emerald" />
+        <KpiCard icon={<TrendingUp size={22} />} label="Parciais" bigValue={`R$ ${stats.partialValue.toFixed(2)}`} smallValue={`${stats.partialCount} bolões`} color="amber" />
+        <KpiCard icon={<AlertTriangle size={22} />} label="Encalhados" bigValue={`R$ ${stats.unsoldValue.toFixed(2)}`} smallValue={`${stats.unsoldShares} cotas não vendidas`} color="red" />
+      </div>
+
+      {/* Secondary stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <StatCard icon={<Store />} label="Filiais" value={stats?.totalBranches ?? 0} color="slate" small />
-        <StatCard icon={<TrendingUp />} label="Parciais" value={stats?.partial ?? 0} color="amber" small />
-        <StatCard icon={<Package />} label="Produtos" value={stats?.totalProducts ?? 0} color="slate" small />
+        <MiniKpi icon={<Store size={20} />} label="Filiais" value={stats.totalBranches} />
+        <MiniKpi icon={<Package size={20} />} label="Produtos" value={stats.totalProducts} />
+        <MiniKpi icon={<DollarSign size={20} />} label="Receita Realizada" value={`R$ ${stats.soldValue.toFixed(2)}`} />
       </div>
 
       {/* Recent bolões */}
       <Card className="mb-6">
         <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-900">Bolões Recentes</h2>
+          <h2 className="font-semibold text-brand-950">Bolões Recentes</h2>
         </div>
-        {recentBoloes.length === 0 ? (
+        {filteredBoloes.length === 0 ? (
           <EmptyState icon={<Package size={48} />} title="Nenhum bolão criado" description="Os bolões criados pelos operadores aparecerão aqui." />
         ) : (
           <div className="overflow-x-auto">
@@ -103,10 +169,15 @@ export function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {recentBoloes.slice(0, 10).map((b) => (
+                {filteredBoloes.slice(0, 10).map((b) => (
                   <tr key={b.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-3 font-medium text-slate-900">{b.product?.name ?? '—'}</td>
-                    <td className="px-5 py-3 text-slate-600">{b.branch?.name ?? '—'}</td>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <LotteryIcon slug={b.product?.slug ?? ''} size={20} />
+                        <span className="font-medium text-slate-900">{b.product?.name ?? '—'}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-slate-600">{selectedBranchId === 'all' ? (b.branch?.name ?? '—') : branchName(b.branch_id)}</td>
                     <td className="px-5 py-3 text-slate-600">{b.contest_number}</td>
                     <td className="px-5 py-3 text-slate-600">{b.dezenas}</td>
                     <td className="px-5 py-3 text-slate-600">{b.sold_shares}/{b.total_shares}</td>
@@ -121,62 +192,81 @@ export function AdminDashboard() {
       </Card>
 
       {/* Branches overview */}
-      <Card>
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-900">Visão por Filial</h2>
-        </div>
-        {branches.length === 0 ? (
-          <EmptyState icon={<Store size={48} />} title="Nenhuma filial cadastrada" description="Cadastre filiais para começar a operar." />
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-5">
-            {branches.map((br) => {
-              const branchBoloes = recentBoloes.filter((b) => b.branch_id === br.id);
-              const soldCount = branchBoloes.filter((b) => b.status === 'sold').length;
-              const pendingCount = branchBoloes.filter((b) => b.status === 'pending').length;
-              return (
-                <div key={br.id} className="border border-slate-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <div>
-                      <p className="font-semibold text-slate-900">{br.name}</p>
-                      <p className="text-xs text-slate-400">{br.code} · {br.city}/{br.state}</p>
-                    </div>
-                    <Badge color={br.active ? 'green' : 'slate'}>{br.active ? 'Ativa' : 'Inativa'}</Badge>
-                  </div>
-                  <div className="flex gap-4 text-xs">
-                    <div className="flex items-center gap-1 text-slate-500">
-                      <CheckCircle2 size={14} className="text-emerald-500" /> {soldCount} vendidos
-                    </div>
-                    <div className="flex items-center gap-1 text-slate-500">
-                      <Clock size={14} className="text-red-500" /> {pendingCount} encalhados
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+      {selectedBranchId === 'all' && (
+        <Card>
+          <div className="px-5 py-4 border-b border-slate-100">
+            <h2 className="font-semibold text-brand-950">Visão por Filial</h2>
           </div>
-        )}
-      </Card>
+          {branches.length === 0 ? (
+            <EmptyState icon={<Store size={48} />} title="Nenhuma filial cadastrada" description="Cadastre filiais para começar a operar." />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 p-5">
+              {branches.map((br) => {
+                const branchBoloes = allBoloes.filter((b) => b.branch_id === br.id);
+                const brStats = computeStats(branchBoloes);
+                return (
+                  <div key={br.id} className="border border-slate-200 rounded-lg p-4 hover:border-brand-300 transition-colors">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <p className="font-semibold text-brand-950">{br.name}</p>
+                        <p className="text-xs text-slate-400">{br.code} · {br.city}/{br.state}</p>
+                      </div>
+                      <Badge color={br.active ? 'green' : 'slate'}>{br.active ? 'Ativa' : 'Inativa'}</Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1 text-slate-500"><CheckCircle2 size={14} className="text-emerald-500" /> Vendidos</span>
+                        <span className="font-semibold text-slate-700">{brStats.soldCount} · R$ {brStats.soldValue.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1 text-slate-500"><Clock size={14} className="text-amber-500" /> Parciais</span>
+                        <span className="font-semibold text-slate-700">{brStats.partialCount} · R$ {brStats.partialValue.toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1 text-slate-500"><AlertTriangle size={14} className="text-red-500" /> Encalhados</span>
+                        <span className="font-semibold text-slate-700">{brStats.unsoldShares} cotas · R$ {brStats.unsoldValue.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
 
-function StatCard({ icon, label, value, color, small }: { icon: React.ReactNode; label: string; value: string | number; color: string; small?: boolean }) {
+function KpiCard({ icon, label, bigValue, smallValue, color }: { icon: React.ReactNode; label: string; bigValue: string; smallValue: string; color: string }) {
   const colors: Record<string, string> = {
+    brand: 'bg-brand-50 text-brand-600',
     emerald: 'bg-emerald-50 text-emerald-600',
-    blue: 'bg-blue-50 text-blue-600',
     red: 'bg-red-50 text-red-600',
     amber: 'bg-amber-50 text-amber-600',
-    slate: 'bg-slate-100 text-slate-600',
   };
   return (
     <Card className="p-5">
-      <div className="flex items-center gap-4">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colors[color]}`}>
+      <div className="flex items-center gap-3 mb-3">
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${colors[color]}`}>
           {icon}
         </div>
+        <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">{label}</p>
+      </div>
+      <p className="text-2xl font-bold text-brand-950">{bigValue}</p>
+      <p className="text-sm text-slate-500 mt-1">{smallValue}</p>
+    </Card>
+  );
+}
+
+function MiniKpi({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
+  return (
+    <Card className="p-4">
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center">{icon}</div>
         <div>
-          <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">{label}</p>
-          <p className={`font-bold text-slate-900 ${small ? 'text-xl' : 'text-2xl'}`}>{value}</p>
+          <p className="text-xs text-slate-400">{label}</p>
+          <p className="text-lg font-bold text-brand-950">{value}</p>
         </div>
       </div>
     </Card>

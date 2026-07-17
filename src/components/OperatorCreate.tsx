@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState } from './ui';
+import { LotteryIcon } from '../lib/lotteryIcons';
 import type { BranchProduct } from '../lib/types';
 
 export function OperatorCreate() {
@@ -100,7 +101,7 @@ export function OperatorCreate() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><Spinner className="text-emerald-500" /></div>;
+    return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
 
   if (!profile?.branch_id) {
@@ -138,7 +139,7 @@ export function OperatorCreate() {
       <PageHeader title="Criar Bolão" subtitle={`Filial: ${profile?.name ?? ''}`} />
 
       {success && (
-        <div className="mb-4 bg-emerald-50 border border-emerald-200 rounded-lg p-4 flex items-center gap-2 text-emerald-700">
+        <div className="mb-4 bg-brand-50 border border-brand-200 rounded-lg p-4 flex items-center gap-2 text-brand-700">
           <Ticket size={20} />
           <span className="font-medium">Bolão criado com sucesso!</span>
         </div>
@@ -156,7 +157,8 @@ export function OperatorCreate() {
           />
 
           {selectedProduct && (
-            <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 flex flex-wrap gap-4">
+            <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 flex flex-wrap items-center gap-4">
+              <LotteryIcon slug={selectedProduct.slug} size={28} />
               <span>Dezenas: {selectedProduct.min_dezenas} a {selectedProduct.max_dezenas}</span>
               <span>Sorteio: {selectedProduct.draw_frequency ?? '—'}</span>
               <span>Preço base: R$ {Number(selectedProduct.base_price).toFixed(2)}</span>
@@ -200,7 +202,7 @@ export function OperatorCreate() {
               onChange={(e) => setNotes(e.target.value)}
               rows={3}
               placeholder="Informações adicionais sobre o bolão..."
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 focus:outline-none transition-all"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all"
             />
           </label>
 

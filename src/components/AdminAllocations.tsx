@@ -3,6 +3,7 @@ import { ArrowRightLeft, Check, Store, Package, Plus } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Input, Badge, Spinner, EmptyState } from './ui';
+import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Branch, Product, BranchProduct } from '../lib/types';
 
 export function AdminAllocations() {
@@ -63,7 +64,7 @@ export function AdminAllocations() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><Spinner className="text-emerald-500" /></div>;
+    return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
 
   if (branches.length === 0 || products.length === 0) {
@@ -94,8 +95,8 @@ export function AdminAllocations() {
               onClick={() => setSelectedBranch(b.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
                 selectedBranch === b.id
-                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-emerald-300'
+                  ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
               }`}
             >
               <Store size={16} /> {b.name}
@@ -117,25 +118,28 @@ export function AdminAllocations() {
             return (
               <div
                 key={p.id}
-                className={`border rounded-lg p-4 transition-all ${allocated ? 'border-emerald-300 bg-emerald-50/50' : 'border-slate-200'}`}
+                className={`border rounded-lg p-4 transition-all ${allocated ? 'border-brand-300 bg-brand-50/50' : 'border-slate-200'}`}
               >
                 <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-900 text-sm">{p.name}</h3>
-                    <p className="text-xs text-slate-400">Dezenas: {p.min_dezenas}-{p.max_dezenas} · R$ {Number(p.base_price).toFixed(2)}</p>
-                  </div>
+                  <div className="flex items-center gap-2">
+                      <LotteryIcon slug={p.slug} size={28} />
+                      <div>
+                        <h3 className="font-semibold text-slate-900 text-sm">{p.name}</h3>
+                        <p className="text-xs text-slate-400">Dezenas: {p.min_dezenas}-{p.max_dezenas} · R$ {Number(p.base_price).toFixed(2)}</p>
+                      </div>
+                    </div>
                   <button
                     onClick={() => toggleAllocation(p.id)}
                     disabled={saving}
                     className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all ${
-                      allocated ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                      allocated ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
                     }`}
                   >
                     {allocated ? <Check size={16} /> : <Plus size={16} />}
                   </button>
                 </div>
                 {allocated && alloc && (
-                  <div className="space-y-2 pt-2 border-t border-emerald-200">
+                  <div className="space-y-2 pt-2 border-t border-brand-200">
                     <Input
                       label="Preço customizado"
                       type="number"

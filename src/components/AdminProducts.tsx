@@ -3,6 +3,7 @@ import { Package, Plus, Pencil, Trash2, Calendar, Hash, DollarSign } from 'lucid
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Modal, Badge, Spinner, EmptyState } from './ui';
+import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Product } from '../lib/types';
 
 const emptyForm = {
@@ -82,7 +83,7 @@ export function AdminProducts() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><Spinner className="text-emerald-500" /></div>;
+    return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
 
   return (
@@ -103,9 +104,7 @@ export function AdminProducts() {
             <Card key={p.id} className="p-5 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                    <Package size={20} />
-                  </div>
+                  <LotteryIcon slug={p.slug} size={40} />
                   <div>
                     <h3 className="font-semibold text-slate-900">{p.name}</h3>
                     <p className="text-xs text-slate-400">{p.slug}</p>
@@ -144,7 +143,7 @@ export function AdminProducts() {
           </div>
           <Input label="Frequência do sorteio" value={form.draw_frequency} onChange={(v) => setForm({ ...form, draw_frequency: v })} placeholder="Ex: quarta/sábado" />
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500" />
+            <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500" />
             <span className="text-sm text-slate-700">Produto ativo</span>
           </label>
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}

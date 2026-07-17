@@ -72,7 +72,7 @@ export function AdminBranches() {
   };
 
   if (loading) {
-    return <div className="flex items-center justify-center py-20"><Spinner className="text-emerald-500" /></div>;
+    return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
 
   return (
@@ -93,7 +93,7 @@ export function AdminBranches() {
             <Card key={b.id} className="p-5 hover:shadow-md transition-shadow">
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center">
                     <Store size={20} />
                   </div>
                   <div>
@@ -130,7 +130,7 @@ export function AdminBranches() {
           </div>
           <Input label="Telefone" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="(11) 1234-5678" />
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500" />
+            <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500" />
             <span className="text-sm text-slate-700">Filial ativa</span>
           </label>
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
