@@ -1,0 +1,71 @@
+export type UserRole = 'admin' | 'operator';
+
+export interface Profile {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  branch_id: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
+  code: string;
+  address: string | null;
+  city: string | null;
+  state: string | null;
+  phone: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface Product {
+  id: string;
+  name: string;
+  slug: string;
+  min_dezenas: number;
+  max_dezenas: number;
+  base_price: number;
+  service_fee: number;
+  draw_frequency: string | null;
+  active: boolean;
+  created_at: string;
+}
+
+export interface BranchProduct {
+  id: string;
+  branch_id: string;
+  product_id: string;
+  custom_price: number | null;
+  custom_service_fee: number | null;
+  active: boolean;
+  created_at: string;
+  product?: Product;
+  branch?: Branch;
+}
+
+export type BolaoStatus = 'pending' | 'partial' | 'sold';
+
+export interface Bolao {
+  id: string;
+  branch_id: string;
+  product_id: string;
+  operator_id: string;
+  contest_number: string;
+  dezenas: number;
+  price: number;
+  service_fee: number;
+  draw_date: string;
+  total_shares: number;
+  sold_shares: number;
+  status: BolaoStatus;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  product?: Product;
+  branch?: Branch;
+  operator?: Profile;
+}
