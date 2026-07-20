@@ -26,7 +26,8 @@
 import type { Bolao } from './types';
 
 export interface BucketKpis {
-  count: number;        // quantidade de bolões
+  count: number;         // quantidade de bolões (inteiros) nesse balde
+  shares: number;        // quantidade de cotas nesse balde
   value: number;         // soma (price + service_fee) do bucket
   commission: number;    // soma service_fee do bucket
   lotericaCommission: number; // 70%
@@ -41,7 +42,7 @@ export interface BolaoKpis {
 }
 
 function emptyBucket(): BucketKpis {
-  return { count: 0, value: 0, commission: 0, lotericaCommission: 0, operatorCommission: 0 };
+  return { count: 0, shares: 0, value: 0, commission: 0, lotericaCommission: 0, operatorCommission: 0 };
 }
 
 // price e service_fee já são o valor de UMA cota — não dividir por total_shares.
@@ -75,14 +76,17 @@ export function computeBolaoKpis(boloes: Bolao[]): BolaoKpis {
     // Gerado: todo bolão criado entra aqui, sempre. price/service_fee são
     // por cota, então o valor gerado é (price + service_fee) * total_shares.
     gerado.count += 1;
+    gerado.shares += b.total_shares;
     gerado.value += totalValue;
     gerado.commission += perShareCommission * b.total_shares;
 
     // Vendido: valor já arrecadado por cotas vendidas, proporcional,
-    // independente do status atual do bolão.
+    // independente do status atual do bolão. A contagem aqui é em COTAS,
+    // não em bolões inteiros (um bolão pode estar parcialmente vendido).
     const soldValue = perShare * b.sold_shares;
     const soldCommissionValue = perShareCommission * b.sold_shares;
     if (b.sold_shares > 0) {
+      vendido.shares += b.sold_shares;
       vendido.value += soldValue;
       vendido.commission += soldCommissionValue;
       if (b.status === 'sold') vendido.count += 1; // conta bolão inteiro só quando 100% vendido
@@ -93,18 +97,23 @@ export function computeBolaoKpis(boloes: Bolao[]): BolaoKpis {
     const totalCommission = perShareCommission * b.total_shares;
 
     // Encalhado: só existe quando o status persistido no banco diz que
-    // o sorteio já passou e sobrou cota sem vender.
+    // o sorteio já passou e sobrou cota sem vender. Contagem em cotas.
     if (b.status === 'encalhado') {
+      const unsoldShares = b.total_shares - b.sold_shares;
       const unsoldValue = totalValue - soldValue;
       const unsoldCommission = totalCommission - soldCommissionValue;
       encalhado.count += 1;
+      encalhado.shares += unsoldShares;
       encalhado.value += unsoldValue;
       encalhado.commission += unsoldCommission;
     }
 
     // Em aberto: ainda não é hora do sorteio e ainda não vendeu tudo.
+    // Contagem em cotas.
     if (b.status === 'pending' || b.status === 'partial') {
+      const remainingShares = b.total_shares - b.sold_shares;
       emAberto.count += 1;
+      emAberto.shares += remainingShares;
       emAberto.value += totalValue - soldValue;
       emAberto.commission += totalCommission - soldCommissionValue;
     }
@@ -124,3 +133,8 @@ export const STATUS_LABELS: Record<Bolao['status'], { label: string; color: 'gre
   pending: { label: 'Aguardando venda', color: 'slate' },
   encalhado: { label: 'Encalhado', color: 'red' },
 };
+
+// Evita "1 bolões" / "1 cotas" nos cards de KPI.
+export function pluralize(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
