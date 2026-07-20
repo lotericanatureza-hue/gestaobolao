@@ -236,7 +236,9 @@ export function OperatorManage() {
           {filtered.map((b) => {
             const pct = b.total_shares > 0 ? Math.round((b.sold_shares / b.total_shares) * 100) : 0;
             const nextQuota = b.sold_shares + 1;
-            const shareValue = b.total_shares > 0 ? (Number(b.price) + Number(b.service_fee)) / b.total_shares : 0;
+            // price e service_fee já são o valor de UMA cota.
+            const shareValue = Number(b.price) + Number(b.service_fee);
+            const totalBolaoValue = shareValue * b.total_shares;
             const statusInfo = STATUS_LABELS[b.status];
             return (
               <Card key={b.id} className="p-4 hover:shadow-md transition-shadow">
@@ -252,8 +254,8 @@ export function OperatorManage() {
                         <span>Concurso: {b.contest_number}</span>
                         <span>Dezenas: {b.dezenas}</span>
                         <span>Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
-                        <span>Bolão: R$ {Number(b.price).toFixed(2)}</span>
-                        <span>Comissão: R$ {Number(b.service_fee).toFixed(2)}</span>
+                        <span>Cota: R$ {Number(b.price).toFixed(2)} + R$ {Number(b.service_fee).toFixed(2)} comissão</span>
+                        <span>Total do bolão: R$ {totalBolaoValue.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
@@ -331,16 +333,17 @@ export function OperatorManage() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Preço do bolão (R$)" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} />
-              <Input label="Comissão / Taxa (R$)" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} />
+              <Input label="Preço da cota (R$)" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} />
+              <Input label="Comissão por cota (R$)" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} />
             </div>
 
             <Input label="Horário do sorteio" type="time" value={editDrawTime} onChange={setEditDrawTime} />
 
             <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-4 gap-y-1">
-              <span>Comissão total: <strong>R$ {Number(editFee).toFixed(2)}</strong></span>
-              <span>Casa (70%): <strong>R$ {(Number(editFee) * 0.7).toFixed(2)}</strong></span>
-              <span>Operador (30%): <strong>R$ {(Number(editFee) * 0.3).toFixed(2)}</strong></span>
+              <span>Total do bolão ({editTotal} cotas): <strong>R$ {((Number(editPrice) + Number(editFee)) * editTotal).toFixed(2)}</strong></span>
+              <span>Comissão total: <strong>R$ {(Number(editFee) * editTotal).toFixed(2)}</strong></span>
+              <span>Casa (70%): <strong>R$ {(Number(editFee) * editTotal * 0.7).toFixed(2)}</strong></span>
+              <span>Operador (30%): <strong>R$ {(Number(editFee) * editTotal * 0.3).toFixed(2)}</strong></span>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
