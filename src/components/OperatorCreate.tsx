@@ -5,7 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import { computeBolaoKpis, STATUS_LABELS } from '../lib/bolaoKpis';
+import { computeBolaoKpis, STATUS_LABELS, pluralize } from '../lib/bolaoKpis';
 import type { BranchProduct, Bolao, BolaoStatus } from '../lib/types';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -345,10 +345,10 @@ export function OperatorCreate() {
                   <div className="px-5 py-3 bg-brand-50 border-b border-brand-100 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="font-semibold text-brand-900">{group.label}</h3>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-brand-700">
-                      <span>{k.gerado.count} bolões</span>
+                      <span>{pluralize(k.gerado.count, 'bolão', 'bolões')}</span>
                       <span>Gerado: <strong>R$ {k.gerado.value.toFixed(2)}</strong></span>
-                      <span>Vendido: <strong>R$ {k.vendido.value.toFixed(2)}</strong></span>
-                      <span>Encalhado: <strong>R$ {k.encalhado.value.toFixed(2)}</strong></span>
+                      <span>Vendido: <strong>R$ {k.vendido.value.toFixed(2)}</strong> ({pluralize(k.vendido.shares, 'cota', 'cotas')})</span>
+                      <span>Encalhado: <strong>R$ {k.encalhado.value.toFixed(2)}</strong> ({pluralize(k.encalhado.shares, 'cota', 'cotas')})</span>
                       <span>Operador (30%): <strong>R$ {k.vendido.operatorCommission.toFixed(2)}</strong></span>
                     </div>
                   </div>
