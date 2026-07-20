@@ -5,7 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import { computeBolaoKpis, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
+import { computeBolaoKpis, STATUS_LABELS, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
 import type { Bolao, BolaoStatus } from '../lib/types';
 
 type FilterStatus = 'all' | BolaoStatus;
@@ -144,7 +144,7 @@ export function OperatorManage() {
           icon={<ShoppingBag size={22} />}
           label="Gerado"
           bigValue={`R$ ${kpis.gerado.value.toFixed(2)}`}
-          smallValue={`${kpis.gerado.count} bolões`}
+          smallValue={pluralize(kpis.gerado.count, 'bolão', 'bolões')}
           color="brand"
           lines={[{ label: 'Comissão total', value: `R$ ${kpis.gerado.commission.toFixed(2)}` }]}
         />
@@ -152,7 +152,7 @@ export function OperatorManage() {
           icon={<DollarSign size={22} />}
           label="Vendido"
           bigValue={`R$ ${kpis.vendido.value.toFixed(2)}`}
-          smallValue={`${kpis.vendido.count} bolões 100% vendidos`}
+          smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')}
           color="emerald"
           lines={[
             { label: 'Casa (70%)', value: `R$ ${kpis.vendido.lotericaCommission.toFixed(2)}` },
@@ -163,14 +163,14 @@ export function OperatorManage() {
           icon={<TrendingDown size={22} />}
           label="Encalhado"
           bigValue={`R$ ${kpis.encalhado.value.toFixed(2)}`}
-          smallValue={`${kpis.encalhado.count} bolões após o sorteio`}
+          smallValue={pluralize(kpis.encalhado.shares, 'cota encalhada', 'cotas encalhadas')}
           color="red"
         />
         <KpiCard
           icon={<Clock size={22} />}
           label="Em Aberto"
           bigValue={`R$ ${kpis.emAberto.value.toFixed(2)}`}
-          smallValue={`${kpis.emAberto.count} aguardando sorteio`}
+          smallValue={pluralize(kpis.emAberto.shares, 'cota aguardando sorteio', 'cotas aguardando sorteio')}
           color="accent"
         />
       </div>
@@ -192,10 +192,10 @@ export function OperatorManage() {
                 <h3 className="font-semibold text-brand-900">{group.label}</h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
-                <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${group.kpis.gerado.value.toFixed(2)}`} smallValue={`${group.kpis.gerado.count} bolões`} color="brand" />
-                <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${group.kpis.vendido.value.toFixed(2)}`} smallValue={`${group.kpis.vendido.count} bolões`} color="emerald" />
-                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${group.kpis.encalhado.value.toFixed(2)}`} smallValue={`${group.kpis.encalhado.count} bolões`} color="red" />
-                <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${group.kpis.emAberto.value.toFixed(2)}`} smallValue={`${group.kpis.emAberto.count} bolões`} color="accent" />
+                <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${group.kpis.gerado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
+                <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${group.kpis.vendido.value.toFixed(2)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
+                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${group.kpis.encalhado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
+                <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${group.kpis.emAberto.value.toFixed(2)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
               </div>
             </Card>
           ))}
