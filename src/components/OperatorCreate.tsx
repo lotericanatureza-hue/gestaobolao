@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Plus, Info, Pencil, Check, X, Calendar } from 'lucide-react';
+import { Ticket, Plus, Info, Pencil, Calendar, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import type { BranchProduct, Bolao } from '../lib/types';
+import { computeBolaoKpis, STATUS_LABELS } from '../lib/bolaoKpis';
+import type { BranchProduct, Bolao, BolaoStatus } from '../lib/types';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -28,11 +29,7 @@ function groupByMonth(boloes: Bolao[]): MonthGroup[] {
   return Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
 }
 
-const statusBadge = (status: string) => {
-  if (status === 'sold') return <Badge color="green">Vendido</Badge>;
-  if (status === 'partial') return <Badge color="amber">Parcial</Badge>;
-  return <Badge color="red">Encalhado</Badge>;
-};
+const DEFAULT_DRAW_TIME = '20:00';
 
 export function OperatorCreate() {
   const { profile } = useAuth();
@@ -47,6 +44,7 @@ export function OperatorCreate() {
   const [price, setPrice] = useState(0);
   const [serviceFee, setServiceFee] = useState(0);
   const [drawDate, setDrawDate] = useState('');
+  const [drawTime, setDrawTime] = useState(DEFAULT_DRAW_TIME);
   const [totalShares, setTotalShares] = useState(1);
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +55,7 @@ export function OperatorCreate() {
   const [editFee, setEditFee] = useState(0);
   const [editShares, setEditShares] = useState(1);
   const [editSold, setEditSold] = useState(0);
+  const [editDrawTime, setEditDrawTime] = useState(DEFAULT_DRAW_TIME);
   const [editNotes, setEditNotes] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
@@ -86,6 +85,7 @@ export function OperatorCreate() {
         setDezenas(first.product?.min_dezenas ?? 6);
         setPrice(first.custom_price ?? Number(first.product?.base_price ?? 0));
         setServiceFee(first.custom_service_fee ?? Number(first.product?.service_fee ?? 0));
+        setDrawTime(first.product?.default_draw_time?.slice(0, 5) ?? DEFAULT_DRAW_TIME);
       }
       setLoading(false);
     })();
@@ -108,6 +108,7 @@ export function OperatorCreate() {
       setDezenas(bp.product.min_dezenas);
       setPrice(bp.custom_price ?? Number(bp.product.base_price));
       setServiceFee(bp.custom_service_fee ?? Number(bp.product.service_fee));
+      setDrawTime(bp.product.default_draw_time?.slice(0, 5) ?? DEFAULT_DRAW_TIME);
     }
   };
 
@@ -118,6 +119,7 @@ export function OperatorCreate() {
     if (!productId) { setError('Selecione um produto.'); return; }
     if (!contestNumber.trim()) { setError('Informe o número do concurso.'); return; }
     if (!drawDate) { setError('Informe a data do sorteio.'); return; }
+    if (!drawTime) { setError('Informe o horário do sorteio.'); return; }
 
     const product = selectedProduct;
     if (product && (dezenas < product.min_dezenas || dezenas > product.max_dezenas)) {
@@ -135,6 +137,7 @@ export function OperatorCreate() {
       price: Number(price),
       service_fee: Number(serviceFee),
       draw_date: drawDate,
+      draw_time: `${drawTime}:00`,
       total_shares: Number(totalShares),
       sold_shares: 0,
       status: 'pending',
@@ -159,6 +162,7 @@ export function OperatorCreate() {
     setEditFee(Number(b.service_fee));
     setEditShares(b.total_shares);
     setEditSold(b.sold_shares);
+    setEditDrawTime(b.draw_time?.slice(0, 5) ?? DEFAULT_DRAW_TIME);
     setEditNotes(b.notes ?? '');
   };
 
@@ -166,14 +170,18 @@ export function OperatorCreate() {
     if (!editing) return;
     setEditSaving(true);
     const sold = Math.min(editSold, editShares);
-    let status: 'pending' | 'partial' | 'sold' = 'pending';
+    // Se o banco já marcou como 'encalhado' (sorteio passou), não revertemos
+    // isso na mão — quem decide é o draw_datetime + pg_cron. Só o progresso
+    // de venda muda enquanto o bolão ainda estiver em aberto.
+    let status: BolaoStatus = editing.status === 'encalhado' ? 'encalhado' : 'pending';
     if (sold >= editShares) status = 'sold';
-    else if (sold > 0) status = 'partial';
+    else if (sold > 0 && editing.status !== 'encalhado') status = 'partial';
     await supabase.from('boloes').update({
       price: Number(editPrice),
       service_fee: Number(editFee),
       total_shares: Number(editShares),
       sold_shares: sold,
+      draw_time: `${editDrawTime}:00`,
       status,
       notes: editNotes.trim() || null,
     }).eq('id', editing.id);
@@ -244,25 +252,13 @@ export function OperatorCreate() {
               <LotteryIcon slug={selectedProduct.slug} size={28} />
               <span>Dezenas: {selectedProduct.min_dezenas} a {selectedProduct.max_dezenas}</span>
               <span>Sorteio: {selectedProduct.draw_frequency ?? '—'}</span>
+              <span>Horário padrão: {selectedProduct.default_draw_time?.slice(0, 5) ?? '—'}</span>
               <span>Preço base: R$ {Number(selectedProduct.base_price).toFixed(2)}</span>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-4">
             <Input label="Número do concurso *" value={contestNumber} onChange={setContestNumber} placeholder="Ex: 2500" required />
-            <Input label="Data do sorteio *" type="date" value={drawDate} onChange={setDrawDate} required />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="Quantidade de dezenas *"
-              type="number"
-              value={dezenas}
-              onChange={(v) => setDezenas(Number(v))}
-              min={selectedProduct?.min_dezenas?.toString() ?? '1'}
-              max={selectedProduct?.max_dezenas?.toString() ?? '100'}
-              required
-            />
             <Input
               label="Total de cotas *"
               type="number"
@@ -274,14 +270,30 @@ export function OperatorCreate() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Preço do bolão (R$) *" type="number" step="0.01" value={price} onChange={(v) => setPrice(Number(v))} min={0} required />
-            <Input label="Comissão / Taxa de serviço (R$) *" type="number" step="0.01" value={serviceFee} onChange={(v) => setServiceFee(Number(v))} min={0} required />
+            <Input label="Data do sorteio *" type="date" value={drawDate} onChange={setDrawDate} required />
+            <Input label="Horário do sorteio *" type="time" value={drawTime} onChange={setDrawTime} required />
+          </div>
+
+          <Input
+            label="Quantidade de dezenas *"
+            type="number"
+            value={dezenas}
+            onChange={(v) => setDezenas(Number(v))}
+            min={selectedProduct?.min_dezenas?.toString() ?? '1'}
+            max={selectedProduct?.max_dezenas?.toString() ?? '100'}
+            required
+          />
+
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Preço da cota (R$) *" type="number" step="0.01" value={price} onChange={(v) => setPrice(Number(v))} min={0} required />
+            <Input label="Comissão por cota (R$) *" type="number" step="0.01" value={serviceFee} onChange={(v) => setServiceFee(Number(v))} min={0} required />
           </div>
 
           <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-6 gap-y-1">
-            <span>Comissão total: <strong>R$ {Number(serviceFee).toFixed(2)}</strong></span>
-            <span>Loterica (70%): <strong>R$ {(Number(serviceFee) * 0.7).toFixed(2)}</strong></span>
-            <span>Operador (30%): <strong>R$ {(Number(serviceFee) * 0.3).toFixed(2)}</strong></span>
+            <span>Valor da cota: <strong>R$ {(Number(price) + Number(serviceFee)).toFixed(2)}</strong></span>
+            <span>Comissão total ({totalShares} cotas): <strong>R$ {(Number(serviceFee) * totalShares).toFixed(2)}</strong></span>
+            <span>Loterica (70%): <strong>R$ {(Number(serviceFee) * totalShares * 0.7).toFixed(2)}</strong></span>
+            <span>Operador (30%): <strong>R$ {(Number(serviceFee) * totalShares * 0.3).toFixed(2)}</strong></span>
           </div>
 
           <label className="block">
@@ -299,7 +311,7 @@ export function OperatorCreate() {
 
           <div className="flex items-center justify-between pt-2 border-t border-slate-100">
             <div className="text-sm text-slate-500">
-              Total do bolão: <span className="font-bold text-slate-900">R$ {(Number(price) + Number(serviceFee)).toFixed(2)}</span>
+              Total do bolão ({totalShares} cotas): <span className="font-bold text-slate-900">R$ {((Number(price) + Number(serviceFee)) * totalShares).toFixed(2)}</span>
             </div>
             <Button type="submit" size="lg" disabled={saving}>
               <Plus size={18} /> {saving ? 'Criando...' : 'Criar Bolão'}
@@ -325,28 +337,25 @@ export function OperatorCreate() {
         ) : (
           <div className="space-y-6">
             {monthGroups.map((group) => {
-              const totalValue = group.boloes.reduce((s, b) => s + Number(b.price) + Number(b.service_fee), 0);
-              const totalCommission = group.boloes.reduce((s, b) => s + Number(b.service_fee), 0);
-              const operatorCommission = totalCommission * 0.3;
-              const lotericaCommission = totalCommission * 0.7;
-              const soldShares = group.boloes.reduce((s, b) => s + b.sold_shares, 0);
-              const unsoldShares = group.boloes.reduce((s, b) => s + (b.total_shares - b.sold_shares), 0);
+              // Mesma fonte de KPI usada no dashboard — nada recalculado na mão aqui.
+              const k = computeBolaoKpis(group.boloes);
 
               return (
                 <Card key={group.key} className="overflow-hidden">
                   <div className="px-5 py-3 bg-brand-50 border-b border-brand-100 flex flex-wrap items-center justify-between gap-2">
                     <h3 className="font-semibold text-brand-900">{group.label}</h3>
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-brand-700">
-                      <span>{group.boloes.length} bolões</span>
-                      <span>Total: <strong>R$ {totalValue.toFixed(2)}</strong></span>
-                      <span>Comissão: <strong>R$ {totalCommission.toFixed(2)}</strong></span>
-                      <span>Operador: <strong>R$ {operatorCommission.toFixed(2)}</strong></span>
+                      <span>{k.gerado.count} bolões</span>
+                      <span>Gerado: <strong>R$ {k.gerado.value.toFixed(2)}</strong></span>
+                      <span>Vendido: <strong>R$ {k.vendido.value.toFixed(2)}</strong></span>
+                      <span>Encalhado: <strong>R$ {k.encalhado.value.toFixed(2)}</strong></span>
+                      <span>Operador (30%): <strong>R$ {k.vendido.operatorCommission.toFixed(2)}</strong></span>
                     </div>
                   </div>
                   <div className="divide-y divide-slate-50">
                     {group.boloes.map((b) => {
-                      const shareVal = b.total_shares > 0 ? (Number(b.price) + Number(b.service_fee)) / b.total_shares : 0;
                       const pct = b.total_shares > 0 ? Math.round((b.sold_shares / b.total_shares) * 100) : 0;
+                      const statusInfo = STATUS_LABELS[b.status];
                       return (
                         <div key={b.id} className="px-5 py-3 hover:bg-slate-50 transition-colors flex items-center gap-3">
                           <LotteryIcon slug={b.product?.slug ?? ''} size={32} />
@@ -354,12 +363,13 @@ export function OperatorCreate() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-medium text-slate-900 text-sm">{b.product?.name ?? '—'}</span>
                               <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
-                              {statusBadge(b.status)}
+                              <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
                             </div>
                             <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
-                              <span>R$ {Number(b.price).toFixed(2)} + R$ {Number(b.service_fee).toFixed(2)} comissão</span>
+                              <span>Cota: R$ {Number(b.price).toFixed(2)} + R$ {Number(b.service_fee).toFixed(2)} comissão</span>
+                              <span>Total: R$ {((Number(b.price) + Number(b.service_fee)) * b.total_shares).toFixed(2)}</span>
                               <span>{b.sold_shares}/{b.total_shares} cotas</span>
-                              <span>{new Date(b.draw_date).toLocaleDateString('pt-BR')}</span>
+                              <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
                             </div>
                           </div>
                           <div className="flex items-center gap-2">
@@ -393,20 +403,36 @@ export function OperatorCreate() {
               </div>
             </div>
 
+            {editing.status === 'encalhado' && (
+              <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-xs text-red-700">
+                Este bolão já passou da data/hora do sorteio e está marcado como encalhado. As cotas restantes não podem mais ser vendidas.
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
-              <Input label="Preço do bolão (R$)" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} />
-              <Input label="Comissão / Taxa (R$)" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} />
+              <Input label="Preço da cota (R$)" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} />
+              <Input label="Comissão por cota (R$)" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} />
             </div>
 
+            <Input label="Horário do sorteio" type="time" value={editDrawTime} onChange={setEditDrawTime} />
+
             <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-4 gap-y-1">
-              <span>Comissão total: <strong>R$ {Number(editFee).toFixed(2)}</strong></span>
-              <span>Loterica (70%): <strong>R$ {(Number(editFee) * 0.7).toFixed(2)}</strong></span>
-              <span>Operador (30%): <strong>R$ {(Number(editFee) * 0.3).toFixed(2)}</strong></span>
+              <span>Total do bolão ({editShares} cotas): <strong>R$ {((Number(editPrice) + Number(editFee)) * editShares).toFixed(2)}</strong></span>
+              <span>Comissão total: <strong>R$ {(Number(editFee) * editShares).toFixed(2)}</strong></span>
+              <span>Loterica (70%): <strong>R$ {(Number(editFee) * editShares * 0.7).toFixed(2)}</strong></span>
+              <span>Operador (30%): <strong>R$ {(Number(editFee) * editShares * 0.3).toFixed(2)}</strong></span>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <Input label="Total de cotas" type="number" value={editShares} onChange={(v) => setEditShares(Number(v))} min={1} />
-              <Input label="Cotas vendidas" type="number" value={editSold} onChange={(v) => setEditSold(Number(v))} min={0} />
+              <Input
+                label="Cotas vendidas"
+                type="number"
+                value={editSold}
+                onChange={(v) => setEditSold(Number(v))}
+                min={0}
+                max={editing.status === 'encalhado' ? editSold : undefined}
+              />
             </div>
 
             <label className="block">
