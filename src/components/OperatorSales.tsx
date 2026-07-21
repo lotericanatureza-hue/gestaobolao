@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Calendar, Clock, DollarSign, ShoppingBag, TrendingDown, Repeat, Info } from 'lucide-react';
+import { Ticket, Calendar, Clock, DollarSign, ShoppingBag, TrendingDown, Repeat, Info, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -35,6 +35,7 @@ export function OperatorSales() {
   const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
   const [colleagues, setColleagues] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<BolaoOperatorAllocation | null>(null);
   const [editSold, setEditSold] = useState(0);
@@ -48,78 +49,78 @@ export function OperatorSales() {
   const [transferError, setTransferError] = useState<string | null>(null);
 
   const fetchAllocations = useCallback(async () => {
-    if (!profile?.id) { 
-      setLoading(false); 
-      return; 
+    if (!profile?.id) {
+      setLoading(false);
+      return;
     }
     setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('bolao_operator_allocations')
-        .select('*, bolao:boloes(*, product:products(*), branch:branches(*))')
-        .eq('operator_id', profile.id)
-        .order('created_at', { ascending: false });
-      
-      if (error) throw error;
+    setError(null);
+    const { data, error: err } = await supabase
+      .from('bolao_operator_allocations')
+      .select('*, bolao:boloes(*, product:products(*), branch:branches(*))')
+      .eq('operator_id', profile.id)
+      .order('created_at', { ascending: false });
+    if (err) {
+      setError('Erro ao carregar suas alocações: ' + err.message);
+    } else {
       setAllocations((data ?? []) as BolaoOperatorAllocation[]);
-    } catch (err) {
-      console.error('Erro ao buscar alocações:', err);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }, [profile]);
 
   const fetchColleagues = useCallback(async () => {
-    if (!profile?.branch_id) return;
+    if (!profile?.branch_id) {
+      console.warn('Operador sem branch_id – não é possível buscar colegas.');
+      setColleagues([]);
+      return;
+    }
     try {
-      const { data, error } = await supabase
+      console.log('Buscando colegas para branch_id:', profile.branch_id);
+      const { data, error: err } = await supabase
         .from('profiles')
         .select('*')
         .eq('branch_id', profile.branch_id)
         .eq('role', 'operator')
         .neq('id', profile.id)
         .order('name');
-      
-      if (error) throw error;
-      setColleagues((data ?? []) as Profile[]);
-    } catch (err) {
-      console.error('Erro ao buscar colegas:', err);
+      if (err) {
+        console.error('Erro ao buscar colegas:', err);
+        setColleagues([]);
+      } else {
+        console.log('Colegas encontrados:', data?.length ?? 0);
+        setColleagues((data ?? []) as Profile[]);
+      }
+    } catch (e) {
+      console.error('Exceção ao buscar colegas:', e);
       setColleagues([]);
     }
   }, [profile]);
 
-  // Buscar dados iniciais e configurar inscrições em tempo real
   useEffect(() => {
-    let isMounted = true;
-
-    const loadData = async () => {
-      if (!profile?.id) {
-        setLoading(false);
-        return;
-      }
-      setLoading(true);
-      await Promise.all([fetchAllocations(), fetchColleagues()]);
+    if (profile?.id) {
+      fetchAllocations();
+      fetchColleagues();
+    } else {
       setLoading(false);
-    };
+    }
+  }, [profile, fetchAllocations, fetchColleagues]);
 
-    loadData();
+  // Recarregar colegas manualmente (para testes)
+  const refreshColleagues = () => {
+    fetchColleagues();
+  };
 
-    // Inscrever-se para mudanças em tempo real
+  // Inscrição em tempo real
+  useEffect(() => {
+    if (!profile?.id) return;
     const channel = supabase
       .channel('operator-sales-allocations')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_operator_allocations' }, () => {
-        if (isMounted) fetchAllocations();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => {
-        if (isMounted) fetchAllocations();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_operator_allocations' }, () => fetchAllocations())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => fetchAllocations())
       .subscribe();
 
-    return () => {
-      isMounted = false;
-      supabase.removeChannel(channel);
-    };
-  }, [profile, fetchAllocations, fetchColleagues]);
+    return () => { supabase.removeChannel(channel); };
+  }, [profile, fetchAllocations]);
 
   const openEdit = (a: BolaoOperatorAllocation) => {
     setEditing(a);
@@ -131,20 +132,18 @@ export function OperatorSales() {
     if (!editing) return;
     setEditSaving(true);
     setEditError(null);
-    try {
-      const { error } = await supabase.rpc('sell_bolao_shares', {
-        p_bolao_id: editing.bolao_id,
-        p_operator_id: editing.operator_id,
-        p_shares_sold: Number(editSold),
-      });
-      if (error) throw error;
-      setEditing(null);
-      fetchAllocations();
-    } catch (err: any) {
-      setEditError(err.message || 'Erro ao registrar venda');
-    } finally {
-      setEditSaving(false);
+    const { error: rpcError } = await supabase.rpc('sell_bolao_shares', {
+      p_bolao_id: editing.bolao_id,
+      p_operator_id: editing.operator_id,
+      p_shares_sold: Number(editSold),
+    });
+    setEditSaving(false);
+    if (rpcError) {
+      setEditError(rpcError.message);
+      return;
     }
+    setEditing(null);
+    fetchAllocations();
   };
 
   const openTransfer = (a: BolaoOperatorAllocation) => {
@@ -161,23 +160,19 @@ export function OperatorSales() {
     }
     setTransferSaving(true);
     setTransferError(null);
-    try {
-      const { error } = await supabase.rpc('transfer_bolao_shares', {
-        p_bolao_id: transferring.bolao_id,
-        p_from_operator_id: transferring.operator_id,
-        p_to_operator_id: transferTo,
-        p_shares: Number(transferShares),
-      });
-      if (error) throw error;
-      setTransferring(null);
-      fetchAllocations();
-      // Atualizar lista de colegas (caso algum tenha sido adicionado/removido)
-      fetchColleagues();
-    } catch (err: any) {
-      setTransferError(err.message || 'Erro ao repassar cotas');
-    } finally {
-      setTransferSaving(false);
+    const { error: rpcError } = await supabase.rpc('transfer_bolao_shares', {
+      p_bolao_id: transferring.bolao_id,
+      p_from_operator_id: transferring.operator_id,
+      p_to_operator_id: transferTo,
+      p_shares: Number(transferShares),
+    });
+    setTransferSaving(false);
+    if (rpcError) {
+      setTransferError(rpcError.message);
+      return;
     }
+    setTransferring(null);
+    fetchAllocations();
   };
 
   if (loading) {
@@ -189,7 +184,16 @@ export function OperatorSales() {
       <div>
         <PageHeader title="Minhas Vendas" />
         <Card>
-          <EmptyState icon={<Ticket size={48} />} title="Você não está alocado em nenhuma filial" description="Solicite ao administrador que aloque você em uma filial." />
+          <EmptyState 
+            icon={<AlertCircle size={48} />} 
+            title="Você não está alocado em nenhuma filial" 
+            description="Solicite ao administrador que aloque você em uma filial para poder vender cotas." 
+          />
+          <div className="text-center mt-4">
+            <Button variant="secondary" onClick={refreshColleagues} size="sm">
+              Verificar novamente
+            </Button>
+          </div>
         </Card>
       </div>
     );
@@ -201,6 +205,14 @@ export function OperatorSales() {
   return (
     <div>
       <PageHeader title="Minhas Vendas" subtitle="Cotas de bolão alocadas a você para vender" />
+
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 text-red-700 text-sm flex items-center gap-2">
+          <AlertCircle size={16} />
+          {error}
+          <button onClick={() => setError(null)} className="ml-auto text-red-500 hover:text-red-700">×</button>
+        </div>
+      )}
 
       {/* KPIs da sua fatia */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -362,18 +374,20 @@ export function OperatorSales() {
               <p className="text-xs text-slate-500">(as já vendidas não podem ser repassadas)</p>
             </div>
 
-            {colleagues.length === 0 ? (
-              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-700">
-                Não há outros operadores cadastrados na sua filial para repassar cotas.
+            <Select
+              label="Repassar para"
+              value={transferTo}
+              onChange={setTransferTo}
+              placeholder={colleagues.length === 0 ? "Nenhum colega disponível" : "Selecione um colega da mesma filial"}
+              options={colleagues.map((c) => ({ value: c.id, label: c.name }))}
+            />
+
+            {colleagues.length === 0 && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-xs text-yellow-700">
+                Nenhum outro operador encontrado na sua filial. <br />
+                Verifique se há outros operadores cadastrados e se eles têm a mesma filial que você.
+                <button onClick={refreshColleagues} className="ml-2 text-brand-600 underline">Recarregar</button>
               </div>
-            ) : (
-              <Select
-                label="Repassar para"
-                value={transferTo}
-                onChange={setTransferTo}
-                placeholder="Selecione um colega da mesma filial"
-                options={colleagues.map((c) => ({ value: c.id, label: c.name }))}
-              />
             )}
 
             <Input
@@ -393,7 +407,9 @@ export function OperatorSales() {
 
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="secondary" onClick={() => setTransferring(null)}>Cancelar</Button>
-              <Button onClick={doTransfer} disabled={transferSaving || colleagues.length === 0}>{transferSaving ? 'Repassando...' : 'Repassar'}</Button>
+              <Button onClick={doTransfer} disabled={transferSaving || colleagues.length === 0}>
+                {transferSaving ? 'Repassando...' : 'Repassar'}
+              </Button>
             </div>
           </div>
         )}
