@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Plus, Store, Calendar, Clock } from 'lucide-react';
+import { Ticket, Plus, Store, Calendar, Clock, Pencil } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
-import { Card, Button, Input, Select, Spinner, EmptyState, Badge } from './ui';
+import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { STATUS_LABELS } from '../lib/bolaoKpis';
 import type { Branch, BranchProduct, Bolao } from '../lib/types';
@@ -21,6 +21,7 @@ export function AdminCreateBolao() {
   const [productId, setProductId] = useState('');
   const [contestNumber, setContestNumber] = useState('');
   const [dezenas, setDezenas] = useState(6);
+  const [jogos, setJogos] = useState(1);
   const [price, setPrice] = useState(0);
   const [serviceFee, setServiceFee] = useState(0);
   const [drawDate, setDrawDate] = useState('');
@@ -29,6 +30,19 @@ export function AdminCreateBolao() {
   const [notes, setNotes] = useState('');
 
   const [recentBoloes, setRecentBoloes] = useState<Bolao[]>([]);
+
+  const [editing, setEditing] = useState<Bolao | null>(null);
+  const [editContestNumber, setEditContestNumber] = useState('');
+  const [editDezenas, setEditDezenas] = useState(6);
+  const [editJogos, setEditJogos] = useState(1);
+  const [editPrice, setEditPrice] = useState(0);
+  const [editFee, setEditFee] = useState(0);
+  const [editDrawDate, setEditDrawDate] = useState('');
+  const [editDrawTime, setEditDrawTime] = useState(DEFAULT_DRAW_TIME);
+  const [editTotalShares, setEditTotalShares] = useState(1);
+  const [editNotes, setEditNotes] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const fetchBranches = useCallback(async () => {
     const { data } = await supabase.from('branches').select('*').order('name');
@@ -87,6 +101,46 @@ export function AdminCreateBolao() {
     }
   };
 
+  const openEdit = (b: Bolao) => {
+    setEditing(b);
+    setEditContestNumber(b.contest_number);
+    setEditDezenas(b.dezenas);
+    setEditJogos(b.jogos);
+    setEditPrice(Number(b.price));
+    setEditFee(Number(b.service_fee));
+    setEditDrawDate(b.draw_date);
+    setEditDrawTime(b.draw_time?.slice(0, 5) ?? DEFAULT_DRAW_TIME);
+    setEditTotalShares(b.total_shares);
+    setEditNotes(b.notes ?? '');
+    setEditError(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editing) return;
+    setEditSaving(true);
+    setEditError(null);
+    const { error: updateError } = await supabase.from('boloes').update({
+      contest_number: editContestNumber.trim(),
+      dezenas: Number(editDezenas),
+      jogos: Number(editJogos),
+      price: Number(editPrice),
+      service_fee: Number(editFee),
+      draw_date: editDrawDate,
+      draw_time: `${editDrawTime}:00`,
+      total_shares: Number(editTotalShares),
+      notes: editNotes.trim() || null,
+    }).eq('id', editing.id);
+    setEditSaving(false);
+    if (updateError) {
+      // O banco recusa reduzir total_shares abaixo do que já foi alocado
+      // a operadores (trigger trg_check_bolao_total_shares_reduction).
+      setEditError(updateError.message);
+      return;
+    }
+    setEditing(null);
+    fetchRecentBoloes();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -111,6 +165,7 @@ export function AdminCreateBolao() {
       operator_id: null,
       contest_number: contestNumber.trim(),
       dezenas: Number(dezenas),
+      jogos: Number(jogos),
       price: Number(price),
       service_fee: Number(serviceFee),
       draw_date: drawDate,
@@ -129,6 +184,7 @@ export function AdminCreateBolao() {
     setContestNumber('');
     setNotes('');
     setTotalShares(1);
+    setJogos(1);
     setSuccess(true);
     setTimeout(() => setSuccess(false), 3000);
     fetchRecentBoloes();
@@ -204,15 +260,18 @@ export function AdminCreateBolao() {
               <Input label="Horário do sorteio *" type="time" value={drawTime} onChange={setDrawTime} required />
             </div>
 
-            <Input
-              label="Quantidade de dezenas *"
-              type="number"
-              value={dezenas}
-              onChange={(v) => setDezenas(Number(v))}
-              min={selectedProduct?.min_dezenas?.toString() ?? '1'}
-              max={selectedProduct?.max_dezenas?.toString() ?? '100'}
-              required
-            />
+            <div className="grid grid-cols-2 gap-4">
+              <Input
+                label="Quantidade de dezenas *"
+                type="number"
+                value={dezenas}
+                onChange={(v) => setDezenas(Number(v))}
+                min={selectedProduct?.min_dezenas?.toString() ?? '1'}
+                max={selectedProduct?.max_dezenas?.toString() ?? '100'}
+                required
+              />
+              <Input label="Quantidade de jogos *" type="number" value={jogos} onChange={(v) => setJogos(Number(v))} min={1} required />
+            </div>
 
             <div className="grid grid-cols-2 gap-4">
               <Input label="Preço da cota (R$) *" type="number" step="0.01" value={price} onChange={(v) => setPrice(Number(v))} min={0} required />
@@ -275,10 +334,14 @@ export function AdminCreateBolao() {
                         <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
+                        <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
                         <span>{b.sold_shares}/{b.total_shares} cotas vendidas</span>
                         <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
                       </div>
                     </div>
+                    <Button size="sm" variant="secondary" onClick={() => openEdit(b)}>
+                      <Pencil size={14} /> Editar
+                    </Button>
                   </div>
                 );
               })}
@@ -286,6 +349,69 @@ export function AdminCreateBolao() {
           </Card>
         )}
       </div>
+
+      {/* Edit modal */}
+      <Modal open={!!editing} onClose={() => setEditing(null)} title="Editar Bolão">
+        {editing && (
+          <div className="space-y-4">
+            <div className="bg-slate-50 rounded-lg p-3 flex items-center gap-3">
+              <LotteryIcon slug={editing.product?.slug ?? ''} size={32} />
+              <div>
+                <p className="font-semibold text-brand-950">{editing.product?.name}</p>
+                <p className="text-xs text-slate-400">Concurso {editing.contest_number}</p>
+              </div>
+            </div>
+
+            {(editing.status === 'sold' || editing.status === 'encalhado') && (
+              <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-700">
+                Este bolão já está {editing.status === 'sold' ? 'totalmente vendido' : 'encalhado'}. Você ainda pode corrigir dados de cadastro, mas tenha cuidado ao mudar o total de cotas.
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Número do concurso *" value={editContestNumber} onChange={setEditContestNumber} required />
+              <Input label="Total de cotas *" type="number" value={editTotalShares} onChange={(v) => setEditTotalShares(Number(v))} min={1} required />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Data do sorteio *" type="date" value={editDrawDate} onChange={setEditDrawDate} required />
+              <Input label="Horário do sorteio *" type="time" value={editDrawTime} onChange={setEditDrawTime} required />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Quantidade de dezenas *" type="number" value={editDezenas} onChange={(v) => setEditDezenas(Number(v))} min={1} required />
+              <Input label="Quantidade de jogos *" type="number" value={editJogos} onChange={(v) => setEditJogos(Number(v))} min={1} required />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Preço da cota (R$) *" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} required />
+              <Input label="Comissão por cota (R$) *" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} required />
+            </div>
+
+            <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-6 gap-y-1">
+              <span>Total do bolão ({editTotalShares} cotas): <strong>R$ {((Number(editPrice) + Number(editFee)) * editTotalShares).toFixed(2)}</strong></span>
+              <span>Comissão total: <strong>R$ {(Number(editFee) * editTotalShares).toFixed(2)}</strong></span>
+            </div>
+
+            <label className="block">
+              <span className="block text-sm font-medium text-slate-700 mb-1.5">Observações</span>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                rows={3}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all"
+              />
+            </label>
+
+            {editError && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3">{editError}</p>}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="secondary" onClick={() => setEditing(null)}>Cancelar</Button>
+              <Button onClick={saveEdit} disabled={editSaving}>{editSaving ? 'Salvando...' : 'Salvar'}</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
