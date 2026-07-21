@@ -51,6 +51,7 @@ export interface Bolao {
   operator_id: string | null; // opcional: admin cria o bolão sem operador definido
   contest_number: string;
   dezenas: number;
+  jogos: number; // quantidade de jogos do bolão (cada um com `dezenas` números)
   price: number;
   service_fee: number;
   draw_date: string;
