@@ -191,8 +191,8 @@ export function AdminBolaoAllocations() {
         </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-          {/* Lista compacta de bolões, já com o valor total à mostra */}
-          <div className="lg:col-span-2 space-y-2">
+          {/* Lista compacta de bolões, com valor total e valor unitário */}
+          <div className="lg:col-span-2 space-y-2 max-h-[600px] overflow-y-auto pr-1">
             {boloes.map((bolao) => {
               const perShare = Number(bolao.price) + Number(bolao.service_fee);
               const totalValue = perShare * bolao.total_shares;
@@ -217,6 +217,7 @@ export function AdminBolaoAllocations() {
                       </div>
                       <p className="text-xs text-slate-400">Concurso {bolao.contest_number} · {new Date(bolao.draw_date).toLocaleDateString('pt-BR')}</p>
                       <p className="text-sm font-semibold text-brand-700 mt-1">R$ {totalValue.toFixed(2)}</p>
+                      <p className="text-xs text-slate-400">R$ {perShare.toFixed(2)} por cota</p>
                     </div>
                   </div>
                   <div className="mt-2">
@@ -313,7 +314,7 @@ function BolaoAllocationPanel({
 
   return (
     <Card className="overflow-hidden">
-      {/* Cabeçalho com todos os valores em destaque — é o que faltava */}
+      {/* Cabeçalho com todos os valores em destaque */}
       <div className="px-5 py-4 bg-brand-50 border-b border-brand-100">
         <div className="flex items-center gap-3 mb-3">
           <LotteryIcon slug={bolao.product?.slug ?? ''} size={36} />
