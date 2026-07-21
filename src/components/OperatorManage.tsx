@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Trash2, Pencil, ShoppingBag, Plus, Minus, DollarSign, Percent, TrendingDown, Calendar, Clock } from 'lucide-react';
+import { Trash2, Pencil, ShoppingBag, Plus, Minus, DollarSign, TrendingDown, Calendar, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';

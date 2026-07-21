@@ -3,8 +3,8 @@ import { LogOut, Menu, X } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { Badge } from './ui';
 
-export type AdminView = 'dashboard' | 'branches' | 'products' | 'allocations' | 'users';
-export type OperatorView = 'create' | 'manage';
+export type AdminView = 'dashboard' | 'branches' | 'products' | 'allocations' | 'create-bolao' | 'bolao-allocations' | 'users';
+export type OperatorView = 'sales' | 'manage';
 
 interface LayoutProps {
   children: ReactNode;
