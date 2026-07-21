@@ -335,6 +335,8 @@ export function AdminCreateBolao() {
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
                         <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
+                        <span>Cota: R$ {Number(b.price).toFixed(2)} + R$ {Number(b.service_fee).toFixed(2)} comissão</span>
+                        <span className="font-medium text-slate-600">Total: R$ {((Number(b.price) + Number(b.service_fee)) * b.total_shares).toFixed(2)}</span>
                         <span>{b.sold_shares}/{b.total_shares} cotas vendidas</span>
                         <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
                       </div>
