@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Trash2, Pencil, ShoppingBag, Plus, Minus, DollarSign, TrendingDown, Calendar, Clock } from 'lucide-react';
+import { ShoppingBag, DollarSign, TrendingDown, Calendar, Clock } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
-import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
+import { Card, Input, Select, Spinner, EmptyState, Badge } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import { computeBolaoKpis, STATUS_LABELS, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
-import type { Bolao, BolaoStatus } from '../lib/types';
+import { computeAllocationKpis, STATUS_LABELS, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
+import type { BolaoOperatorAllocation, BolaoStatus } from '../lib/types';
 
 type FilterStatus = 'all' | BolaoStatus;
 
@@ -15,109 +15,66 @@ const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 
 interface MonthGroup {
   key: string;
   label: string;
-  boloes: Bolao[];
+  allocations: BolaoOperatorAllocation[];
   kpis: BolaoKpis;
 }
 
-function groupByMonth(boloes: Bolao[]): MonthGroup[] {
+function groupByMonth(allocations: BolaoOperatorAllocation[]): MonthGroup[] {
   const map = new Map<string, MonthGroup>();
-  for (const b of boloes) {
-    const d = new Date(b.created_at);
+  for (const a of allocations) {
+    const created = a.bolao?.created_at ?? a.created_at;
+    const d = new Date(created);
     const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
     if (!map.has(key)) {
-      map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeBolaoKpis([]) });
+      map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, allocations: [], kpis: computeAllocationKpis([]) });
     }
-    map.get(key)!.boloes.push(b);
+    map.get(key)!.allocations.push(a);
   }
   const groups = Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
-  for (const g of groups) g.kpis = computeBolaoKpis(g.boloes);
+  for (const g of groups) g.kpis = computeAllocationKpis(g.allocations);
   return groups;
 }
 
 export function OperatorManage() {
   const { profile } = useAuth();
-  const [boloes, setBoloes] = useState<Bolao[]>([]);
+  const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [search, setSearch] = useState('');
-  const [editing, setEditing] = useState<Bolao | null>(null);
-  const [editSold, setEditSold] = useState(0);
-  const [editTotal, setEditTotal] = useState(1);
-  const [editPrice, setEditPrice] = useState(0);
-  const [editFee, setEditFee] = useState(0);
-  const [editDrawTime, setEditDrawTime] = useState('20:00');
-  const [editNotes, setEditNotes] = useState('');
-  const [saving, setSaving] = useState(false);
 
-  const fetchBoloes = useCallback(async () => {
-    if (!profile?.branch_id) { setLoading(false); return; }
+  const fetchAllocations = useCallback(async () => {
+    if (!profile?.id) { setLoading(false); return; }
     setLoading(true);
+    // Só a fatia deste operador — nada de outros bolões da filial que não
+    // foram alocados a ele.
     const { data } = await supabase
-      .from('boloes')
-      .select('*, product:products(*), branch:branches(*), operator:profiles(*)')
-      .eq('branch_id', profile.branch_id)
+      .from('bolao_operator_allocations')
+      .select('*, bolao:boloes(*, product:products(*), branch:branches(*))')
+      .eq('operator_id', profile.id)
       .order('created_at', { ascending: false });
-    setBoloes((data ?? []) as Bolao[]);
+    setAllocations((data ?? []) as BolaoOperatorAllocation[]);
     setLoading(false);
   }, [profile]);
 
   useEffect(() => {
-    fetchBoloes();
+    fetchAllocations();
 
     const channel = supabase
-      .channel('operator-manage-boloes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => fetchBoloes())
+      .channel('operator-manage-allocations')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_operator_allocations' }, () => fetchAllocations())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => fetchAllocations())
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [fetchBoloes]);
+  }, [fetchAllocations]);
 
-  const openEdit = (b: Bolao) => {
-    setEditing(b);
-    setEditSold(b.sold_shares);
-    setEditTotal(b.total_shares);
-    setEditPrice(Number(b.price));
-    setEditFee(Number(b.service_fee));
-    setEditDrawTime(b.draw_time?.slice(0, 5) ?? '20:00');
-    setEditNotes(b.notes ?? '');
-  };
+  if (loading) {
+    return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
+  }
 
-  const saveEdit = async () => {
-    if (!editing) return;
-    setSaving(true);
-    const sold = Math.min(Number(editSold), Number(editTotal));
-    // Não sobrescrevemos 'encalhado' aqui manualmente — quem decide isso é o
-    // banco (draw_datetime + pg_cron). Só ajustamos o progresso de venda.
-    let status: BolaoStatus = editing.status === 'encalhado' ? 'encalhado' : 'pending';
-    if (sold >= Number(editTotal)) status = 'sold';
-    else if (sold > 0 && editing.status !== 'encalhado') status = 'partial';
-
-    await supabase.from('boloes').update({
-      sold_shares: sold,
-      total_shares: Number(editTotal),
-      price: Number(editPrice),
-      service_fee: Number(editFee),
-      draw_time: `${editDrawTime}:00`,
-      status,
-      notes: editNotes.trim() || null,
-    }).eq('id', editing.id);
-    setSaving(false);
-    setEditing(null);
-  };
-
-  const quickSellShare = async (b: Bolao) => {
-    if (b.sold_shares >= b.total_shares) return;
-    const newSold = b.sold_shares + 1;
-    const status: BolaoStatus = newSold >= b.total_shares ? 'sold' : 'partial';
-    await supabase.from('boloes').update({ sold_shares: newSold, status }).eq('id', b.id);
-  };
-
-  const remove = async (b: Bolao) => {
-    if (!confirm(`Excluir o bolão "${b.product?.name}" - Concurso ${b.contest_number}?`)) return;
-    await supabase.from('boloes').delete().eq('id', b.id);
-  };
-
-  const filtered = boloes.filter((b) => {
+  const filtered = allocations.filter((a) => {
+    const b = a.bolao;
+    if (!b) return false;
     if (filter !== 'all' && b.status !== filter) return false;
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -126,25 +83,21 @@ export function OperatorManage() {
     return true;
   });
 
-  if (loading) {
-    return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
-  }
-
-  const monthGroups = groupByMonth(boloes);
-  const kpis = computeBolaoKpis(boloes);
+  const monthGroups = groupByMonth(allocations);
+  const kpis = computeAllocationKpis(allocations);
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Gestão de bolões, comissões e encalhes da sua filial" />
+      <PageHeader title="Dashboard" subtitle="Suas cotas, comissões e encalhes — só o que está alocado a você" />
 
-      {/* General KPIs — Gerado / Vendido / Encalhado, mesma base de valor (bolão + comissão) */}
+      {/* KPIs da sua fatia (não da filial inteira) */}
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <KpiCard
           icon={<ShoppingBag size={22} />}
-          label="Gerado"
+          label="Recebido"
           bigValue={`R$ ${kpis.gerado.value.toFixed(2)}`}
-          smallValue={pluralize(kpis.gerado.count, 'bolão', 'bolões')}
+          smallValue={pluralize(kpis.gerado.shares, 'cota', 'cotas')}
           color="brand"
           lines={[{ label: 'Comissão total', value: `R$ ${kpis.gerado.commission.toFixed(2)}` }]}
         />
@@ -154,10 +107,7 @@ export function OperatorManage() {
           bigValue={`R$ ${kpis.vendido.value.toFixed(2)}`}
           smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')}
           color="emerald"
-          lines={[
-            { label: 'Casa (70%)', value: `R$ ${kpis.vendido.lotericaCommission.toFixed(2)}` },
-            { label: 'Operador (30%)', value: `R$ ${kpis.vendido.operatorCommission.toFixed(2)}` },
-          ]}
+          lines={[{ label: 'Sua comissão (30%)', value: `R$ ${kpis.vendido.operatorCommission.toFixed(2)}` }]}
         />
         <KpiCard
           icon={<TrendingDown size={22} />}
@@ -182,7 +132,7 @@ export function OperatorManage() {
 
       {monthGroups.length === 0 ? (
         <Card>
-          <EmptyState icon={<ShoppingBag size={48} />} title="Nenhum bolão criado" description="Crie bolões na aba 'Criar Bolão' para começar." />
+          <EmptyState icon={<ShoppingBag size={48} />} title="Nenhuma cota alocada ainda" description="Quando o administrador te alocar cotas de um bolão, elas aparecerão aqui." />
         </Card>
       ) : (
         <div className="space-y-6 mb-8">
@@ -192,7 +142,7 @@ export function OperatorManage() {
                 <h3 className="font-semibold text-brand-900">{group.label}</h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
-                <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${group.kpis.gerado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
+                <KpiCard icon={<ShoppingBag size={20} />} label="Recebido" bigValue={`R$ ${group.kpis.gerado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.gerado.shares, 'cota', 'cotas')} color="brand" />
                 <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${group.kpis.vendido.value.toFixed(2)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
                 <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${group.kpis.encalhado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
                 <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${group.kpis.emAberto.value.toFixed(2)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
@@ -202,8 +152,8 @@ export function OperatorManage() {
         </div>
       )}
 
-      {/* Filters + List */}
-      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Bolões</h2>
+      {/* Filters + List (só leitura — dar baixa e repasse ficam em "Minhas Vendas") */}
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Suas Cotas</h2>
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="flex-1">
           <Input value={search} onChange={setSearch} placeholder="Buscar por produto ou concurso..." />
@@ -227,21 +177,19 @@ export function OperatorManage() {
         <Card>
           <EmptyState
             icon={<ShoppingBag size={48} />}
-            title={boloes.length === 0 ? 'Nenhum bolão criado' : 'Nenhum bolão encontrado'}
-            description={boloes.length === 0 ? "Crie bolões na aba 'Criar Bolão' para começar." : 'Tente outro filtro ou busca.'}
+            title={allocations.length === 0 ? 'Nenhuma cota alocada ainda' : 'Nenhuma cota encontrada'}
+            description={allocations.length === 0 ? 'Quando o administrador te alocar cotas de um bolão, elas aparecerão aqui.' : 'Tente outro filtro ou busca.'}
           />
         </Card>
       ) : (
         <div className="space-y-3">
-          {filtered.map((b) => {
-            const pct = b.total_shares > 0 ? Math.round((b.sold_shares / b.total_shares) * 100) : 0;
-            const nextQuota = b.sold_shares + 1;
-            // price e service_fee já são o valor de UMA cota.
-            const shareValue = Number(b.price) + Number(b.service_fee);
-            const totalBolaoValue = shareValue * b.total_shares;
+          {filtered.map((a) => {
+            const b = a.bolao;
+            if (!b) return null;
+            const pct = a.shares_allocated > 0 ? Math.round((a.shares_sold / a.shares_allocated) * 100) : 0;
             const statusInfo = STATUS_LABELS[b.status];
             return (
-              <Card key={b.id} className="p-4 hover:shadow-md transition-shadow">
+              <Card key={a.id} className="p-4 hover:shadow-md transition-shadow">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="flex items-start gap-3 flex-1 min-w-0">
                     <LotteryIcon slug={b.product?.slug ?? ''} size={40} />
@@ -252,120 +200,25 @@ export function OperatorManage() {
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-400 mt-1">
                         <span>Concurso: {b.contest_number}</span>
-                        <span>Dezenas: {b.dezenas}</span>
+                        <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
                         <span>Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
-                        <span>Cota: R$ {Number(b.price).toFixed(2)} + R$ {Number(b.service_fee).toFixed(2)} comissão</span>
-                        <span>Total do bolão: R$ {totalBolaoValue.toFixed(2)}</span>
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
-                    <div className="text-right">
-                      <div className="flex items-center gap-2 mb-1">
-                        <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : pct > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
-                        </div>
+                  <div className="text-right">
+                    <div className="flex items-center gap-2 mb-1 justify-end">
+                      <div className="w-24 h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : pct > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
                       </div>
-                      <p className="text-xs text-slate-500">{b.sold_shares}/{b.total_shares} cotas · R$ {shareValue.toFixed(2)}/cota</p>
                     </div>
-                    {b.sold_shares < b.total_shares && b.status !== 'encalhado' && (
-                      <Button size="sm" variant="accent" onClick={() => quickSellShare(b)}>
-                        <Plus size={14} /> Cota {nextQuota}
-                      </Button>
-                    )}
-                    <div className="flex gap-1">
-                      <Button size="sm" variant="secondary" onClick={() => openEdit(b)}><Pencil size={14} /></Button>
-                      <Button size="sm" variant="danger" onClick={() => remove(b)}><Trash2 size={14} /></Button>
-                    </div>
+                    <p className="text-xs text-slate-500">{a.shares_sold}/{a.shares_allocated} cotas suas</p>
                   </div>
                 </div>
-                {b.notes && <p className="text-xs text-slate-400 mt-2 pt-2 border-t border-slate-50">{b.notes}</p>}
               </Card>
             );
           })}
         </div>
       )}
-
-      <Modal open={!!editing} onClose={() => setEditing(null)} title="Editar Bolão">
-        {editing && (
-          <div className="space-y-4">
-            <div className="bg-slate-50 rounded-lg p-3 flex items-center gap-3">
-              <LotteryIcon slug={editing.product?.slug ?? ''} size={32} />
-              <div>
-                <p className="font-semibold text-brand-950">{editing.product?.name}</p>
-                <p className="text-xs text-slate-400">Concurso {editing.contest_number} · Sorteio {new Date(editing.draw_date).toLocaleDateString('pt-BR')}</p>
-              </div>
-            </div>
-
-            {editing.status === 'encalhado' && (
-              <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-xs text-red-700">
-                Este bolão já passou da data/hora do sorteio e está marcado como encalhado. As cotas restantes não podem mais ser vendidas.
-              </div>
-            )}
-
-            <div className="bg-brand-50 rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="text-sm font-medium text-brand-900">Baixa de Cota Vendida</span>
-                <span className="text-xs text-slate-500">Próxima cota: <span className="font-bold text-brand-700">#{editSold + 1}</span></span>
-              </div>
-              <div className="flex items-center justify-center gap-4">
-                <button
-                  type="button"
-                  onClick={() => setEditSold(Math.max(0, editSold - 1))}
-                  disabled={editSold <= 0}
-                  className="w-10 h-10 rounded-lg bg-white border border-slate-200 text-slate-600 flex items-center justify-center hover:bg-slate-50 disabled:opacity-40 transition-all"
-                >
-                  <Minus size={18} />
-                </button>
-                <div className="text-center">
-                  <p className="text-3xl font-bold text-brand-700">{editSold}</p>
-                  <p className="text-xs text-slate-400">de {editTotal} cotas</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setEditSold(Math.min(editTotal, editSold + 1))}
-                  disabled={editSold >= editTotal || editing.status === 'encalhado'}
-                  className="w-10 h-10 rounded-lg bg-accent-500 text-white flex items-center justify-center hover:bg-accent-600 disabled:opacity-40 transition-all"
-                >
-                  <Plus size={18} />
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Preço da cota (R$)" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} />
-              <Input label="Comissão por cota (R$)" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} />
-            </div>
-
-            <Input label="Horário do sorteio" type="time" value={editDrawTime} onChange={setEditDrawTime} />
-
-            <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-4 gap-y-1">
-              <span>Total do bolão ({editTotal} cotas): <strong>R$ {((Number(editPrice) + Number(editFee)) * editTotal).toFixed(2)}</strong></span>
-              <span>Comissão total: <strong>R$ {(Number(editFee) * editTotal).toFixed(2)}</strong></span>
-              <span>Casa (70%): <strong>R$ {(Number(editFee) * editTotal * 0.7).toFixed(2)}</strong></span>
-              <span>Operador (30%): <strong>R$ {(Number(editFee) * editTotal * 0.3).toFixed(2)}</strong></span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <Input label="Cotas vendidas" type="number" value={editSold} onChange={(v) => setEditSold(Number(v))} min={0} />
-              <Input label="Total de cotas" type="number" value={editTotal} onChange={(v) => setEditTotal(Number(v))} min={1} />
-            </div>
-            <label className="block">
-              <span className="block text-sm font-medium text-slate-700 mb-1.5">Observações</span>
-              <textarea
-                value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                rows={3}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all"
-              />
-            </label>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="secondary" onClick={() => setEditing(null)}>Cancelar</Button>
-              <Button onClick={saveEdit} disabled={saving}>{saving ? 'Salvando...' : 'Salvar'}</Button>
-            </div>
-          </div>
-        )}
-      </Modal>
     </div>
   );
 }
