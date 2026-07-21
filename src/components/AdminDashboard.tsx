@@ -3,8 +3,8 @@ import { Store, ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock } 
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Spinner, EmptyState } from './ui';
-import type { Bolao, Branch, Profile } from '../lib/types';
-import { computeBolaoKpis, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
+import type { Bolao, Branch, Profile, BolaoOperatorAllocation } from '../lib/types';
+import { computeBolaoKpis, computeAllocationKpis, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -44,18 +44,21 @@ export function AdminDashboard() {
   const [allBoloes, setAllBoloes] = useState<Bolao[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [operators, setOperators] = useState<Profile[]>([]);
+  const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
 
   const fetchData = useCallback(async () => {
-    const [{ data: boloes }, { data: branchList }, { data: opList }] = await Promise.all([
+    const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }] = await Promise.all([
       supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false }),
       supabase.from('branches').select('*').order('name'),
       supabase.from('profiles').select('*').eq('role', 'operator').order('name'),
+      supabase.from('bolao_operator_allocations').select('*, bolao:boloes(*, product:products(*), branch:branches(*))'),
     ]);
     setAllBoloes((boloes ?? []) as Bolao[]);
     setBranches((branchList ?? []) as Branch[]);
     setOperators((opList ?? []) as Profile[]);
+    setAllocations((allocList ?? []) as BolaoOperatorAllocation[]);
     setLoading(false);
   }, []);
 
@@ -65,6 +68,7 @@ export function AdminDashboard() {
     const channel = supabase
       .channel('admin-dashboard-boloes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_operator_allocations' }, () => fetchData())
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
@@ -90,9 +94,19 @@ export function AdminDashboard() {
     .map((br) => ({ branch: br, kpis: computeBolaoKpis(allBoloes.filter((b) => b.branch_id === br.id)) }))
     .filter((s) => s.kpis.gerado.count > 0);
 
-  // Desempenho por operador
+  // Desempenho por operador: agora calculado pelas cotas ALOCADAS a cada
+  // operador (bolao_operator_allocations), não mais por "quem criou o
+  // bolão" — já que hoje é o admin quem cria, e as cotas são distribuídas
+  // depois, podendo inclusive ficar divididas entre vários operadores.
   const operatorStats: OperatorStats[] = operators
-    .map((op) => ({ operator: op, kpis: computeBolaoKpis(filteredBoloes.filter((b) => b.operator_id === op.id)) }))
+    .map((op) => {
+      const opAllocations = allocations.filter((a) => {
+        if (a.operator_id !== op.id) return false;
+        if (selectedBranchId === 'all') return true;
+        return a.bolao?.branch_id === selectedBranchId;
+      });
+      return { operator: op, kpis: computeAllocationKpis(opAllocations) };
+    })
     .filter((s) => s.kpis.gerado.count > 0)
     .sort((a, b) => b.kpis.vendido.value - a.kpis.vendido.value);
 
@@ -237,7 +251,7 @@ export function AdminDashboard() {
 
       {operatorStats.length === 0 ? (
         <Card>
-          <EmptyState icon={<Users size={48} />} title="Nenhum operador com bolões" description="Quando operadores criarem bolões, o desempenho de cada um aparecerá aqui." />
+          <EmptyState icon={<Users size={48} />} title="Nenhum operador com cotas alocadas" description="Quando o admin alocar cotas de bolão para os operadores, o desempenho de cada um aparecerá aqui." />
         </Card>
       ) : (
         <Card className="overflow-hidden mb-8">
@@ -247,7 +261,7 @@ export function AdminDashboard() {
                 <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
                   <th className="px-5 py-3 font-medium">Operador</th>
                   <th className="px-5 py-3 font-medium">Filial</th>
-                  <th className="px-5 py-3 font-medium text-right">Gerado</th>
+                  <th className="px-5 py-3 font-medium text-right">Recebido</th>
                   <th className="px-5 py-3 font-medium text-right">Comissão Operador (30%)</th>
                   <th className="px-5 py-3 font-medium text-right">Vendido</th>
                   <th className="px-5 py-3 font-medium text-right">Encalhado</th>
