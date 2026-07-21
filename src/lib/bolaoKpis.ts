@@ -23,7 +23,7 @@
 // pg_cron, ver migration_encalhado.sql), então aqui só precisamos ler o
 // status — não recalcular data/hora no front.
 
-import type { Bolao } from './types';
+import type { Bolao, BolaoOperatorAllocation } from './types';
 
 export interface BucketKpis {
   count: number;         // quantidade de bolões (inteiros) nesse balde
@@ -137,4 +137,62 @@ export const STATUS_LABELS: Record<Bolao['status'], { label: string; color: 'gre
 // Evita "1 bolões" / "1 cotas" nos cards de KPI.
 export function pluralize(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+// Mesmos 4 baldes (Gerado/Vendido/Encalhado/Em Aberto), mas calculados a
+// partir da FATIA de um operador específico (bolao_operator_allocations),
+// não do bolão inteiro. Usado na tela do operador, que só vende as cotas
+// que foram alocadas a ele.
+export function computeAllocationKpis(allocations: BolaoOperatorAllocation[]): BolaoKpis {
+  const gerado = emptyBucket();
+  const vendido = emptyBucket();
+  const encalhado = emptyBucket();
+  const emAberto = emptyBucket();
+
+  for (const a of allocations) {
+    const b = a.bolao;
+    if (!b || a.shares_allocated <= 0) continue;
+
+    const perShare = shareValue(b);
+    const perShareCommission = shareCommission(b);
+    const totalValue = perShare * a.shares_allocated;
+    const totalCommission = perShareCommission * a.shares_allocated;
+
+    gerado.count += 1;
+    gerado.shares += a.shares_allocated;
+    gerado.value += totalValue;
+    gerado.commission += totalCommission;
+
+    const soldValue = perShare * a.shares_sold;
+    const soldCommissionValue = perShareCommission * a.shares_sold;
+    if (a.shares_sold > 0) {
+      vendido.shares += a.shares_sold;
+      vendido.value += soldValue;
+      vendido.commission += soldCommissionValue;
+      if (a.shares_sold === a.shares_allocated) vendido.count += 1;
+    }
+
+    if (b.status === 'encalhado') {
+      const unsoldShares = a.shares_allocated - a.shares_sold;
+      encalhado.count += 1;
+      encalhado.shares += unsoldShares;
+      encalhado.value += totalValue - soldValue;
+      encalhado.commission += totalCommission - soldCommissionValue;
+    }
+
+    if (b.status === 'pending' || b.status === 'partial') {
+      const remainingShares = a.shares_allocated - a.shares_sold;
+      emAberto.count += 1;
+      emAberto.shares += remainingShares;
+      emAberto.value += totalValue - soldValue;
+      emAberto.commission += totalCommission - soldCommissionValue;
+    }
+  }
+
+  return {
+    gerado: finalizeBucket(gerado),
+    vendido: finalizeBucket(vendido),
+    encalhado: finalizeBucket(encalhado),
+    emAberto: finalizeBucket(emAberto),
+  };
 }
