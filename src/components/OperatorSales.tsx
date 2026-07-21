@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Calendar, Clock, DollarSign, ShoppingBag, TrendingDown, Repeat } from 'lucide-react';
+import { Ticket, Calendar, Clock, DollarSign, ShoppingBag, TrendingDown, Repeat, Info } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -198,6 +198,10 @@ export function OperatorSales() {
                     const pct = a.shares_allocated > 0 ? Math.round((a.shares_sold / a.shares_allocated) * 100) : 0;
                     const canSell = b.status !== 'encalhado' && a.shares_sold < a.shares_allocated;
                     const canTransfer = a.shares_allocated - a.shares_sold > 0;
+                    const perShare = Number(b.price) + Number(b.service_fee);
+                    const totalAllocatedValue = perShare * a.shares_allocated;
+                    const availableShares = a.shares_allocated - a.shares_sold;
+                    
                     return (
                       <div key={a.id} className="px-5 py-3 hover:bg-slate-50 transition-colors flex items-center gap-3">
                         <LotteryIcon slug={b.product?.slug ?? ''} size={32} />
@@ -207,11 +211,17 @@ export function OperatorSales() {
                             <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
                             <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
                           </div>
-                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
-                            <span>Sua fatia: {a.shares_allocated} cota(s)</span>
+                          <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 mt-0.5">
+                            <span className="flex items-center gap-1"><Info size={12} className="text-slate-400" /> Valor unitário: <strong className="text-slate-700">R$ {perShare.toFixed(2)}</strong></span>
+                            <span>Sua fatia: {a.shares_allocated} cota(s) · R$ {totalAllocatedValue.toFixed(2)}</span>
                             <span>Vendida(s): {a.shares_sold}</span>
                             <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
                           </div>
+                          {availableShares > 0 && (
+                            <div className="text-xs text-emerald-600 mt-0.5">
+                              {availableShares} cota(s) disponível(is) para venda
+                            </div>
+                          )}
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
@@ -244,7 +254,24 @@ export function OperatorSales() {
               <LotteryIcon slug={editing.bolao.product?.slug ?? ''} size={32} />
               <div>
                 <p className="font-semibold text-brand-950">{editing.bolao.product?.name}</p>
-                <p className="text-xs text-slate-400">Concurso {editing.bolao.contest_number} · Sua fatia: {editing.shares_allocated} cota(s)</p>
+                <p className="text-xs text-slate-400">Concurso {editing.bolao.contest_number}</p>
+                <p className="text-xs text-slate-400">Valor unitário: R$ {(Number(editing.bolao.price) + Number(editing.bolao.service_fee)).toFixed(2)}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="bg-brand-50 p-2 rounded-lg">
+                <p className="text-slate-500">Sua fatia total</p>
+                <p className="font-semibold">{editing.shares_allocated} cotas</p>
+                <p className="text-xs text-slate-400">R$ {(Number(editing.bolao.price) + Number(editing.bolao.service_fee)) * editing.shares_allocated}</p>
+              </div>
+              <div className="bg-emerald-50 p-2 rounded-lg">
+                <p className="text-slate-500">Já vendidas</p>
+                <p className="font-semibold">{editing.shares_sold} cotas</p>
+              </div>
+              <div className="col-span-2 bg-amber-50 p-2 rounded-lg">
+                <p className="text-slate-500">Disponíveis para venda</p>
+                <p className="font-semibold">{editing.shares_allocated - editing.shares_sold} cotas</p>
               </div>
             </div>
 
@@ -282,18 +309,21 @@ export function OperatorSales() {
               <LotteryIcon slug={transferring.bolao.product?.slug ?? ''} size={32} />
               <div>
                 <p className="font-semibold text-brand-950">{transferring.bolao.product?.name}</p>
-                <p className="text-xs text-slate-400">
-                  Você tem {transferring.shares_allocated - transferring.shares_sold} cota(s) disponível(is) pra repassar
-                  (as já vendidas não podem ser repassadas).
-                </p>
+                <p className="text-xs text-slate-400">Concurso {transferring.bolao.contest_number}</p>
+                <p className="text-xs text-slate-400">Valor unitário: R$ {(Number(transferring.bolao.price) + Number(transferring.bolao.service_fee)).toFixed(2)}</p>
               </div>
+            </div>
+
+            <div className="bg-amber-50 rounded-lg p-3 text-sm">
+              <p className="text-slate-600">Você tem <strong>{transferring.shares_allocated - transferring.shares_sold}</strong> cota(s) disponível(is) para repassar</p>
+              <p className="text-xs text-slate-500">(as já vendidas não podem ser repassadas)</p>
             </div>
 
             <Select
               label="Repassar para"
               value={transferTo}
               onChange={setTransferTo}
-              placeholder="Selecione um colega"
+              placeholder="Selecione um colega da mesma filial"
               options={colleagues.map((c) => ({ value: c.id, label: c.name }))}
             />
 
