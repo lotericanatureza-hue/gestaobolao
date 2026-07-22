@@ -81,3 +81,16 @@ export interface BolaoOperatorAllocation {
   operator?: Profile;
 }
 
+// Histórico de repasses de cotas entre operadores.
+export interface BolaoShareTransfer {
+  id: string;
+  bolao_id: string;
+  from_operator_id: string;
+  to_operator_id: string;
+  shares: number;
+  transferred_by: string | null;
+  created_at: string;
+  bolao?: Bolao;
+  from_operator?: Profile;
+  to_operator?: Profile;
+}
