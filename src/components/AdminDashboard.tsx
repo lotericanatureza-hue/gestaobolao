@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Store, ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock } from 'lucide-react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
+import { Store, ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
-import { Card, Spinner, EmptyState } from './ui';
+import { Card, Spinner, EmptyState, Badge } from './ui';
+import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Bolao, Branch, Profile, BolaoOperatorAllocation } from '../lib/types';
-import { computeBolaoKpis, computeAllocationKpis, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
+import { computeBolaoKpis, computeAllocationKpis, pluralize, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -33,6 +34,7 @@ function groupByMonth(boloes: Bolao[]): MonthGroup[] {
 interface OperatorStats {
   operator: Profile;
   kpis: BolaoKpis;
+  allocations: BolaoOperatorAllocation[];
 }
 
 interface BranchStats {
@@ -47,6 +49,7 @@ export function AdminDashboard() {
   const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
+  const [expandedOperatorId, setExpandedOperatorId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }] = await Promise.all([
@@ -105,7 +108,7 @@ export function AdminDashboard() {
         if (selectedBranchId === 'all') return true;
         return a.bolao?.branch_id === selectedBranchId;
       });
-      return { operator: op, kpis: computeAllocationKpis(opAllocations) };
+      return { operator: op, kpis: computeAllocationKpis(opAllocations), allocations: opAllocations };
     })
     .filter((s) => s.kpis.gerado.count > 0)
     .sort((a, b) => b.kpis.vendido.value - a.kpis.vendido.value);
@@ -268,24 +271,67 @@ export function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {operatorStats.map(({ operator: op, kpis: k }) => {
+                {operatorStats.map(({ operator: op, kpis: k, allocations: opAllocations }) => {
                   const branchName = branches.find((br) => br.id === op.branch_id)?.name ?? '—';
+                  const isExpanded = expandedOperatorId === op.id;
                   return (
-                    <tr key={op.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                      <td className="px-5 py-3">
-                        <div className="flex items-center gap-2">
-                          <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold">
-                            {op.name.charAt(0).toUpperCase()}
+                    <Fragment key={op.id}>
+                      <tr
+                        onClick={() => setExpandedOperatorId(isExpanded ? null : op.id)}
+                        className="border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer"
+                      >
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            {isExpanded ? <ChevronDown size={16} className="text-slate-400 shrink-0" /> : <ChevronRight size={16} className="text-slate-400 shrink-0" />}
+                            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold">
+                              {op.name.charAt(0).toUpperCase()}
+                            </div>
+                            <span className="font-medium text-slate-900">{op.name}</span>
                           </div>
-                          <span className="font-medium text-slate-900">{op.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3 text-slate-600">{branchName}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">R$ {k.gerado.value.toFixed(2)} <span className="text-slate-400">({k.gerado.count})</span></td>
-                      <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {k.vendido.operatorCommission.toFixed(2)}</td>
-                      <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.vendido.value.toFixed(2)}</td>
-                      <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalhado.value.toFixed(2)}</td>
-                    </tr>
+                        </td>
+                        <td className="px-5 py-3 text-slate-600">{branchName}</td>
+                        <td className="px-5 py-3 text-right text-slate-600">R$ {k.gerado.value.toFixed(2)} <span className="text-slate-400">({k.gerado.count})</span></td>
+                        <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {k.vendido.operatorCommission.toFixed(2)}</td>
+                        <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.vendido.value.toFixed(2)}</td>
+                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalhado.value.toFixed(2)}</td>
+                      </tr>
+                      {isExpanded && (
+                        <tr className="bg-slate-50/70">
+                          <td colSpan={6} className="px-5 py-4">
+                            {opAllocations.length === 0 ? (
+                              <p className="text-xs text-slate-400">Nenhuma cota alocada.</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {opAllocations.map((a) => {
+                                  const b = a.bolao;
+                                  if (!b) return null;
+                                  const perShare = Number(b.price) + Number(b.service_fee);
+                                  const pending = a.shares_allocated - a.shares_sold;
+                                  const statusInfo = STATUS_LABELS[b.status];
+                                  return (
+                                    <div key={a.id} className="flex flex-wrap items-center gap-3 bg-white border border-slate-200 rounded-lg px-4 py-2.5">
+                                      <LotteryIcon slug={b.product?.slug ?? ''} size={24} />
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="text-sm font-medium text-slate-900">{b.product?.name ?? '—'}</span>
+                                          <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
+                                          <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+                                        </div>
+                                        <p className="text-xs text-slate-400">Sorteio {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</p>
+                                      </div>
+                                      <div className="text-xs text-right">
+                                        <p className="text-emerald-600 font-semibold">{a.shares_sold} vendida(s) · R$ {(perShare * a.shares_sold).toFixed(2)}</p>
+                                        <p className={pending > 0 ? 'text-amber-600' : 'text-slate-400'}>{pending} pendente(s) · R$ {(perShare * pending).toFixed(2)}</p>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
                   );
                 })}
               </tbody>
