@@ -1,20 +1,22 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ArrowRightLeft, Store, Users, Ticket, Repeat, Check } from 'lucide-react';
+import { ArrowRightLeft, Store, Users, Ticket, Repeat, Check, History } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Input, Button, Select, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { STATUS_LABELS } from '../lib/bolaoKpis';
-import type { Branch, Profile, Bolao, BolaoOperatorAllocation } from '../lib/types';
+import type { Branch, Profile, Bolao, BolaoOperatorAllocation, BolaoShareTransfer } from '../lib/types';
 
 export function AdminBolaoAllocations() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [operators, setOperators] = useState<Profile[]>([]);
   const [boloes, setBoloes] = useState<Bolao[]>([]);
   const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
+  const [transfers, setTransfers] = useState<BolaoShareTransfer[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [selectedBolaoId, setSelectedBolaoId] = useState<string>('');
+  const [search, setSearch] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,8 +55,16 @@ export function AdminBolaoAllocations() {
         .select('*, operator:profiles(*)')
         .in('bolao_id', list.map((b) => b.id));
       setAllocations((allocData ?? []) as BolaoOperatorAllocation[]);
+
+      const { data: transferData } = await supabase
+        .from('bolao_share_transfers')
+        .select('*, bolao:boloes(*, product:products(*)), from_operator:profiles!bolao_share_transfers_from_operator_id_fkey(*), to_operator:profiles!bolao_share_transfers_to_operator_id_fkey(*)')
+        .in('bolao_id', list.map((b) => b.id))
+        .order('created_at', { ascending: false });
+      setTransfers((transferData ?? []) as BolaoShareTransfer[]);
     } else {
       setAllocations([]);
+      setTransfers([]);
     }
 
     setSelectedBolaoId((current) => (list.some((b) => b.id === current) ? current : (list[0]?.id ?? '')));
@@ -190,49 +200,62 @@ export function AdminBolaoAllocations() {
           <EmptyState icon={<Ticket size={48} />} title="Nenhum bolão criado para esta filial" description="Crie um bolão para começar a distribuir cotas." />
         </Card>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
-          {/* Lista compacta de bolões, com valor total e valor unitário */}
-          <div className="lg:col-span-2 space-y-2 max-h-[600px] overflow-y-auto pr-1">
-            {boloes.map((bolao) => {
-              const perShare = Number(bolao.price) + Number(bolao.service_fee);
-              const totalValue = perShare * bolao.total_shares;
-              const allocated = allocatedSum(bolao.id);
-              const pct = bolao.total_shares > 0 ? Math.round((allocated / bolao.total_shares) * 100) : 0;
-              const statusInfo = STATUS_LABELS[bolao.status];
-              const isSelected = bolao.id === selectedBolaoId;
-              return (
-                <button
-                  key={bolao.id}
-                  onClick={() => setSelectedBolaoId(bolao.id)}
-                  className={`w-full text-left border rounded-lg p-3 transition-all ${
-                    isSelected ? 'border-brand-400 bg-brand-50 shadow-sm' : 'border-slate-200 bg-white hover:border-brand-300'
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <LotteryIcon slug={bolao.product?.slug ?? ''} size={32} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-slate-900 text-sm truncate">{bolao.product?.name ?? '—'}</span>
-                        <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 items-start">
+          {/* Lista compacta de bolões, com busca e rolagem própria */}
+          <div className="lg:col-span-2">
+            <div className="mb-2">
+              <Input value={search} onChange={setSearch} placeholder="Buscar por produto ou concurso..." />
+            </div>
+            <div className="space-y-2 lg:max-h-[70vh] lg:overflow-y-auto lg:pr-1">
+              {boloes
+                .filter((bolao) => {
+                  if (!search.trim()) return true;
+                  const q = search.toLowerCase();
+                  return bolao.product?.name.toLowerCase().includes(q) || bolao.contest_number.includes(q);
+                })
+                .map((bolao) => {
+                  const perShare = Number(bolao.price) + Number(bolao.service_fee);
+                  const totalValue = perShare * bolao.total_shares;
+                  const allocated = allocatedSum(bolao.id);
+                  const pct = bolao.total_shares > 0 ? Math.round((allocated / bolao.total_shares) * 100) : 0;
+                  const statusInfo = STATUS_LABELS[bolao.status];
+                  const isSelected = bolao.id === selectedBolaoId;
+                  return (
+                    <button
+                      key={bolao.id}
+                      onClick={() => setSelectedBolaoId(bolao.id)}
+                      className={`w-full text-left border rounded-lg p-3 transition-all ${
+                        isSelected ? 'border-brand-400 bg-brand-50 shadow-sm' : 'border-slate-200 bg-white hover:border-brand-300'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <LotteryIcon slug={bolao.product?.slug ?? ''} size={32} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-medium text-slate-900 text-sm truncate">{bolao.product?.name ?? '—'}</span>
+                            <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+                          </div>
+                          <p className="text-xs text-slate-400">Concurso {bolao.contest_number} · {new Date(bolao.draw_date).toLocaleDateString('pt-BR')}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <p className="text-sm font-semibold text-brand-700">R$ {totalValue.toFixed(2)}</p>
+                            <p className="text-xs text-slate-400">(R$ {perShare.toFixed(2)}/cota)</p>
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-400">Concurso {bolao.contest_number} · {new Date(bolao.draw_date).toLocaleDateString('pt-BR')}</p>
-                      <p className="text-sm font-semibold text-brand-700 mt-1">R$ {totalValue.toFixed(2)}</p>
-                      <p className="text-xs text-slate-400">R$ {perShare.toFixed(2)} por cota</p>
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className={`h-full rounded-full ${allocated >= bolao.total_shares ? 'bg-emerald-500' : allocated > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-1">{allocated}/{bolao.total_shares} cotas alocadas</p>
-                  </div>
-                </button>
-              );
-            })}
+                      <div className="mt-2">
+                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${allocated >= bolao.total_shares ? 'bg-emerald-500' : allocated > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <p className="text-[11px] text-slate-400 mt-1">{allocated}/{bolao.total_shares} cotas alocadas</p>
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
           </div>
 
-          {/* Painel de alocação do bolão selecionado */}
-          <div className="lg:col-span-3">
+          {/* Painel de alocação do bolão selecionado — fica fixo na tela ao rolar a lista */}
+          <div className="lg:col-span-3 lg:sticky lg:top-4">
             {!selectedBolao ? (
               <Card><EmptyState icon={<Ticket size={48} />} title="Selecione um bolão" description="Escolha um bolão na lista ao lado para distribuir as cotas." /></Card>
             ) : (
@@ -283,6 +306,92 @@ export function AdminBolaoAllocations() {
           </div>
         </Card>
       )}
+      {/* Resumo: quantas cotas cada operador recebeu nesta filial */}
+      {branchOperators.length > 0 && boloes.length > 0 && (
+        <Card className="overflow-hidden mt-6">
+          <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+            <Users size={18} className="text-slate-400" />
+            <h2 className="font-semibold text-slate-900">Cotas recebidas por operador (nesta filial)</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                  <th className="px-5 py-2.5 font-medium">Operador</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Cotas recebidas</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Cotas vendidas</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Valor recebido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {branchOperators.map((op) => {
+                  const opAllocs = allocations.filter((a) => a.operator_id === op.id);
+                  const totalAllocated = opAllocs.reduce((s, a) => s + a.shares_allocated, 0);
+                  const totalSold = opAllocs.reduce((s, a) => s + a.shares_sold, 0);
+                  const totalValue = opAllocs.reduce((s, a) => {
+                    const b = boloes.find((bl) => bl.id === a.bolao_id);
+                    const perShare = b ? Number(b.price) + Number(b.service_fee) : 0;
+                    return s + perShare * a.shares_allocated;
+                  }, 0);
+                  return (
+                    <tr key={op.id} className="border-b border-slate-50">
+                      <td className="px-5 py-2.5 font-medium text-slate-900">{op.name}</td>
+                      <td className="px-5 py-2.5 text-right text-slate-600">{totalAllocated}</td>
+                      <td className="px-5 py-2.5 text-right text-slate-600">{totalSold}</td>
+                      <td className="px-5 py-2.5 text-right font-semibold text-brand-700">R$ {totalValue.toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      {/* Histórico de repasses entre operadores */}
+      <Card className="overflow-hidden mt-6">
+        <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
+          <History size={18} className="text-slate-400" />
+          <h2 className="font-semibold text-slate-900">Histórico de repasses</h2>
+        </div>
+        {transfers.length === 0 ? (
+          <div className="p-5">
+            <EmptyState icon={<Repeat size={40} />} title="Nenhum repasse ainda" description="Quando um operador repassar cotas para outro, o histórico aparece aqui." />
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                  <th className="px-5 py-2.5 font-medium">Data</th>
+                  <th className="px-5 py-2.5 font-medium">Bolão</th>
+                  <th className="px-5 py-2.5 font-medium">De</th>
+                  <th className="px-5 py-2.5 font-medium">Para</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Cotas</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transfers.map((t) => {
+                  const perShare = t.bolao ? Number(t.bolao.price) + Number(t.bolao.service_fee) : 0;
+                  return (
+                    <tr key={t.id} className="border-b border-slate-50">
+                      <td className="px-5 py-2.5 text-slate-500 whitespace-nowrap">
+                        {new Date(t.created_at).toLocaleDateString('pt-BR')} {new Date(t.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </td>
+                      <td className="px-5 py-2.5 text-slate-700">{t.bolao?.product?.name ?? '—'} <span className="text-slate-400">· Concurso {t.bolao?.contest_number}</span></td>
+                      <td className="px-5 py-2.5 text-slate-700">{t.from_operator?.name ?? '—'}</td>
+                      <td className="px-5 py-2.5 text-slate-700">{t.to_operator?.name ?? '—'}</td>
+                      <td className="px-5 py-2.5 text-right text-slate-600">{t.shares}</td>
+                      <td className="px-5 py-2.5 text-right font-medium text-slate-700">R$ {(perShare * t.shares).toFixed(2)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }
@@ -314,7 +423,7 @@ function BolaoAllocationPanel({
 
   return (
     <Card className="overflow-hidden">
-      {/* Cabeçalho com todos os valores em destaque */}
+      {/* Cabeçalho com todos os valores em destaque — é o que faltava */}
       <div className="px-5 py-4 bg-brand-50 border-b border-brand-100">
         <div className="flex items-center gap-3 mb-3">
           <LotteryIcon slug={bolao.product?.slug ?? ''} size={36} />
