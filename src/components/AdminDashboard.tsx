@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
-import { Store, ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import { Store, ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Spinner, EmptyState, Badge } from './ui';
@@ -50,6 +50,8 @@ export function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [expandedOperatorId, setExpandedOperatorId] = useState<string | null>(null);
+  const [undoingId, setUndoingId] = useState<string | null>(null);
+  const [undoError, setUndoError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }] = await Promise.all([
@@ -76,6 +78,23 @@ export function AdminDashboard() {
 
     return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
+
+  const undoLastSale = async (allocation: BolaoOperatorAllocation) => {
+    if (allocation.shares_sold <= 0) return;
+    setUndoingId(allocation.id);
+    setUndoError(null);
+    const { error } = await supabase.rpc('sell_bolao_shares', {
+      p_bolao_id: allocation.bolao_id,
+      p_operator_id: allocation.operator_id,
+      p_shares_sold: allocation.shares_sold - 1,
+    });
+    setUndoingId(null);
+    if (error) {
+      setUndoError(error.message);
+      return;
+    }
+    fetchData();
+  };
 
   const filteredBoloes = selectedBranchId === 'all'
     ? allBoloes
@@ -298,6 +317,7 @@ export function AdminDashboard() {
                       {isExpanded && (
                         <tr className="bg-slate-50/70">
                           <td colSpan={6} className="px-5 py-4">
+                            {undoError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 mb-2">{undoError}</p>}
                             {opAllocations.length === 0 ? (
                               <p className="text-xs text-slate-400">Nenhuma cota alocada.</p>
                             ) : (
@@ -323,6 +343,15 @@ export function AdminDashboard() {
                                         <p className="text-emerald-600 font-semibold">{a.shares_sold} vendida(s) · R$ {(perShare * a.shares_sold).toFixed(2)}</p>
                                         <p className={pending > 0 ? 'text-amber-600' : 'text-slate-400'}>{pending} pendente(s) · R$ {(perShare * pending).toFixed(2)}</p>
                                       </div>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); undoLastSale(a); }}
+                                        disabled={a.shares_sold <= 0 || undoingId === a.id}
+                                        title="Desfazer a última venda desta cota (volta 1 cota vendida para pendente)"
+                                        className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg px-2.5 py-1.5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                                      >
+                                        <Undo2 size={13} /> {undoingId === a.id ? 'Desfazendo...' : 'Desfazer venda'}
+                                      </button>
                                     </div>
                                   );
                                 })}
