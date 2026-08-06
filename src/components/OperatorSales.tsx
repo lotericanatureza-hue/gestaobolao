@@ -6,6 +6,7 @@ import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { computeAllocationKpis, STATUS_LABELS, pluralize } from '../lib/bolaoKpis';
+import { formatBRL } from '../lib/format';
 import type { BolaoOperatorAllocation, Profile } from '../lib/types';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -216,10 +217,10 @@ export function OperatorSales() {
 
       {/* KPIs da sua fatia */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <KpiCard icon={<ShoppingBag size={22} />} label="Recebido" bigValue={`R$ ${kpis.gerado.value.toFixed(2)}`} smallValue={pluralize(kpis.gerado.shares, 'cota', 'cotas')} color="brand" />
-        <KpiCard icon={<DollarSign size={22} />} label="Vendido" bigValue={`R$ ${kpis.vendido.value.toFixed(2)}`} smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')} color="emerald" lines={[{ label: 'Sua comissão (30%)', value: `R$ ${kpis.vendido.operatorCommission.toFixed(2)}` }]} />
-        <KpiCard icon={<TrendingDown size={22} />} label="Encalhado" bigValue={`R$ ${kpis.encalhado.value.toFixed(2)}`} smallValue={pluralize(kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
-        <KpiCard icon={<Clock size={22} />} label="Em Aberto" bigValue={`R$ ${kpis.emAberto.value.toFixed(2)}`} smallValue={pluralize(kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
+        <KpiCard icon={<ShoppingBag size={22} />} label="Recebido" bigValue={`R$ ${formatBRL(kpis.gerado.value)}`} smallValue={pluralize(kpis.gerado.shares, 'cota', 'cotas')} color="brand" />
+        <KpiCard icon={<DollarSign size={22} />} label="Vendido" bigValue={`R$ ${formatBRL(kpis.vendido.value)}`} smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')} color="emerald" lines={[{ label: 'Sua comissão (30%)', value: `R$ ${formatBRL(kpis.vendido.operatorCommission)}` }]} />
+        <KpiCard icon={<TrendingDown size={22} />} label="Encalhado" bigValue={`R$ ${formatBRL(kpis.encalhado.value)}`} smallValue={pluralize(kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
+        <KpiCard icon={<Clock size={22} />} label="Em Aberto" bigValue={`R$ ${formatBRL(kpis.emAberto.value)}`} smallValue={pluralize(kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
       </div>
 
       <h2 className="text-lg font-semibold text-brand-950 mb-4 flex items-center gap-2">
@@ -239,10 +240,10 @@ export function OperatorSales() {
                 <div className="px-5 py-3 bg-brand-50 border-b border-brand-100 flex flex-wrap items-center justify-between gap-2">
                   <h3 className="font-semibold text-brand-900">{group.label}</h3>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-brand-700">
-                    <span>Recebido: <strong>R$ {k.gerado.value.toFixed(2)}</strong></span>
-                    <span>Vendido: <strong>R$ {k.vendido.value.toFixed(2)}</strong></span>
-                    <span>Encalhado: <strong>R$ {k.encalhado.value.toFixed(2)}</strong></span>
-                    <span>Sua comissão: <strong>R$ {k.vendido.operatorCommission.toFixed(2)}</strong></span>
+                    <span>Recebido: <strong>R$ {formatBRL(k.gerado.value)}</strong></span>
+                    <span>Vendido: <strong>R$ {formatBRL(k.vendido.value)}</strong></span>
+                    <span>Encalhado: <strong>R$ {formatBRL(k.encalhado.value)}</strong></span>
+                    <span>Sua comissão: <strong>R$ {formatBRL(k.vendido.operatorCommission)}</strong></span>
                   </div>
                 </div>
                 <div className="divide-y divide-slate-50">
@@ -267,8 +268,8 @@ export function OperatorSales() {
                             <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
                           </div>
                           <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 mt-0.5">
-                            <span className="flex items-center gap-1"><Info size={12} className="text-slate-400" /> Valor unitário: <strong className="text-slate-700">R$ {perShare.toFixed(2)}</strong></span>
-                            <span>Sua fatia: {a.shares_allocated} cota(s) · R$ {totalAllocatedValue.toFixed(2)}</span>
+                            <span className="flex items-center gap-1"><Info size={12} className="text-slate-400" /> Valor unitário: <strong className="text-slate-700">R$ {formatBRL(perShare)}</strong></span>
+                            <span>Sua fatia: {a.shares_allocated} cota(s) · R$ {formatBRL(totalAllocatedValue)}</span>
                             <span>Vendida(s): {a.shares_sold}</span>
                             <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
                           </div>
@@ -310,7 +311,7 @@ export function OperatorSales() {
               <div>
                 <p className="font-semibold text-brand-950">{editing.bolao.product?.name}</p>
                 <p className="text-xs text-slate-400">Concurso {editing.bolao.contest_number}</p>
-                <p className="text-xs text-slate-400">Valor unitário: R$ {(Number(editing.bolao.price) + Number(editing.bolao.service_fee)).toFixed(2)}</p>
+                <p className="text-xs text-slate-400">Valor unitário: R$ {formatBRL(Number(editing.bolao.price) + Number(editing.bolao.service_fee))}</p>
               </div>
             </div>
 
@@ -318,7 +319,7 @@ export function OperatorSales() {
               <div className="bg-brand-50 p-2 rounded-lg">
                 <p className="text-slate-500">Sua fatia total</p>
                 <p className="font-semibold">{editing.shares_allocated} cotas</p>
-                <p className="text-xs text-slate-400">R$ {(Number(editing.bolao.price) + Number(editing.bolao.service_fee)) * editing.shares_allocated}</p>
+                <p className="text-xs text-slate-400">R$ {formatBRL((Number(editing.bolao.price) + Number(editing.bolao.service_fee)) * editing.shares_allocated)}</p>
               </div>
               <div className="bg-emerald-50 p-2 rounded-lg">
                 <p className="text-slate-500">Já vendidas</p>
@@ -365,7 +366,7 @@ export function OperatorSales() {
               <div>
                 <p className="font-semibold text-brand-950">{transferring.bolao.product?.name}</p>
                 <p className="text-xs text-slate-400">Concurso {transferring.bolao.contest_number}</p>
-                <p className="text-xs text-slate-400">Valor unitário: R$ {(Number(transferring.bolao.price) + Number(transferring.bolao.service_fee)).toFixed(2)}</p>
+                <p className="text-xs text-slate-400">Valor unitário: R$ {formatBRL(Number(transferring.bolao.price) + Number(transferring.bolao.service_fee))}</p>
               </div>
             </div>
 

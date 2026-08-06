@@ -7,6 +7,7 @@ import { Card, Spinner, EmptyState, Badge } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Bolao, Branch, Profile, BolaoOperatorAllocation } from '../lib/types';
 import { computeBolaoKpis, computeAllocationKpis, pluralize, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
+import { formatBRL } from '../lib/format';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -186,33 +187,33 @@ export function AdminDashboard() {
         <KpiCard
           icon={<ShoppingBag size={22} />}
           label="Gerado"
-          bigValue={`R$ ${kpis.gerado.value.toFixed(2)}`}
+          bigValue={`R$ ${formatBRL(kpis.gerado.value)}`}
           smallValue={pluralize(kpis.gerado.count, 'bolão', 'bolões')}
           color="brand"
-          lines={[{ label: 'Comissão total', value: `R$ ${kpis.gerado.commission.toFixed(2)}` }]}
+          lines={[{ label: 'Comissão total', value: `R$ ${formatBRL(kpis.gerado.commission)}` }]}
         />
         <KpiCard
           icon={<DollarSign size={22} />}
           label="Vendido"
-          bigValue={`R$ ${kpis.vendido.value.toFixed(2)}`}
+          bigValue={`R$ ${formatBRL(kpis.vendido.value)}`}
           smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')}
           color="emerald"
           lines={[
-            { label: 'Casa (70%)', value: `R$ ${kpis.vendido.lotericaCommission.toFixed(2)}` },
-            { label: 'Operador (30%)', value: `R$ ${kpis.vendido.operatorCommission.toFixed(2)}` },
+            { label: 'Casa (70%)', value: `R$ ${formatBRL(kpis.vendido.lotericaCommission)}` },
+            { label: 'Operador (30%)', value: `R$ ${formatBRL(kpis.vendido.operatorCommission)}` },
           ]}
         />
         <KpiCard
           icon={<TrendingDown size={22} />}
           label="Encalhado"
-          bigValue={`R$ ${kpis.encalhado.value.toFixed(2)}`}
+          bigValue={`R$ ${formatBRL(kpis.encalhado.value)}`}
           smallValue={pluralize(kpis.encalhado.shares, 'cota encalhada', 'cotas encalhadas')}
           color="red"
         />
         <KpiCard
           icon={<Clock size={22} />}
           label="Em Aberto"
-          bigValue={`R$ ${kpis.emAberto.value.toFixed(2)}`}
+          bigValue={`R$ ${formatBRL(kpis.emAberto.value)}`}
           smallValue={pluralize(kpis.emAberto.shares, 'cota aguardando sorteio', 'cotas aguardando sorteio')}
           color="accent"
         />
@@ -235,10 +236,10 @@ export function AdminDashboard() {
                 <h3 className="font-semibold text-brand-900">{group.label}</h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
-                <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${group.kpis.gerado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
-                <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${group.kpis.vendido.value.toFixed(2)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
-                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${group.kpis.encalhado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
-                <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${group.kpis.emAberto.value.toFixed(2)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
+                <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${formatBRL(group.kpis.gerado.value)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
+                <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${formatBRL(group.kpis.vendido.value)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
+                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${formatBRL(group.kpis.encalhado.value)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
+                <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${formatBRL(group.kpis.emAberto.value)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
               </div>
             </Card>
           ))}
@@ -273,10 +274,10 @@ export function AdminDashboard() {
                     {branchStats.map(({ branch, kpis: k }) => (
                       <tr key={branch.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                         <td className="px-5 py-3 font-medium text-slate-900">{branch.name}</td>
-                        <td className="px-5 py-3 text-right text-slate-600">R$ {k.gerado.value.toFixed(2)} <span className="text-slate-400">({k.gerado.count})</span></td>
-                        <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.vendido.value.toFixed(2)} <span className="text-slate-400 font-normal">({k.vendido.shares})</span></td>
-                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalhado.value.toFixed(2)} <span className="text-slate-400 font-normal">({k.encalhado.shares})</span></td>
-                        <td className="px-5 py-3 text-right text-slate-600">R$ {k.emAberto.value.toFixed(2)} <span className="text-slate-400">({k.emAberto.shares})</span></td>
+                        <td className="px-5 py-3 text-right text-slate-600">R$ {formatBRL(k.gerado.value)} <span className="text-slate-400">({k.gerado.count})</span></td>
+                        <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(k.vendido.value)} <span className="text-slate-400 font-normal">({k.vendido.shares})</span></td>
+                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {formatBRL(k.encalhado.value)} <span className="text-slate-400 font-normal">({k.encalhado.shares})</span></td>
+                        <td className="px-5 py-3 text-right text-slate-600">R$ {formatBRL(k.emAberto.value)} <span className="text-slate-400">({k.emAberto.shares})</span></td>
                       </tr>
                     ))}
                   </tbody>
@@ -330,10 +331,10 @@ export function AdminDashboard() {
                           </div>
                         </td>
                         <td className="px-5 py-3 text-slate-600">{branchName}</td>
-                        <td className="px-5 py-3 text-right text-slate-600">R$ {k.gerado.value.toFixed(2)} <span className="text-slate-400">({k.gerado.count})</span></td>
-                        <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {k.vendido.operatorCommission.toFixed(2)}</td>
-                        <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.vendido.value.toFixed(2)}</td>
-                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalhado.value.toFixed(2)}</td>
+                        <td className="px-5 py-3 text-right text-slate-600">R$ {formatBRL(k.gerado.value)} <span className="text-slate-400">({k.gerado.count})</span></td>
+                        <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(k.vendido.operatorCommission)}</td>
+                        <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(k.vendido.value)}</td>
+                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {formatBRL(k.encalhado.value)}</td>
                       </tr>
                       {isExpanded && (
                         <tr className="bg-slate-50/70">
@@ -361,8 +362,8 @@ export function AdminDashboard() {
                                         <p className="text-xs text-slate-400">Sorteio {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</p>
                                       </div>
                                       <div className="text-xs text-right">
-                                        <p className="text-emerald-600 font-semibold">{a.shares_sold} vendida(s) · R$ {(perShare * a.shares_sold).toFixed(2)}</p>
-                                        <p className={pending > 0 ? 'text-amber-600' : 'text-slate-400'}>{pending} pendente(s) · R$ {(perShare * pending).toFixed(2)}</p>
+                                        <p className="text-emerald-600 font-semibold">{a.shares_sold} vendida(s) · R$ ${formatBRL(perShare * a.shares_sold)}</p>
+                                        <p className={pending > 0 ? 'text-amber-600' : 'text-slate-400'}>{pending} pendente(s) · R$ ${formatBRL(perShare * pending)}</p>
                                       </div>
                                       <button
                                         type="button"

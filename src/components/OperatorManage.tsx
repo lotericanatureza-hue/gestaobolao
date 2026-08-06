@@ -6,6 +6,7 @@ import { PageHeader } from './Layout';
 import { Card, Input, Select, Spinner, EmptyState, Badge } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { computeAllocationKpis, STATUS_LABELS, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
+import { formatBRL } from '../lib/format';
 import type { BolaoOperatorAllocation, BolaoStatus } from '../lib/types';
 
 type FilterStatus = 'all' | BolaoStatus;
@@ -96,30 +97,30 @@ export function OperatorManage() {
         <KpiCard
           icon={<ShoppingBag size={22} />}
           label="Recebido"
-          bigValue={`R$ ${kpis.gerado.value.toFixed(2)}`}
+          bigValue={`R$ ${formatBRL(kpis.gerado.value)}`}
           smallValue={pluralize(kpis.gerado.shares, 'cota', 'cotas')}
           color="brand"
-          lines={[{ label: 'Comissão total', value: `R$ ${kpis.gerado.commission.toFixed(2)}` }]}
+          lines={[{ label: 'Comissão total', value: `R$ ${formatBRL(kpis.gerado.commission)}` }]}
         />
         <KpiCard
           icon={<DollarSign size={22} />}
           label="Vendido"
-          bigValue={`R$ ${kpis.vendido.value.toFixed(2)}`}
+          bigValue={`R$ ${formatBRL(kpis.vendido.value)}`}
           smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')}
           color="emerald"
-          lines={[{ label: 'Sua comissão (30%)', value: `R$ ${kpis.vendido.operatorCommission.toFixed(2)}` }]}
+          lines={[{ label: 'Sua comissão (30%)', value: `R$ ${formatBRL(kpis.vendido.operatorCommission)}` }]}
         />
         <KpiCard
           icon={<TrendingDown size={22} />}
           label="Encalhado"
-          bigValue={`R$ ${kpis.encalhado.value.toFixed(2)}`}
+          bigValue={`R$ ${formatBRL(kpis.encalhado.value)}`}
           smallValue={pluralize(kpis.encalhado.shares, 'cota encalhada', 'cotas encalhadas')}
           color="red"
         />
         <KpiCard
           icon={<Clock size={22} />}
           label="Em Aberto"
-          bigValue={`R$ ${kpis.emAberto.value.toFixed(2)}`}
+          bigValue={`R$ ${formatBRL(kpis.emAberto.value)}`}
           smallValue={pluralize(kpis.emAberto.shares, 'cota aguardando sorteio', 'cotas aguardando sorteio')}
           color="accent"
         />
@@ -142,10 +143,10 @@ export function OperatorManage() {
                 <h3 className="font-semibold text-brand-900">{group.label}</h3>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
-                <KpiCard icon={<ShoppingBag size={20} />} label="Recebido" bigValue={`R$ ${group.kpis.gerado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.gerado.shares, 'cota', 'cotas')} color="brand" />
-                <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${group.kpis.vendido.value.toFixed(2)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
-                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${group.kpis.encalhado.value.toFixed(2)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
-                <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${group.kpis.emAberto.value.toFixed(2)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
+                <KpiCard icon={<ShoppingBag size={20} />} label="Recebido" bigValue={`R$ ${formatBRL(group.kpis.gerado.value)}`} smallValue={pluralize(group.kpis.gerado.shares, 'cota', 'cotas')} color="brand" />
+                <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${formatBRL(group.kpis.vendido.value)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
+                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${formatBRL(group.kpis.encalhado.value)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
+                <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${formatBRL(group.kpis.emAberto.value)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
               </div>
             </Card>
           ))}

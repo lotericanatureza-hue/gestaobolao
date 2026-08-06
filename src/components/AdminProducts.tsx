@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Modal, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
+import { formatBRL } from '../lib/format';
 import type { Product } from '../lib/types';
 
 const emptyForm = {
@@ -120,8 +121,8 @@ export function AdminProducts() {
               </div>
               <div className="space-y-2 text-sm text-slate-500">
                 <div className="flex items-center gap-2"><Hash size={14} /> Dezenas: {p.min_dezenas} a {p.max_dezenas}</div>
-                <div className="flex items-center gap-2"><DollarSign size={14} /> Preço base: R$ {Number(p.base_price).toFixed(2)}</div>
-                <div className="flex items-center gap-2"><DollarSign size={14} /> Taxa de serviço: R$ {Number(p.service_fee).toFixed(2)}</div>
+                <div className="flex items-center gap-2"><DollarSign size={14} /> Preço base: R$ {formatBRL(Number(p.base_price))}</div>
+                <div className="flex items-center gap-2"><DollarSign size={14} /> Taxa de serviço: R$ {formatBRL(Number(p.service_fee))}</div>
                 {p.draw_frequency && <div className="flex items-center gap-2"><Calendar size={14} /> Sorteio: {p.draw_frequency}</div>}
                 <div className="flex items-center gap-2"><Clock size={14} /> Horário padrão: {p.default_draw_time?.slice(0, 5) ?? '—'}</div>
               </div>

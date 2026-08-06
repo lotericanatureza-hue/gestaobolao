@@ -6,6 +6,7 @@ import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { STATUS_LABELS } from '../lib/bolaoKpis';
+import { formatBRL } from '../lib/format';
 import type { Branch, BranchProduct, Bolao } from '../lib/types';
 
 const DEFAULT_DRAW_TIME = '20:00';
@@ -255,7 +256,7 @@ export function AdminCreateBolao() {
                 <span>Dezenas: {selectedProduct.min_dezenas} a {selectedProduct.max_dezenas}</span>
                 <span>Sorteio: {selectedProduct.draw_frequency ?? '—'}</span>
                 <span>Horário padrão: {selectedProduct.default_draw_time?.slice(0, 5) ?? '—'}</span>
-                <span>Preço base: R$ {Number(selectedProduct.base_price).toFixed(2)}</span>
+                <span>Preço base: R$ {formatBRL(Number(selectedProduct.base_price))}</span>
               </div>
             )}
 
@@ -288,10 +289,10 @@ export function AdminCreateBolao() {
             </div>
 
             <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-6 gap-y-1">
-              <span>Valor da cota: <strong>R$ {(Number(price) + Number(serviceFee)).toFixed(2)}</strong></span>
-              <span>Comissão total ({totalShares} cotas): <strong>R$ {(Number(serviceFee) * totalShares).toFixed(2)}</strong></span>
-              <span>Loterica (70%): <strong>R$ {(Number(serviceFee) * totalShares * 0.7).toFixed(2)}</strong></span>
-              <span>Operador (30%): <strong>R$ {(Number(serviceFee) * totalShares * 0.3).toFixed(2)}</strong></span>
+              <span>Valor da cota: <strong>R$ {formatBRL(Number(price) + Number(serviceFee))}</strong></span>
+              <span>Comissão total ({totalShares} cotas): <strong>R$ {formatBRL(Number(serviceFee) * totalShares)}</strong></span>
+              <span>Loterica (70%): <strong>R$ {formatBRL(Number(serviceFee) * totalShares * 0.7)}</strong></span>
+              <span>Operador (30%): <strong>R$ {formatBRL(Number(serviceFee) * totalShares * 0.3)}</strong></span>
             </div>
 
             <label className="block">
@@ -309,7 +310,7 @@ export function AdminCreateBolao() {
 
             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
               <div className="text-sm text-slate-500">
-                Total do bolão ({totalShares} cotas): <span className="font-bold text-slate-900">R$ {((Number(price) + Number(serviceFee)) * totalShares).toFixed(2)}</span>
+                Total do bolão ({totalShares} cotas): <span className="font-bold text-slate-900">R$ {formatBRL((Number(price) + Number(serviceFee)) * totalShares)}</span>
               </div>
               <Button type="submit" size="lg" disabled={saving}>
                 <Plus size={18} /> {saving ? 'Criando...' : 'Criar Bolão'}
@@ -344,8 +345,8 @@ export function AdminCreateBolao() {
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
                         <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
-                        <span>Cota: R$ {Number(b.price).toFixed(2)} + R$ {Number(b.service_fee).toFixed(2)} comissão</span>
-                        <span className="font-medium text-slate-600">Total: R$ {((Number(b.price) + Number(b.service_fee)) * b.total_shares).toFixed(2)}</span>
+                        <span>Cota: R$ {formatBRL(Number(b.price))} + R$ {formatBRL(Number(b.service_fee))} comissão</span>
+                        <span className="font-medium text-slate-600">Total: R$ {formatBRL((Number(b.price) + Number(b.service_fee)) * b.total_shares)}</span>
                         <span>{b.sold_shares}/{b.total_shares} cotas vendidas</span>
                         <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
                       </div>
@@ -400,8 +401,8 @@ export function AdminCreateBolao() {
             </div>
 
             <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-6 gap-y-1">
-              <span>Total do bolão ({editTotalShares} cotas): <strong>R$ {((Number(editPrice) + Number(editFee)) * editTotalShares).toFixed(2)}</strong></span>
-              <span>Comissão total: <strong>R$ {(Number(editFee) * editTotalShares).toFixed(2)}</strong></span>
+              <span>Total do bolão ({editTotalShares} cotas): <strong>R$ {formatBRL((Number(editPrice) + Number(editFee)) * editTotalShares)}</strong></span>
+              <span>Comissão total: <strong>R$ {formatBRL(Number(editFee) * editTotalShares)}</strong></span>
             </div>
 
             <label className="block">

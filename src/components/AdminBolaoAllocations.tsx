@@ -6,6 +6,7 @@ import { PageHeader } from './Layout';
 import { Card, Input, Button, Select, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { STATUS_LABELS } from '../lib/bolaoKpis';
+import { formatBRL } from '../lib/format';
 import type { Branch, Profile, Bolao, BolaoOperatorAllocation, BolaoShareTransfer } from '../lib/types';
 
 export function AdminBolaoAllocations() {
@@ -246,8 +247,8 @@ export function AdminBolaoAllocations() {
                           </div>
                           <p className="text-xs text-slate-400">Concurso {bolao.contest_number} · {new Date(bolao.draw_date).toLocaleDateString('pt-BR')}</p>
                           <div className="flex items-center gap-2 mt-1">
-                            <p className="text-sm font-semibold text-brand-700">R$ {totalValue.toFixed(2)}</p>
-                            <p className="text-xs text-slate-400">(R$ {perShare.toFixed(2)}/cota)</p>
+                            <p className="text-sm font-semibold text-brand-700">R$ {formatBRL(totalValue)}</p>
+                            <p className="text-xs text-slate-400">(R$ {formatBRL(perShare)}/cota)</p>
                           </div>
                         </div>
                       </div>
@@ -347,7 +348,7 @@ export function AdminBolaoAllocations() {
                       <td className="px-5 py-2.5 font-medium text-slate-900">{op.name}</td>
                       <td className="px-5 py-2.5 text-right text-slate-600">{totalAllocated}</td>
                       <td className="px-5 py-2.5 text-right text-slate-600">{totalSold}</td>
-                      <td className="px-5 py-2.5 text-right font-semibold text-brand-700">R$ {totalValue.toFixed(2)}</td>
+                      <td className="px-5 py-2.5 text-right font-semibold text-brand-700">R$ {formatBRL(totalValue)}</td>
                     </tr>
                   );
                 })}
@@ -392,7 +393,7 @@ export function AdminBolaoAllocations() {
                       <td className="px-5 py-2.5 text-slate-700">{t.from_operator?.name ?? '—'}</td>
                       <td className="px-5 py-2.5 text-slate-700">{t.to_operator?.name ?? '—'}</td>
                       <td className="px-5 py-2.5 text-right text-slate-600">{t.shares}</td>
-                      <td className="px-5 py-2.5 text-right font-medium text-slate-700">R$ {(perShare * t.shares).toFixed(2)}</td>
+                      <td className="px-5 py-2.5 text-right font-medium text-slate-700">R$ {formatBRL(perShare * t.shares)}</td>
                     </tr>
                   );
                 })}
@@ -449,17 +450,17 @@ function BolaoAllocationPanel({
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-white rounded-lg p-2.5 border border-brand-100">
             <p className="text-[11px] text-slate-400 uppercase tracking-wide">Valor total</p>
-            <p className="text-lg font-bold text-brand-950">R$ {totalValue.toFixed(2)}</p>
-            <p className="text-[11px] text-slate-400">{bolao.total_shares} cotas · R$ {perShare.toFixed(2)}/cota</p>
+            <p className="text-lg font-bold text-brand-950">R$ {formatBRL(totalValue)}</p>
+            <p className="text-[11px] text-slate-400">{bolao.total_shares} cotas · R$ {formatBRL(perShare)}/cota</p>
           </div>
           <div className="bg-white rounded-lg p-2.5 border border-brand-100">
             <p className="text-[11px] text-slate-400 uppercase tracking-wide">Já alocado</p>
-            <p className="text-lg font-bold text-emerald-600">R$ {allocatedValue.toFixed(2)}</p>
+            <p className="text-lg font-bold text-emerald-600">R$ {formatBRL(allocatedValue)}</p>
             <p className="text-[11px] text-slate-400">{allocatedSum} cota(s)</p>
           </div>
           <div className="bg-white rounded-lg p-2.5 border border-brand-100">
             <p className="text-[11px] text-slate-400 uppercase tracking-wide">Sem dono</p>
-            <p className={`text-lg font-bold ${unallocated > 0 ? 'text-amber-600' : 'text-slate-400'}`}>R$ {unallocatedValue.toFixed(2)}</p>
+            <p className={`text-lg font-bold ${unallocated > 0 ? 'text-amber-600' : 'text-slate-400'}`}>R$ {formatBRL(unallocatedValue)}</p>
             <p className="text-[11px] text-slate-400">{unallocated} cota(s)</p>
           </div>
         </div>
@@ -488,7 +489,7 @@ function BolaoAllocationPanel({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-900 truncate">{op.name}</p>
-                <p className="text-xs text-slate-400">{alloc?.shares_sold ?? 0} vendida(s) de {opShares} · R$ {opValue.toFixed(2)}</p>
+                <p className="text-xs text-slate-400">{alloc?.shares_sold ?? 0} vendida(s) de {opShares} · R$ {formatBRL(opValue)}</p>
               </div>
               <div className="w-24">
                 <Input

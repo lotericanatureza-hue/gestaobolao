@@ -5,6 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Input, Button, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
+import { formatBRL } from '../lib/format';
 import type { Branch, Product, BranchProduct } from '../lib/types';
 
 export function AdminAllocations() {
@@ -201,11 +202,11 @@ function ProductAllocationCard({ product, allocation, isActive, saving, onToggle
       </div>
 
       <div className="space-y-2 text-sm text-slate-500 mb-4">
-        <div>Preço base: R$ {Number(product.base_price).toFixed(2)} {allocation?.custom_price != null && <span className="text-brand-600 font-medium">(custom: R$ {Number(allocation.custom_price).toFixed(2)})</span>}</div>
-        <div>Taxa base: R$ {Number(product.service_fee).toFixed(2)} {allocation?.custom_service_fee != null && <span className="text-brand-600 font-medium">(custom: R$ {Number(allocation.custom_service_fee).toFixed(2)})</span>}</div>
+        <div>Preço base: R$ {formatBRL(Number(product.base_price))} {allocation?.custom_price != null && <span className="text-brand-600 font-medium">(custom: R$ {formatBRL(Number(allocation.custom_price))})</span>}</div>
+        <div>Taxa base: R$ {formatBRL(Number(product.service_fee))} {allocation?.custom_service_fee != null && <span className="text-brand-600 font-medium">(custom: R$ {formatBRL(Number(allocation.custom_service_fee))})</span>}</div>
         <div className="pt-2 border-t border-slate-100">
           <span className="text-slate-400">Valor efetivo da cota: </span>
-          <span className="font-bold text-slate-900">R$ {(effectivePrice + effectiveFee).toFixed(2)}</span>
+          <span className="font-bold text-slate-900">R$ {formatBRL(effectivePrice + effectiveFee)}</span>
         </div>
       </div>
 
@@ -219,7 +220,7 @@ function ProductAllocationCard({ product, allocation, isActive, saving, onToggle
               min={0}
               value={customPrice}
               onChange={setCustomPrice}
-              placeholder={Number(product.base_price).toFixed(2)}
+              placeholder={formatBRL(Number(product.base_price))}
             />
             <Input
               label="Taxa custom. (R$)"
@@ -228,7 +229,7 @@ function ProductAllocationCard({ product, allocation, isActive, saving, onToggle
               min={0}
               value={customFee}
               onChange={setCustomFee}
-              placeholder={Number(product.service_fee).toFixed(2)}
+              placeholder={formatBRL(Number(product.service_fee))}
             />
           </div>
           <Button
