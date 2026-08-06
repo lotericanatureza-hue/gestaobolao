@@ -85,8 +85,8 @@ export function AdminUsers() {
                     <td className="px-5 py-3 font-medium text-slate-900">{p.name}</td>
                     <td className="px-5 py-3 text-slate-600">{p.email}</td>
                     <td className="px-5 py-3">
-                      <Badge color={p.role === 'admin' ? 'orange' : 'blue'}>
-                        {p.role === 'admin' ? 'Administrador' : 'Operador'}
+                      <Badge color={p.role === 'admin' ? 'orange' : p.role === 'supervisor' ? 'amber' : 'blue'}>
+                        {p.role === 'admin' ? 'Administrador' : p.role === 'supervisor' ? 'Supervisor' : 'Operador'}
                       </Badge>
                     </td>
                     <td className="px-5 py-3 text-slate-600">{branchName(p.branch_id)}</td>
@@ -121,10 +121,11 @@ export function AdminUsers() {
               onChange={setEditRole}
               options={[
                 { value: 'operator', label: 'Operador' },
+                { value: 'supervisor', label: 'Supervisor' },
                 { value: 'admin', label: 'Administrador' },
               ]}
             />
-            {editRole === 'operator' && (
+            {(editRole === 'operator' || editRole === 'supervisor') && (
               <Select
                 label="Filial"
                 value={editBranch}
@@ -136,6 +137,11 @@ export function AdminUsers() {
             {editRole === 'admin' && (
               <p className="text-sm text-slate-400 bg-slate-50 rounded-lg p-3">
                 Administradores têm acesso a todas as filiais e não precisam de alocação.
+              </p>
+            )}
+            {editRole === 'supervisor' && !editBranch && (
+              <p className="text-sm text-amber-600 bg-amber-50 rounded-lg p-3">
+                Supervisores precisam de uma filial vinculada — só verão dados da própria filial.
               </p>
             )}
             <label className="flex items-center gap-2 cursor-pointer">

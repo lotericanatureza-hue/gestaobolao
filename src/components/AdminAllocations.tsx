@@ -1,12 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Store, Package } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Input, Button, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Branch, Product, BranchProduct } from '../lib/types';
 
 export function AdminAllocations() {
+  const { profile } = useAuth();
+  const isSupervisor = profile?.role === 'supervisor';
+  const supervisorBranchId = profile?.branch_id ?? '';
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [allocations, setAllocations] = useState<BranchProduct[]>([]);
@@ -16,13 +21,15 @@ export function AdminAllocations() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchBranches = useCallback(async () => {
-    const { data } = await supabase.from('branches').select('*').order('name');
+    let query = supabase.from('branches').select('*').order('name');
+    if (isSupervisor && supervisorBranchId) query = query.eq('id', supervisorBranchId);
+    const { data } = await query;
     const list = (data ?? []) as Branch[];
     setBranches(list);
     if (!selectedBranch && list.length > 0) {
-      setSelectedBranch(list[0].id);
+      setSelectedBranch(isSupervisor && supervisorBranchId ? supervisorBranchId : list[0].id);
     }
-  }, [selectedBranch]);
+  }, [selectedBranch, isSupervisor, supervisorBranchId]);
 
   const fetchProducts = useCallback(async () => {
     const { data } = await supabase.from('products').select('*').order('name');
@@ -110,22 +117,24 @@ export function AdminAllocations() {
     <div>
       <PageHeader title="Alocação de Produtos" subtitle="Defina quais produtos cada filial pode vender e sobrescreva preços/comissão se necessário" />
 
-      {/* Branch selector */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {branches.map((b) => (
-          <button
-            key={b.id}
-            onClick={() => setSelectedBranch(b.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
-              selectedBranch === b.id
-                ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
-            }`}
-          >
-            <Store size={16} /> {b.name}
-          </button>
-        ))}
-      </div>
+      {/* Branch selector — hidden for supervisors (locked to their branch) */}
+      {!isSupervisor && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          {branches.map((b) => (
+            <button
+              key={b.id}
+              onClick={() => setSelectedBranch(b.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
+                selectedBranch === b.id
+                  ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
+              }`}
+            >
+              <Store size={16} /> {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">{error}</p>}
 

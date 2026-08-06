@@ -59,8 +59,8 @@ export function Layout({ children, activeView, onNavigate, navItems }: LayoutPro
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-white text-sm font-medium truncate">{profile?.name}</p>
-              <Badge color={profile?.role === 'admin' ? 'orange' : 'blue'}>
-                {profile?.role === 'admin' ? 'Administrador' : 'Operador'}
+              <Badge color={profile?.role === 'admin' ? 'orange' : profile?.role === 'supervisor' ? 'amber' : 'blue'}>
+                {profile?.role === 'admin' ? 'Administrador' : profile?.role === 'supervisor' ? 'Supervisor' : 'Operador'}
               </Badge>
             </div>
           </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Ticket, Plus, Store, Calendar, Clock, Pencil } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
@@ -10,6 +11,10 @@ import type { Branch, BranchProduct, Bolao } from '../lib/types';
 const DEFAULT_DRAW_TIME = '20:00';
 
 export function AdminCreateBolao() {
+  const { profile } = useAuth();
+  const isSupervisor = profile?.role === 'supervisor';
+  const supervisorBranchId = profile?.branch_id ?? '';
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchId, setBranchId] = useState('');
   const [availableProducts, setAvailableProducts] = useState<BranchProduct[]>([]);
@@ -45,11 +50,13 @@ export function AdminCreateBolao() {
   const [editError, setEditError] = useState<string | null>(null);
 
   const fetchBranches = useCallback(async () => {
-    const { data } = await supabase.from('branches').select('*').order('name');
+    let query = supabase.from('branches').select('*').order('name');
+    if (isSupervisor && supervisorBranchId) query = query.eq('id', supervisorBranchId);
+    const { data } = await query;
     const list = (data ?? []) as Branch[];
     setBranches(list);
-    if (!branchId && list.length > 0) setBranchId(list[0].id);
-  }, [branchId]);
+    if (!branchId && list.length > 0) setBranchId(isSupervisor && supervisorBranchId ? supervisorBranchId : list[0].id);
+  }, [branchId, isSupervisor, supervisorBranchId]);
 
   const fetchProductsForBranch = useCallback(async () => {
     if (!branchId) { setLoading(false); return; }
@@ -194,22 +201,24 @@ export function AdminCreateBolao() {
     <div>
       <PageHeader title="Criar Bolão" subtitle="Crie o bolão pela filial — a distribuição de cotas entre operadores é feita depois, em Alocação de Bolões" />
 
-      {/* Branch selector */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {branches.map((b) => (
-          <button
-            key={b.id}
-            onClick={() => setBranchId(b.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
-              branchId === b.id
-                ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
-            }`}
-          >
-            <Store size={16} /> {b.name}
-          </button>
-        ))}
-      </div>
+      {/* Branch selector — hidden for supervisors (locked to their branch) */}
+      {!isSupervisor && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          {branches.map((b) => (
+            <button
+              key={b.id}
+              onClick={() => setBranchId(b.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
+                branchId === b.id
+                  ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
+              }`}
+            >
+              <Store size={16} /> {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {success && (
         <div className="mb-4 bg-brand-50 border border-brand-200 rounded-lg p-4 flex items-center gap-2 text-brand-700">

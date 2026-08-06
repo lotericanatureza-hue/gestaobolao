@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { ArrowRightLeft, Store, Users, Ticket, Repeat, Check, History } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Input, Button, Select, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
@@ -8,6 +9,10 @@ import { STATUS_LABELS } from '../lib/bolaoKpis';
 import type { Branch, Profile, Bolao, BolaoOperatorAllocation, BolaoShareTransfer } from '../lib/types';
 
 export function AdminBolaoAllocations() {
+  const { profile } = useAuth();
+  const isSupervisor = profile?.role === 'supervisor';
+  const supervisorBranchId = profile?.branch_id ?? '';
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [operators, setOperators] = useState<Profile[]>([]);
   const [boloes, setBoloes] = useState<Bolao[]>([]);
@@ -27,16 +32,18 @@ export function AdminBolaoAllocations() {
   const [transferSaving, setTransferSaving] = useState(false);
 
   const fetchBranchesAndOperators = useCallback(async () => {
+    let branchQuery = supabase.from('branches').select('*').order('name');
+    if (isSupervisor && supervisorBranchId) branchQuery = branchQuery.eq('id', supervisorBranchId);
     const [{ data: b }, { data: p }] = await Promise.all([
-      supabase.from('branches').select('*').order('name'),
+      branchQuery,
       supabase.from('profiles').select('*').eq('role', 'operator').order('name'),
     ]);
     setBranches((b ?? []) as Branch[]);
     setOperators((p ?? []) as Profile[]);
     if (!selectedBranch && (b ?? []).length > 0) {
-      setSelectedBranch((b ?? [])[0].id);
+      setSelectedBranch(isSupervisor && supervisorBranchId ? supervisorBranchId : (b ?? [])[0].id);
     }
-  }, [selectedBranch]);
+  }, [selectedBranch, isSupervisor, supervisorBranchId]);
 
   const fetchBoloesAndAllocations = useCallback(async () => {
     if (!selectedBranch) { setLoading(false); return; }
@@ -170,22 +177,24 @@ export function AdminBolaoAllocations() {
     <div>
       <PageHeader title="Alocação de Bolões" subtitle="Escolha um bolão e distribua cotas (ou o bolão inteiro) entre os operadores da filial" />
 
-      {/* Branch selector */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        {branches.map((b) => (
-          <button
-            key={b.id}
-            onClick={() => setSelectedBranch(b.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
-              selectedBranch === b.id
-                ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
-            }`}
-          >
-            <Store size={16} /> {b.name}
-          </button>
-        ))}
-      </div>
+      {/* Branch selector — hidden for supervisors (locked to their branch) */}
+      {!isSupervisor && (
+        <div className="flex flex-wrap gap-2 mb-6">
+          {branches.map((b) => (
+            <button
+              key={b.id}
+              onClick={() => setSelectedBranch(b.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
+                selectedBranch === b.id
+                  ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                  : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
+              }`}
+            >
+              <Store size={16} /> {b.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">{error}</p>}
 

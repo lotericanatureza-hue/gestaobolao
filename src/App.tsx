@@ -19,25 +19,27 @@ function AppContent() {
   const [operatorView, setOperatorView] = useState<OperatorView>('sales');
   if (loading) return <LoadingScreen />;
   if (!profile) return <LoginScreen />;
-  if (profile.role === 'admin') {
-    const adminNav = [
+  const isAdmin = profile.role === 'admin';
+  const isSupervisor = profile.role === 'supervisor';
+  if (isAdmin || isSupervisor) {
+    const adminNav: { id: string; label: string; icon: React.ReactNode }[] = [
       { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
-      { id: 'branches', label: 'Filiais', icon: <Store size={18} /> },
+      ...(isAdmin ? [{ id: 'branches', label: 'Filiais', icon: <Store size={18} /> }] : []),
       { id: 'products', label: 'Produtos', icon: <Package size={18} /> },
       { id: 'allocations', label: 'Alocação de Produtos', icon: <ArrowRightLeft size={18} /> },
       { id: 'create-bolao', label: 'Criar Bolão', icon: <Ticket size={18} /> },
       { id: 'bolao-allocations', label: 'Alocação de Bolões', icon: <Shuffle size={18} /> },
-      { id: 'users', label: 'Usuários', icon: <Users size={18} /> },
+      ...(isAdmin ? [{ id: 'users', label: 'Usuários', icon: <Users size={18} /> }] : []),
     ];
     return (
       <Layout activeView={adminView} onNavigate={(v) => setAdminView(v as AdminView)} navItems={adminNav}>
         {adminView === 'dashboard' && <AdminDashboard />}
-        {adminView === 'branches' && <AdminBranches />}
+        {adminView === 'branches' && isAdmin && <AdminBranches />}
         {adminView === 'products' && <AdminProducts />}
         {adminView === 'allocations' && <AdminAllocations />}
         {adminView === 'create-bolao' && <AdminCreateBolao />}
         {adminView === 'bolao-allocations' && <AdminBolaoAllocations />}
-        {adminView === 'users' && <AdminUsers />}
+        {adminView === 'users' && isAdmin && <AdminUsers />}
       </Layout>
     );
   }

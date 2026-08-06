@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
 import { Store, ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Spinner, EmptyState, Badge } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
@@ -43,6 +44,10 @@ interface BranchStats {
 }
 
 export function AdminDashboard() {
+  const { profile } = useAuth();
+  const isSupervisor = profile?.role === 'supervisor';
+  const supervisorBranchId = profile?.branch_id ?? '';
+
   const [allBoloes, setAllBoloes] = useState<Bolao[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [operators, setOperators] = useState<Profile[]>([]);
@@ -54,18 +59,29 @@ export function AdminDashboard() {
   const [undoError, setUndoError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    const branchFilter = isSupervisor && supervisorBranchId ? supervisorBranchId : null;
+
+    const boloesQuery = supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false });
+    if (branchFilter) boloesQuery.eq('branch_id', branchFilter);
+
+    const branchQuery = supabase.from('branches').select('*').order('name');
+    if (branchFilter) branchQuery.eq('id', branchFilter);
+
+    const opQuery = supabase.from('profiles').select('*').eq('role', 'operator').order('name');
+    if (branchFilter) opQuery.eq('branch_id', branchFilter);
+
+    const allocQuery = supabase.from('bolao_operator_allocations').select('*, bolao:boloes(*, product:products(*), branch:branches(*))');
+    if (branchFilter) allocQuery.eq('bolao.branch_id', branchFilter);
+
     const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }] = await Promise.all([
-      supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false }),
-      supabase.from('branches').select('*').order('name'),
-      supabase.from('profiles').select('*').eq('role', 'operator').order('name'),
-      supabase.from('bolao_operator_allocations').select('*, bolao:boloes(*, product:products(*), branch:branches(*))'),
+      boloesQuery, branchQuery, opQuery, allocQuery,
     ]);
     setAllBoloes((boloes ?? []) as Bolao[]);
     setBranches((branchList ?? []) as Branch[]);
     setOperators((opList ?? []) as Profile[]);
     setAllocations((allocList ?? []) as BolaoOperatorAllocation[]);
     setLoading(false);
-  }, []);
+  }, [isSupervisor, supervisorBranchId]);
 
   useEffect(() => {
     fetchData();
@@ -96,9 +112,10 @@ export function AdminDashboard() {
     fetchData();
   };
 
-  const filteredBoloes = selectedBranchId === 'all'
+  const effectiveBranchId = isSupervisor ? supervisorBranchId : selectedBranchId;
+  const filteredBoloes = effectiveBranchId === 'all'
     ? allBoloes
-    : allBoloes.filter((b) => b.branch_id === selectedBranchId);
+    : allBoloes.filter((b) => b.branch_id === effectiveBranchId);
 
   if (loading) {
     return (
@@ -111,7 +128,7 @@ export function AdminDashboard() {
   const kpis = computeBolaoKpis(filteredBoloes);
   const monthGroups = groupByMonth(filteredBoloes);
 
-  // Consolidado por filial (sempre visível, independente do filtro acima)
+  // Consolidado por filial — oculto para supervisores (só têm uma)
   const branchStats: BranchStats[] = branches
     .map((br) => ({ branch: br, kpis: computeBolaoKpis(allBoloes.filter((b) => b.branch_id === br.id)) }))
     .filter((s) => s.kpis.gerado.count > 0);
@@ -124,8 +141,8 @@ export function AdminDashboard() {
     .map((op) => {
       const opAllocations = allocations.filter((a) => {
         if (a.operator_id !== op.id) return false;
-        if (selectedBranchId === 'all') return true;
-        return a.bolao?.branch_id === selectedBranchId;
+        if (effectiveBranchId === 'all') return true;
+        return a.bolao?.branch_id === effectiveBranchId;
       });
       return { operator: op, kpis: computeAllocationKpis(opAllocations), allocations: opAllocations };
     })
@@ -228,42 +245,46 @@ export function AdminDashboard() {
         </div>
       )}
 
-      {/* Per-branch breakdown — consolidado, sempre olhando todas as filiais */}
-      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-        <Store size={16} /> Por Filial
-      </h2>
+      {/* Per-branch breakdown — hidden for supervisors (they only have one branch) */}
+      {!isSupervisor && (
+        <>
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+            <Store size={16} /> Por Filial
+          </h2>
 
-      {branchStats.length === 0 ? (
-        <Card className="mb-8">
-          <EmptyState icon={<Store size={48} />} title="Nenhuma filial com bolões" description="Quando as filiais criarem bolões, o consolidado aparecerá aqui." />
-        </Card>
-      ) : (
-        <Card className="overflow-hidden mb-8">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
-                  <th className="px-5 py-3 font-medium">Filial</th>
-                  <th className="px-5 py-3 font-medium text-right">Gerado</th>
-                  <th className="px-5 py-3 font-medium text-right">Vendido</th>
-                  <th className="px-5 py-3 font-medium text-right">Encalhado</th>
-                  <th className="px-5 py-3 font-medium text-right">Em Aberto</th>
-                </tr>
-              </thead>
-              <tbody>
-                {branchStats.map(({ branch, kpis: k }) => (
-                  <tr key={branch.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-5 py-3 font-medium text-slate-900">{branch.name}</td>
-                    <td className="px-5 py-3 text-right text-slate-600">R$ {k.gerado.value.toFixed(2)} <span className="text-slate-400">({k.gerado.count})</span></td>
-                    <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.vendido.value.toFixed(2)} <span className="text-slate-400 font-normal">({k.vendido.shares})</span></td>
-                    <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalhado.value.toFixed(2)} <span className="text-slate-400 font-normal">({k.encalhado.shares})</span></td>
-                    <td className="px-5 py-3 text-right text-slate-600">R$ {k.emAberto.value.toFixed(2)} <span className="text-slate-400">({k.emAberto.shares})</span></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+          {branchStats.length === 0 ? (
+            <Card className="mb-8">
+              <EmptyState icon={<Store size={48} />} title="Nenhuma filial com bolões" description="Quando as filiais criarem bolões, o consolidado aparecerá aqui." />
+            </Card>
+          ) : (
+            <Card className="overflow-hidden mb-8">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                      <th className="px-5 py-3 font-medium">Filial</th>
+                      <th className="px-5 py-3 font-medium text-right">Gerado</th>
+                      <th className="px-5 py-3 font-medium text-right">Vendido</th>
+                      <th className="px-5 py-3 font-medium text-right">Encalhado</th>
+                      <th className="px-5 py-3 font-medium text-right">Em Aberto</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branchStats.map(({ branch, kpis: k }) => (
+                      <tr key={branch.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                        <td className="px-5 py-3 font-medium text-slate-900">{branch.name}</td>
+                        <td className="px-5 py-3 text-right text-slate-600">R$ {k.gerado.value.toFixed(2)} <span className="text-slate-400">({k.gerado.count})</span></td>
+                        <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {k.vendido.value.toFixed(2)} <span className="text-slate-400 font-normal">({k.vendido.shares})</span></td>
+                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {k.encalhado.value.toFixed(2)} <span className="text-slate-400 font-normal">({k.encalhado.shares})</span></td>
+                        <td className="px-5 py-3 text-right text-slate-600">R$ {k.emAberto.value.toFixed(2)} <span className="text-slate-400">({k.emAberto.shares})</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+        </>
       )}
 
       {/* Per-operator breakdown (respeita o filtro de filial selecionado acima) */}
