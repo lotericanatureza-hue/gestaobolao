@@ -28,7 +28,7 @@ export interface Product {
   base_price: number;
   service_fee: number;
   draw_frequency: string | null;
-  default_draw_time: string; // "HH:MM:SS" — horário padrão do sorteio, usado para pré-preencher o bolão
+  default_draw_time: string;
   active: boolean;
   created_at: string;
 }
@@ -46,20 +46,21 @@ export interface BranchProduct {
 export type BolaoStatus = 'pending' | 'partial' | 'sold' | 'encalhado';
 export interface Bolao {
   id: string;
-  branch_id: string;
+  branch_id: string | null;
   product_id: string;
-  operator_id: string | null; // opcional: admin cria o bolão sem operador definido
+  operator_id: string | null;
   contest_number: string;
   dezenas: number;
-  jogos: number; // quantidade de jogos do bolão (cada um com `dezenas` números)
+  jogos: number;
   price: number;
   service_fee: number;
   draw_date: string;
-  draw_time: string; // "HH:MM:SS" — horário do sorteio
-  draw_datetime: string; // gerado pelo banco (draw_date + draw_time), timestamp
+  draw_time: string;
+  draw_datetime: string;
   total_shares: number;
-  sold_shares: number; // mantido em sincronia pelo banco = soma de shares_sold das alocações
+  sold_shares: number;
   status: BolaoStatus;
+  encalhe_settled: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -68,7 +69,6 @@ export interface Bolao {
   operator?: Profile;
 }
 
-// Quantas cotas de um bolão pertencem a cada operador, e quantas ele já vendeu.
 export interface BolaoOperatorAllocation {
   id: string;
   bolao_id: string;
@@ -81,7 +81,6 @@ export interface BolaoOperatorAllocation {
   operator?: Profile;
 }
 
-// Histórico de repasses de cotas entre operadores.
 export interface BolaoShareTransfer {
   id: string;
   bolao_id: string;

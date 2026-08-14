@@ -1,89 +1,69 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ArrowRightLeft, Store, Users, Ticket, Repeat, Check, History } from 'lucide-react';
+import { ArrowRightLeft, Users, Ticket, Repeat, Check, History, Store } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Input, Button, Select, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { STATUS_LABELS } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import type { Branch, Profile, Bolao, BolaoOperatorAllocation, BolaoShareTransfer } from '../lib/types';
+import type { Profile, Bolao, BolaoOperatorAllocation, BolaoShareTransfer, Branch } from '../lib/types';
 
 export function AdminBolaoAllocations() {
-  const { profile } = useAuth();
-  const isSupervisor = profile?.role === 'supervisor';
-  const supervisorBranchId = profile?.branch_id ?? '';
-
-  const [branches, setBranches] = useState<Branch[]>([]);
   const [operators, setOperators] = useState<Profile[]>([]);
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [boloes, setBoloes] = useState<Bolao[]>([]);
   const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
   const [transfers, setTransfers] = useState<BolaoShareTransfer[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [selectedBolaoId, setSelectedBolaoId] = useState<string>('');
   const [search, setSearch] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Repasse entre operadores
   const [transferFrom, setTransferFrom] = useState('');
   const [transferTo, setTransferTo] = useState('');
   const [transferShares, setTransferShares] = useState(1);
   const [transferSaving, setTransferSaving] = useState(false);
 
-  const fetchBranchesAndOperators = useCallback(async () => {
-    let branchQuery = supabase.from('branches').select('*').order('name');
-    if (isSupervisor && supervisorBranchId) branchQuery = branchQuery.eq('id', supervisorBranchId);
-    const [{ data: b }, { data: p }] = await Promise.all([
-      branchQuery,
-      supabase.from('profiles').select('*').eq('role', 'operator').order('name'),
-    ]);
-    setBranches((b ?? []) as Branch[]);
-    setOperators((p ?? []) as Profile[]);
-    if (!selectedBranch && (b ?? []).length > 0) {
-      setSelectedBranch(isSupervisor && supervisorBranchId ? supervisorBranchId : (b ?? [])[0].id);
-    }
-  }, [selectedBranch, isSupervisor, supervisorBranchId]);
-
-  const fetchBoloesAndAllocations = useCallback(async () => {
-    if (!selectedBranch) { setLoading(false); return; }
+  const fetchAll = useCallback(async () => {
     setLoading(true);
-    const { data: boloesData } = await supabase
-      .from('boloes')
-      .select('*, product:products(*), branch:branches(*)')
-      .eq('branch_id', selectedBranch)
-      .order('draw_date', { ascending: false });
+    const [{ data: p }, { data: b }, { data: boloesData }] = await Promise.all([
+      supabase.from('profiles').select('*').eq('role', 'operator').eq('active', true).order('name'),
+      supabase.from('branches').select('*').order('name'),
+      supabase.from('boloes').select('*, product:products(*)').order('draw_date', { ascending: false }),
+    ]);
+    setOperators((p ?? []) as Profile[]);
+    setBranches((b ?? []) as Branch[]);
     const list = (boloesData ?? []) as Bolao[];
     setBoloes(list);
 
     if (list.length > 0) {
-      const { data: allocData } = await supabase
-        .from('bolao_operator_allocations')
-        .select('*, operator:profiles(*)')
-        .in('bolao_id', list.map((b) => b.id));
+      const [{ data: allocData }, { data: transferData }] = await Promise.all([
+        supabase.from('bolao_operator_allocations').select('*, operator:profiles(*)').in('bolao_id', list.map((bl) => bl.id)),
+        supabase.from('bolao_share_transfers')
+          .select('*, bolao:boloes(*, product:products(*)), from_operator:profiles!bolao_share_transfers_from_operator_id_fkey(*), to_operator:profiles!bolao_share_transfers_to_operator_id_fkey(*)')
+          .in('bolao_id', list.map((bl) => bl.id))
+          .order('created_at', { ascending: false }),
+      ]);
       setAllocations((allocData ?? []) as BolaoOperatorAllocation[]);
-
-      const { data: transferData } = await supabase
-        .from('bolao_share_transfers')
-        .select('*, bolao:boloes(*, product:products(*)), from_operator:profiles!bolao_share_transfers_from_operator_id_fkey(*), to_operator:profiles!bolao_share_transfers_to_operator_id_fkey(*)')
-        .in('bolao_id', list.map((b) => b.id))
-        .order('created_at', { ascending: false });
       setTransfers((transferData ?? []) as BolaoShareTransfer[]);
     } else {
       setAllocations([]);
       setTransfers([]);
     }
 
-    setSelectedBolaoId((current) => (list.some((b) => b.id === current) ? current : (list[0]?.id ?? '')));
+    setSelectedBolaoId((current) => (list.some((bl) => bl.id === current) ? current : (list[0]?.id ?? '')));
     setLoading(false);
-  }, [selectedBranch]);
+  }, []);
 
-  useEffect(() => { fetchBranchesAndOperators(); }, [fetchBranchesAndOperators]);
-  useEffect(() => { fetchBoloesAndAllocations(); }, [fetchBoloesAndAllocations]);
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const branchOperators = operators.filter((op) => op.branch_id === selectedBranch);
-  const selectedBolao = boloes.find((b) => b.id === selectedBolaoId) ?? null;
+  const selectedBolao = boloes.find((bl) => bl.id === selectedBolaoId) ?? null;
+
+  const branchName = (branchId: string | null) => {
+    if (!branchId) return '—';
+    return branches.find((br) => br.id === branchId)?.name ?? '—';
+  };
 
   const allocationsFor = (bolaoId: string) => allocations.filter((a) => a.bolao_id === bolaoId);
   const getAllocation = (bolaoId: string, operatorId: string) =>
@@ -95,16 +75,11 @@ export function AdminBolaoAllocations() {
     setSavingKey(key);
     setError(null);
     const { error: rpcError } = await supabase.rpc('allocate_bolao_shares', {
-      p_bolao_id: bolaoId,
-      p_operator_id: operatorId,
-      p_shares: shares,
+      p_bolao_id: bolaoId, p_operator_id: operatorId, p_shares: shares,
     });
     setSavingKey(null);
-    if (rpcError) {
-      setError(rpcError.message);
-      return;
-    }
-    fetchBoloesAndAllocations();
+    if (rpcError) { setError(rpcError.message); return; }
+    fetchAll();
   };
 
   const allocateWhole = async (bolao: Bolao, operatorId: string) => {
@@ -115,7 +90,7 @@ export function AdminBolaoAllocations() {
     for (const alloc of others) {
       if (alloc.shares_sold > 0) {
         setSavingKey(null);
-        setError(`Não é possível alocar o bolão inteiro: ${alloc.operator?.name ?? 'um operador'} já vendeu ${alloc.shares_sold} cota(s) dele.`);
+        setError(`${alloc.operator?.name ?? 'um operador'} já vendeu ${alloc.shares_sold} cota(s) — não é possível realocar.`);
         return;
       }
       const { error: zeroError } = await supabase.rpc('allocate_bolao_shares', {
@@ -128,163 +103,97 @@ export function AdminBolaoAllocations() {
     });
     setSavingKey(null);
     if (rpcError) { setError(rpcError.message); return; }
-    fetchBoloesAndAllocations();
+    fetchAll();
   };
 
   const doTransfer = async () => {
-    if (!selectedBolaoId || !transferFrom || !transferTo) {
-      setError('Selecione os dois operadores para o repasse.');
-      return;
-    }
-    if (transferFrom === transferTo) {
-      setError('Selecione operadores diferentes para o repasse.');
-      return;
-    }
+    if (!selectedBolaoId || !transferFrom || !transferTo) { setError('Selecione os dois operadores para o repasse.'); return; }
+    if (transferFrom === transferTo) { setError('Selecione operadores diferentes para o repasse.'); return; }
     setTransferSaving(true);
     setError(null);
     const { error: rpcError } = await supabase.rpc('transfer_bolao_shares', {
-      p_bolao_id: selectedBolaoId,
-      p_from_operator_id: transferFrom,
-      p_to_operator_id: transferTo,
-      p_shares: Number(transferShares),
+      p_bolao_id: selectedBolaoId, p_from_operator_id: transferFrom, p_to_operator_id: transferTo, p_shares: Number(transferShares),
     });
     setTransferSaving(false);
-    if (rpcError) {
-      setError(rpcError.message);
-      return;
-    }
-    setTransferFrom('');
-    setTransferTo('');
-    setTransferShares(1);
-    fetchBoloesAndAllocations();
+    if (rpcError) { setError(rpcError.message); return; }
+    setTransferFrom(''); setTransferTo(''); setTransferShares(1);
+    fetchAll();
   };
 
-  if (loading && branches.length === 0) {
+  if (loading && boloes.length === 0) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
-  }
-
-  if (branches.length === 0) {
-    return (
-      <div>
-        <PageHeader title="Alocação de Bolões" subtitle="Distribua bolões e cotas entre os operadores de cada filial" />
-        <Card>
-          <EmptyState icon={<ArrowRightLeft size={48} />} title="Cadastre filiais primeiro" description="Você precisa ter filiais cadastradas antes de alocar bolões." />
-        </Card>
-      </div>
-    );
   }
 
   return (
     <div>
-      <PageHeader title="Alocação de Bolões" subtitle="Escolha um bolão e distribua cotas (ou o bolão inteiro) entre os operadores da filial" />
-
-      {/* Branch selector — hidden for supervisors (locked to their branch) */}
-      {!isSupervisor && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          {branches.map((b) => (
-            <button
-              key={b.id}
-              onClick={() => setSelectedBranch(b.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
-                selectedBranch === b.id
-                  ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
-              }`}
-            >
-              <Store size={16} /> {b.name}
-            </button>
-          ))}
-        </div>
-      )}
+      <PageHeader title="Alocação de Bolões" subtitle="Distribua cotas entre operadores de todas as filiais — o bolão é centralizado para o grupo" />
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">{error}</p>}
 
-      {branchOperators.length === 0 ? (
-        <Card className="mb-6">
-          <EmptyState icon={<Users size={48} />} title="Nenhum operador nesta filial" description="Aloque operadores a esta filial antes de distribuir bolões." />
-        </Card>
+      {operators.length === 0 ? (
+        <Card><EmptyState icon={<Users size={48} />} title="Nenhum operador ativo" description="Cadastre operadores antes de distribuir cotas." /></Card>
       ) : loading ? (
         <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>
       ) : boloes.length === 0 ? (
-        <Card>
-          <EmptyState icon={<Ticket size={48} />} title="Nenhum bolão criado para esta filial" description="Crie um bolão para começar a distribuir cotas." />
-        </Card>
+        <Card><EmptyState icon={<Ticket size={48} />} title="Nenhum bolão criado" description="Crie um bolão na aba 'Criar Bolão' para começar a distribuir cotas." /></Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 items-start">
-          {/* Lista compacta de bolões, com busca e rolagem própria */}
           <div className="lg:col-span-2">
-            <div className="mb-2">
-              <Input value={search} onChange={setSearch} placeholder="Buscar por produto ou concurso..." />
-            </div>
+            <div className="mb-2"><Input value={search} onChange={setSearch} placeholder="Buscar por produto ou concurso..." /></div>
             <div className="space-y-2 lg:max-h-[70vh] lg:overflow-y-auto lg:pr-1">
-              {boloes
-                .filter((bolao) => {
-                  if (!search.trim()) return true;
-                  const q = search.toLowerCase();
-                  return bolao.product?.name.toLowerCase().includes(q) || bolao.contest_number.includes(q);
-                })
-                .map((bolao) => {
-                  const perShare = Number(bolao.price) + Number(bolao.service_fee);
-                  const totalValue = perShare * bolao.total_shares;
-                  const allocated = allocatedSum(bolao.id);
-                  const pct = bolao.total_shares > 0 ? Math.round((allocated / bolao.total_shares) * 100) : 0;
-                  const statusInfo = STATUS_LABELS[bolao.status];
-                  const isSelected = bolao.id === selectedBolaoId;
-                  return (
-                    <button
-                      key={bolao.id}
-                      onClick={() => setSelectedBolaoId(bolao.id)}
-                      className={`w-full text-left border rounded-lg p-3 transition-all ${
-                        isSelected ? 'border-brand-400 bg-brand-50 shadow-sm' : 'border-slate-200 bg-white hover:border-brand-300'
-                      }`}
-                    >
-                      <div className="flex items-start gap-3">
-                        <LotteryIcon slug={bolao.product?.slug ?? ''} size={32} />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-medium text-slate-900 text-sm truncate">{bolao.product?.name ?? '—'}</span>
-                            <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
-                          </div>
-                          <p className="text-xs text-slate-400">Concurso {bolao.contest_number} · {new Date(bolao.draw_date).toLocaleDateString('pt-BR')}</p>
-                          <div className="flex items-center gap-2 mt-1">
-                            <p className="text-sm font-semibold text-brand-700">R$ {formatBRL(totalValue)}</p>
-                            <p className="text-xs text-slate-400">(R$ {formatBRL(perShare)}/cota)</p>
-                          </div>
+              {boloes.filter((bolao) => {
+                if (!search.trim()) return true;
+                const q = search.toLowerCase();
+                return bolao.product?.name.toLowerCase().includes(q) || bolao.contest_number.includes(q);
+              }).map((bolao) => {
+                const perShare = Number(bolao.price) + Number(bolao.service_fee);
+                const totalValue = perShare * bolao.total_shares;
+                const allocated = allocatedSum(bolao.id);
+                const pct = bolao.total_shares > 0 ? Math.round((allocated / bolao.total_shares) * 100) : 0;
+                const statusInfo = STATUS_LABELS[bolao.status];
+                const isSelected = bolao.id === selectedBolaoId;
+                return (
+                  <button key={bolao.id} onClick={() => setSelectedBolaoId(bolao.id)}
+                    className={`w-full text-left border rounded-lg p-3 transition-all ${isSelected ? 'border-brand-400 bg-brand-50 shadow-sm' : 'border-slate-200 bg-white hover:border-brand-300'}`}>
+                    <div className="flex items-start gap-3">
+                      <LotteryIcon slug={bolao.product?.slug ?? ''} size={32} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-slate-900 text-sm truncate">{bolao.product?.name ?? '—'}</span>
+                          <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+                        </div>
+                        <p className="text-xs text-slate-400">Concurso {bolao.contest_number} · {new Date(bolao.draw_date).toLocaleDateString('pt-BR')}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <p className="text-sm font-semibold text-brand-700">R$ {formatBRL(totalValue)}</p>
+                          <p className="text-xs text-slate-400">(R$ {formatBRL(perShare)}/cota)</p>
                         </div>
                       </div>
-                      <div className="mt-2">
-                        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${allocated >= bolao.total_shares ? 'bg-emerald-500' : allocated > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
-                        </div>
-                        <p className="text-[11px] text-slate-400 mt-1">{allocated}/{bolao.total_shares} cotas alocadas</p>
+                    </div>
+                    <div className="mt-2">
+                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${allocated >= bolao.total_shares ? 'bg-emerald-500' : allocated > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
                       </div>
-                    </button>
-                  );
-                })}
+                      <p className="text-[11px] text-slate-400 mt-1">{allocated}/{bolao.total_shares} cotas alocadas</p>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Painel de alocação do bolão selecionado — fica fixo na tela ao rolar a lista */}
           <div className="lg:col-span-3 lg:sticky lg:top-4">
             {!selectedBolao ? (
               <Card><EmptyState icon={<Ticket size={48} />} title="Selecione um bolão" description="Escolha um bolão na lista ao lado para distribuir as cotas." /></Card>
             ) : (
-              <BolaoAllocationPanel
-                bolao={selectedBolao}
-                operators={branchOperators}
-                getAllocation={getAllocation}
-                allocatedSum={allocatedSum(selectedBolao.id)}
-                onSetAllocation={setAllocation}
-                onAllocateWhole={allocateWhole}
-                savingKey={savingKey}
-              />
+              <BolaoAllocationPanel bolao={selectedBolao} operators={operators} getAllocation={getAllocation}
+                allocatedSum={allocatedSum(selectedBolao.id)} onSetAllocation={setAllocation}
+                onAllocateWhole={allocateWhole} savingKey={savingKey} branchName={branchName} />
             )}
           </div>
         </div>
       )}
 
-      {/* Repasse entre operadores — já focado no bolão selecionado acima */}
-      {selectedBolao && branchOperators.length > 0 && (
+      {selectedBolao && operators.length > 0 && (
         <Card className="p-5 mt-6">
           <div className="flex items-center gap-2 mb-1">
             <Repeat size={18} className="text-slate-400" />
@@ -295,20 +204,10 @@ export function AdminBolaoAllocations() {
             Só é possível repassar cotas ainda não vendidas — a comissão passa a ser de quem recebe.
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-            <Select
-              label="De (operador)"
-              value={transferFrom}
-              onChange={setTransferFrom}
-              placeholder="Selecione"
-              options={branchOperators.map((op) => ({ value: op.id, label: op.name }))}
-            />
-            <Select
-              label="Para (operador)"
-              value={transferTo}
-              onChange={setTransferTo}
-              placeholder="Selecione"
-              options={branchOperators.map((op) => ({ value: op.id, label: op.name }))}
-            />
+            <Select label="De (operador)" value={transferFrom} onChange={setTransferFrom} placeholder="Selecione"
+              options={operators.map((op) => ({ value: op.id, label: `${op.name} (${branchName(op.branch_id)})` }))} />
+            <Select label="Para (operador)" value={transferTo} onChange={setTransferTo} placeholder="Selecione"
+              options={operators.map((op) => ({ value: op.id, label: `${op.name} (${branchName(op.branch_id)})` }))} />
             <Input label="Cotas" type="number" min={1} value={transferShares} onChange={(v) => setTransferShares(Number(v))} />
           </div>
           <div className="flex justify-end mt-4">
@@ -316,36 +215,39 @@ export function AdminBolaoAllocations() {
           </div>
         </Card>
       )}
-      {/* Resumo: quantas cotas cada operador recebeu nesta filial */}
-      {branchOperators.length > 0 && boloes.length > 0 && (
+
+      {operators.length > 0 && boloes.length > 0 && (
         <Card className="overflow-hidden mt-6">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
             <Users size={18} className="text-slate-400" />
-            <h2 className="font-semibold text-slate-900">Cotas recebidas por operador (nesta filial)</h2>
+            <h2 className="font-semibold text-slate-900">Cotas recebidas por operador</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
                   <th className="px-5 py-2.5 font-medium">Operador</th>
+                  <th className="px-5 py-2.5 font-medium">Filial</th>
                   <th className="px-5 py-2.5 font-medium text-right">Cotas recebidas</th>
                   <th className="px-5 py-2.5 font-medium text-right">Cotas vendidas</th>
                   <th className="px-5 py-2.5 font-medium text-right">Valor recebido</th>
                 </tr>
               </thead>
               <tbody>
-                {branchOperators.map((op) => {
+                {operators.map((op) => {
                   const opAllocs = allocations.filter((a) => a.operator_id === op.id);
                   const totalAllocated = opAllocs.reduce((s, a) => s + a.shares_allocated, 0);
                   const totalSold = opAllocs.reduce((s, a) => s + a.shares_sold, 0);
                   const totalValue = opAllocs.reduce((s, a) => {
-                    const b = boloes.find((bl) => bl.id === a.bolao_id);
-                    const perShare = b ? Number(b.price) + Number(b.service_fee) : 0;
+                    const bl = boloes.find((bol) => bol.id === a.bolao_id);
+                    const perShare = bl ? Number(bl.price) + Number(bl.service_fee) : 0;
                     return s + perShare * a.shares_allocated;
                   }, 0);
+                  if (totalAllocated === 0) return null;
                   return (
                     <tr key={op.id} className="border-b border-slate-50">
                       <td className="px-5 py-2.5 font-medium text-slate-900">{op.name}</td>
+                      <td className="px-5 py-2.5 text-slate-600">{branchName(op.branch_id)}</td>
                       <td className="px-5 py-2.5 text-right text-slate-600">{totalAllocated}</td>
                       <td className="px-5 py-2.5 text-right text-slate-600">{totalSold}</td>
                       <td className="px-5 py-2.5 text-right font-semibold text-brand-700">R$ {formatBRL(totalValue)}</td>
@@ -358,16 +260,13 @@ export function AdminBolaoAllocations() {
         </Card>
       )}
 
-      {/* Histórico de repasses entre operadores */}
       <Card className="overflow-hidden mt-6">
         <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
           <History size={18} className="text-slate-400" />
           <h2 className="font-semibold text-slate-900">Histórico de repasses</h2>
         </div>
         {transfers.length === 0 ? (
-          <div className="p-5">
-            <EmptyState icon={<Repeat size={40} />} title="Nenhum repasse ainda" description="Quando um operador repassar cotas para outro, o histórico aparece aqui." />
-          </div>
+          <div className="p-5"><EmptyState icon={<Repeat size={40} />} title="Nenhum repasse ainda" description="Quando um operador repassar cotas para outro, o histórico aparece aqui." /></div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -407,13 +306,7 @@ export function AdminBolaoAllocations() {
 }
 
 function BolaoAllocationPanel({
-  bolao,
-  operators,
-  getAllocation,
-  allocatedSum,
-  onSetAllocation,
-  onAllocateWhole,
-  savingKey,
+  bolao, operators, getAllocation, allocatedSum, onSetAllocation, onAllocateWhole, savingKey, branchName,
 }: {
   bolao: Bolao;
   operators: Profile[];
@@ -422,6 +315,7 @@ function BolaoAllocationPanel({
   onSetAllocation: (bolaoId: string, operatorId: string, shares: number) => void;
   onAllocateWhole: (bolao: Bolao, operatorId: string) => void;
   savingKey: string | null;
+  branchName: (branchId: string | null) => string;
 }) {
   const perShare = Number(bolao.price) + Number(bolao.service_fee);
   const totalValue = perShare * bolao.total_shares;
@@ -433,7 +327,6 @@ function BolaoAllocationPanel({
 
   return (
     <Card className="overflow-hidden">
-      {/* Cabeçalho com todos os valores em destaque — é o que faltava */}
       <div className="px-5 py-4 bg-brand-50 border-b border-brand-100">
         <div className="flex items-center gap-3 mb-3">
           <LotteryIcon slug={bolao.product?.slug ?? ''} size={36} />
@@ -489,24 +382,16 @@ function BolaoAllocationPanel({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-900 truncate">{op.name}</p>
-                <p className="text-xs text-slate-400">{alloc?.shares_sold ?? 0} vendida(s) de {opShares} · R$ {formatBRL(opValue)}</p>
+                <p className="text-xs text-slate-400 flex items-center gap-1">
+                  <Store size={11} /> {branchName(op.branch_id)} · {alloc?.shares_sold ?? 0} vendida(s) · R$ {formatBRL(opValue)}
+                </p>
               </div>
               <div className="w-24">
-                <Input
-                  type="number"
-                  min={alloc?.shares_sold ?? 0}
-                  max={maxAllowed}
-                  value={opShares}
-                  onChange={(v) => onSetAllocation(bolao.id, op.id, Number(v))}
-                />
+                <Input type="number" min={alloc?.shares_sold ?? 0} max={maxAllowed} value={opShares}
+                  onChange={(v) => onSetAllocation(bolao.id, op.id, Number(v))} />
               </div>
-              <Button
-                size="sm"
-                variant={isWhole ? 'accent' : 'secondary'}
-                onClick={() => onAllocateWhole(bolao, op.id)}
-                disabled={savingKey === `${bolao.id}-whole` || locked}
-                title="Alocar o bolão inteiro para este operador"
-              >
+              <Button size="sm" variant={isWhole ? 'accent' : 'secondary'} onClick={() => onAllocateWhole(bolao, op.id)}
+                disabled={savingKey === `${bolao.id}-whole` || locked} title="Alocar o bolão inteiro para este operador">
                 {isWhole ? <Check size={14} /> : 'Tudo'}
               </Button>
               {savingKey === key && <span className="text-[11px] text-slate-400 shrink-0">Salvando...</span>}

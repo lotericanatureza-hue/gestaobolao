@@ -1,31 +1,25 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
-import { Store, ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2 } from 'lucide-react';
+import { ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2, Trophy, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
-import { Card, Spinner, EmptyState, Badge } from './ui';
+import { Card, Spinner, EmptyState, Badge, Button } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Bolao, Branch, Profile, BolaoOperatorAllocation } from '../lib/types';
 import { computeBolaoKpis, computeAllocationKpis, pluralize, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
+import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL } from '../lib/commission';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
-interface MonthGroup {
-  key: string;
-  label: string;
-  boloes: Bolao[];
-  kpis: BolaoKpis;
-}
+interface MonthGroup { key: string; label: string; boloes: Bolao[]; kpis: BolaoKpis; }
 
 function groupByMonth(boloes: Bolao[]): MonthGroup[] {
   const map = new Map<string, MonthGroup>();
   for (const b of boloes) {
     const d = new Date(b.created_at);
     const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
-    if (!map.has(key)) {
-      map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeBolaoKpis([]) });
-    }
+    if (!map.has(key)) map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeBolaoKpis([]) });
     map.get(key)!.boloes.push(b);
   }
   const groups = Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
@@ -33,66 +27,43 @@ function groupByMonth(boloes: Bolao[]): MonthGroup[] {
   return groups;
 }
 
-interface OperatorStats {
-  operator: Profile;
-  kpis: BolaoKpis;
-  allocations: BolaoOperatorAllocation[];
-}
-
-interface BranchStats {
-  branch: Branch;
-  kpis: BolaoKpis;
-}
+interface OperatorStats { operator: Profile; kpis: BolaoKpis; allocations: BolaoOperatorAllocation[]; monthlyServiceFee: number; commission: number; }
 
 export function AdminDashboard() {
   const { profile } = useAuth();
-  const isSupervisor = profile?.role === 'supervisor';
-  const supervisorBranchId = profile?.branch_id ?? '';
+  const isAdmin = profile?.role === 'admin';
 
   const [allBoloes, setAllBoloes] = useState<Bolao[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [operators, setOperators] = useState<Profile[]>([]);
   const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedBranchId, setSelectedBranchId] = useState<string>('all');
   const [expandedOperatorId, setExpandedOperatorId] = useState<string | null>(null);
   const [undoingId, setUndoingId] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
+  const [settlingId, setSettlingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    const branchFilter = isSupervisor && supervisorBranchId ? supervisorBranchId : null;
-
-    const boloesQuery = supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false });
-    if (branchFilter) boloesQuery.eq('branch_id', branchFilter);
-
-    const branchQuery = supabase.from('branches').select('*').order('name');
-    if (branchFilter) branchQuery.eq('id', branchFilter);
-
-    const opQuery = supabase.from('profiles').select('*').eq('role', 'operator').order('name');
-    if (branchFilter) opQuery.eq('branch_id', branchFilter);
-
-    const allocQuery = supabase.from('bolao_operator_allocations').select('*, bolao:boloes(*, product:products(*), branch:branches(*))');
-    if (branchFilter) allocQuery.eq('bolao.branch_id', branchFilter);
-
     const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }] = await Promise.all([
-      boloesQuery, branchQuery, opQuery, allocQuery,
+      supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false }),
+      supabase.from('branches').select('*').order('name'),
+      supabase.from('profiles').select('*').eq('role', 'operator').order('name'),
+      supabase.from('bolao_operator_allocations').select('*, bolao:boloes(*, product:products(*), branch:branches(*))'),
     ]);
     setAllBoloes((boloes ?? []) as Bolao[]);
     setBranches((branchList ?? []) as Branch[]);
     setOperators((opList ?? []) as Profile[]);
     setAllocations((allocList ?? []) as BolaoOperatorAllocation[]);
     setLoading(false);
-  }, [isSupervisor, supervisorBranchId]);
+  }, []);
 
   useEffect(() => {
     fetchData();
-
     const channel = supabase
       .channel('admin-dashboard-boloes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_operator_allocations' }, () => fetchData())
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
 
@@ -101,144 +72,188 @@ export function AdminDashboard() {
     setUndoingId(allocation.id);
     setUndoError(null);
     const { error } = await supabase.rpc('sell_bolao_shares', {
-      p_bolao_id: allocation.bolao_id,
-      p_operator_id: allocation.operator_id,
-      p_shares_sold: allocation.shares_sold - 1,
+      p_bolao_id: allocation.bolao_id, p_operator_id: allocation.operator_id, p_shares_sold: allocation.shares_sold - 1,
     });
     setUndoingId(null);
-    if (error) {
-      setUndoError(error.message);
-      return;
-    }
+    if (error) { setUndoError(error.message); return; }
     fetchData();
   };
 
-  const effectiveBranchId = isSupervisor ? supervisorBranchId : selectedBranchId;
-  const filteredBoloes = effectiveBranchId === 'all'
-    ? allBoloes
-    : allBoloes.filter((b) => b.branch_id === effectiveBranchId);
+  const settleEncalhe = async (bolaoId: string) => {
+    setSettlingId(bolaoId);
+    setUndoError(null);
+    const { error } = await supabase.rpc('settle_encalhe', { p_bolao_id: bolaoId });
+    setSettlingId(null);
+    if (error) { setUndoError(error.message); return; }
+    fetchData();
+  };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Spinner className="text-brand-500" />
-      </div>
-    );
+    return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
 
-  const kpis = computeBolaoKpis(filteredBoloes);
-  const monthGroups = groupByMonth(filteredBoloes);
+  const kpis = computeBolaoKpis(allBoloes);
+  const monthGroups = groupByMonth(allBoloes);
+  const branchName = (id: string | null) => id ? (branches.find((br) => br.id === id)?.name ?? '—') : '—';
 
-  // Consolidado por filial — oculto para supervisores (só têm uma)
-  const branchStats: BranchStats[] = branches
-    .map((br) => ({ branch: br, kpis: computeBolaoKpis(allBoloes.filter((b) => b.branch_id === br.id)) }))
-    .filter((s) => s.kpis.gerado.count > 0);
+  const now = new Date();
+  const currentMonthLabel = monthNames[now.getMonth()] + ' ' + now.getFullYear();
+  const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
+  const currentMonthBoloes = allBoloes.filter((b) => {
+    const d = new Date(b.created_at);
+    return `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}` === currentMonthKey;
+  });
+  const currentMonthKpis = computeBolaoKpis(currentMonthBoloes);
+  const groupMonthlyServiceFee = currentMonthKpis.vendido.commission;
+  const groupGoalProgress = Math.min(100, (groupMonthlyServiceFee / GROUP_MONTHLY_GOAL) * 100);
 
-  // Desempenho por operador: agora calculado pelas cotas ALOCADAS a cada
-  // operador (bolao_operator_allocations), não mais por "quem criou o
-  // bolão" — já que hoje é o admin quem cria, e as cotas são distribuídas
-  // depois, podendo inclusive ficar divididas entre vários operadores.
-  const operatorStats: OperatorStats[] = operators
-    .map((op) => {
-      const opAllocations = allocations.filter((a) => {
-        if (a.operator_id !== op.id) return false;
-        if (effectiveBranchId === 'all') return true;
-        return a.bolao?.branch_id === effectiveBranchId;
-      });
-      return { operator: op, kpis: computeAllocationKpis(opAllocations), allocations: opAllocations };
-    })
-    .filter((s) => s.kpis.gerado.count > 0)
-    .sort((a, b) => b.kpis.vendido.value - a.kpis.vendido.value);
+  const operatorStats: OperatorStats[] = operators.map((op) => {
+    const opAllocations = allocations.filter((a) => a.operator_id === op.id);
+    const k = computeAllocationKpis(opAllocations);
+    const monthlyAllocs = opAllocations.filter((a) => {
+      if (!a.bolao) return false;
+      const d = new Date(a.bolao.created_at);
+      return `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}` === currentMonthKey;
+    });
+    const monthlyServiceFee = monthlyAllocs.reduce((s, a) => {
+      if (!a.bolao) return s;
+      return s + Number(a.bolao.service_fee) * a.shares_sold;
+    }, 0);
+    const commission = calculateTieredCommission(monthlyServiceFee);
+    return { operator: op, kpis: k, allocations: opAllocations, monthlyServiceFee, commission };
+  }).filter((s) => s.kpis.gerado.count > 0).sort((a, b) => b.kpis.vendido.value - a.kpis.vendido.value);
+
+  const top5ByGoal = [...operatorStats].sort((a, b) => b.monthlyServiceFee - a.monthlyServiceFee).slice(0, 5);
+  const encalhesPendentes = allBoloes.filter((b) => b.status === 'encalhado' && !b.encalhe_settled);
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Visão consolidada de bolões, comissões e encalhes" />
+      <PageHeader title="Dashboard" subtitle="Visão consolidada do grupo Mega Bolão Brasil" />
 
-      {/* Branch filter */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <button
-          onClick={() => setSelectedBranchId('all')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
-            selectedBranchId === 'all'
-              ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-              : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
-          }`}
-        >
-          <Store size={16} /> Todas as Filiais
-        </button>
-        {branches.map((b) => (
-          <button
-            key={b.id}
-            onClick={() => setSelectedBranchId(b.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
-              selectedBranchId === b.id
-                ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
-            }`}
-          >
-            <Store size={16} /> {b.name}
-          </button>
-        ))}
-      </div>
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Meta do Grupo — {currentMonthLabel}</h2>
+      <Card className="p-5 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-sm text-slate-500">Taxa de serviço vendida no mês</p>
+            <p className="text-2xl font-bold text-brand-950">R$ {formatBRL(groupMonthlyServiceFee)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-slate-500">Meta</p>
+            <p className="text-lg font-semibold text-brand-700">R$ {formatBRL(GROUP_MONTHLY_GOAL)}</p>
+          </div>
+        </div>
+        <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500 transition-all duration-500" style={{ width: `${groupGoalProgress}%` }} />
+        </div>
+        <p className="text-xs text-slate-400 mt-2">{groupGoalProgress.toFixed(1)}% da meta alcançada · Faltam R$ {formatBRL(Math.max(0, GROUP_MONTHLY_GOAL - groupMonthlyServiceFee))}</p>
+      </Card>
 
-      {/* General KPIs — Gerado / Vendido / Encalhado / Em Aberto, mesma base de valor */}
-      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral</h2>
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral — Todos os Bolões</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <KpiCard
-          icon={<ShoppingBag size={22} />}
-          label="Gerado"
-          bigValue={`R$ ${formatBRL(kpis.gerado.value)}`}
-          smallValue={pluralize(kpis.gerado.count, 'bolão', 'bolões')}
-          color="brand"
-          lines={[{ label: 'Comissão total', value: `R$ ${formatBRL(kpis.gerado.commission)}` }]}
-        />
-        <KpiCard
-          icon={<DollarSign size={22} />}
-          label="Vendido"
-          bigValue={`R$ ${formatBRL(kpis.vendido.value)}`}
-          smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')}
-          color="emerald"
-          lines={[
-            { label: 'Casa (70%)', value: `R$ ${formatBRL(kpis.vendido.lotericaCommission)}` },
-            { label: 'Operador (30%)', value: `R$ ${formatBRL(kpis.vendido.operatorCommission)}` },
-          ]}
-        />
-        <KpiCard
-          icon={<TrendingDown size={22} />}
-          label="Encalhado"
-          bigValue={`R$ ${formatBRL(kpis.encalhado.value)}`}
-          smallValue={pluralize(kpis.encalhado.shares, 'cota encalhada', 'cotas encalhadas')}
-          color="red"
-        />
-        <KpiCard
-          icon={<Clock size={22} />}
-          label="Em Aberto"
-          bigValue={`R$ ${formatBRL(kpis.emAberto.value)}`}
-          smallValue={pluralize(kpis.emAberto.shares, 'cota aguardando sorteio', 'cotas aguardando sorteio')}
-          color="accent"
-        />
+        <KpiCard icon={<ShoppingBag size={22} />} label="Gerado" bigValue={`R$ ${formatBRL(kpis.gerado.value)}`} smallValue={pluralize(kpis.gerado.count, 'bolão', 'bolões')} color="brand"
+          lines={[{ label: 'Taxa total', value: `R$ ${formatBRL(kpis.gerado.commission)}` }]} />
+        <KpiCard icon={<DollarSign size={22} />} label="Vendido" bigValue={`R$ ${formatBRL(kpis.vendido.value)}`} smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')} color="emerald"
+          lines={[{ label: 'Taxa vendida', value: `R$ ${formatBRL(kpis.vendido.commission)}` }]} />
+        <KpiCard icon={<TrendingDown size={22} />} label="Encalhe Pendente" bigValue={`R$ ${formatBRL(kpis.encalhado.value)}`} smallValue={pluralize(kpis.encalhado.shares, 'cota', 'cotas')} color="amber" />
+        <KpiCard icon={<Clock size={22} />} label="Em Aberto" bigValue={`R$ ${formatBRL(kpis.emAberto.value)}`} smallValue={pluralize(kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
       </div>
 
-      {/* Monthly breakdown */}
+      {isAdmin && encalhesPendentes.length > 0 && (
+        <Card className="overflow-hidden mb-8 border-amber-200">
+          <div className="px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2">
+            <AlertTriangle size={18} className="text-amber-600" />
+            <h2 className="font-semibold text-amber-900">Encalhes Pendentes de Baixa ({encalhesPendentes.length})</h2>
+          </div>
+          {undoError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 m-3">{undoError}</p>}
+          <div className="divide-y divide-slate-50">
+            {encalhesPendentes.map((b) => {
+              const perShare = Number(b.price) + Number(b.service_fee);
+              const unsoldShares = b.total_shares - b.sold_shares;
+              const unsoldValue = perShare * unsoldShares;
+              const statusInfo = STATUS_LABELS[b.status];
+              return (
+                <div key={b.id} className="px-5 py-3 flex items-center gap-3">
+                  <LotteryIcon slug={b.product?.slug ?? ''} size={32} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium text-slate-900 text-sm">{b.product?.name ?? '—'}</span>
+                      <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
+                      <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+                    </div>
+                    <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 mt-0.5">
+                      <span className="font-medium text-red-600">{unsoldShares} cotas sem vender · R$ {formatBRL(unsoldValue)}</span>
+                      <span>Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
+                    </div>
+                  </div>
+                  <Button size="sm" variant="danger" onClick={() => settleEncalhe(b.id)} disabled={settlingId === b.id}>
+                    <CheckCircle2 size={14} /> {settlingId === b.id ? 'Baixando...' : 'Dar baixa'}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Trophy size={16} /> Ranking dos 5 Operadores — Meta {currentMonthLabel}
+      </h2>
+      {top5ByGoal.length === 0 ? (
+        <Card className="mb-8"><EmptyState icon={<Trophy size={48} />} title="Nenhum operador com vendas" description="Quando os operadores começarem a vender, o ranking aparecerá aqui." /></Card>
+      ) : (
+        <Card className="overflow-hidden mb-8">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                  <th className="px-5 py-3 font-medium">#</th>
+                  <th className="px-5 py-3 font-medium">Operador</th>
+                  <th className="px-5 py-3 font-medium">Filial</th>
+                  <th className="px-5 py-3 font-medium text-right">Taxa vendida (mês)</th>
+                  <th className="px-5 py-3 font-medium text-right">Tier</th>
+                  <th className="px-5 py-3 font-medium text-right">Comissão</th>
+                </tr>
+              </thead>
+              <tbody>
+                {top5ByGoal.map((s, i) => {
+                  const rate = getCommissionRate(s.monthlyServiceFee);
+                  const tierLabel = rate === 0.10 ? '10%' : rate === 0.20 ? '20%' : '30%';
+                  const tierColor = rate === 0.10 ? 'slate' : rate === 0.20 ? 'amber' : 'green';
+                  return (
+                    <tr key={s.operator.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                      <td className="px-5 py-3">
+                        <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-slate-200 text-slate-600' : i === 2 ? 'bg-orange-100 text-orange-700' : 'bg-slate-100 text-slate-400'}`}>
+                          {i + 1}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 font-medium text-slate-900">{s.operator.name}</td>
+                      <td className="px-5 py-3 text-slate-600">{branchName(s.operator.branch_id)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(s.monthlyServiceFee)}</td>
+                      <td className="px-5 py-3 text-right"><Badge color={tierColor}>{tierLabel}</Badge></td>
+                      <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(s.commission)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
         <Calendar size={16} /> Por Mês
       </h2>
-
       {monthGroups.length === 0 ? (
-        <Card className="mb-8">
-          <EmptyState icon={<ShoppingBag size={48} />} title="Nenhum bolão criado" description="Os bolões criados pelos operadores aparecerão aqui." />
-        </Card>
+        <Card className="mb-8"><EmptyState icon={<ShoppingBag size={48} />} title="Nenhum bolão criado" description="Os bolões criados aparecerão aqui." /></Card>
       ) : (
         <div className="space-y-6 mb-8">
           {monthGroups.map((group) => (
             <Card key={group.key} className="overflow-hidden">
-              <div className="px-5 py-3 bg-brand-50 border-b border-brand-100">
-                <h3 className="font-semibold text-brand-900">{group.label}</h3>
-              </div>
+              <div className="px-5 py-3 bg-brand-50 border-b border-brand-100"><h3 className="font-semibold text-brand-900">{group.label}</h3></div>
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
                 <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${formatBRL(group.kpis.gerado.value)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
                 <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${formatBRL(group.kpis.vendido.value)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
-                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${formatBRL(group.kpis.encalhado.value)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
+                <KpiCard icon={<TrendingDown size={20} />} label="Encalhe Pend." bigValue={`R$ ${formatBRL(group.kpis.encalhado.value)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="amber" />
                 <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${formatBRL(group.kpis.emAberto.value)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
               </div>
             </Card>
@@ -246,57 +261,11 @@ export function AdminDashboard() {
         </div>
       )}
 
-      {/* Per-branch breakdown — hidden for supervisors (they only have one branch) */}
-      {!isSupervisor && (
-        <>
-          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-            <Store size={16} /> Por Filial
-          </h2>
-
-          {branchStats.length === 0 ? (
-            <Card className="mb-8">
-              <EmptyState icon={<Store size={48} />} title="Nenhuma filial com bolões" description="Quando as filiais criarem bolões, o consolidado aparecerá aqui." />
-            </Card>
-          ) : (
-            <Card className="overflow-hidden mb-8">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
-                      <th className="px-5 py-3 font-medium">Filial</th>
-                      <th className="px-5 py-3 font-medium text-right">Gerado</th>
-                      <th className="px-5 py-3 font-medium text-right">Vendido</th>
-                      <th className="px-5 py-3 font-medium text-right">Encalhado</th>
-                      <th className="px-5 py-3 font-medium text-right">Em Aberto</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {branchStats.map(({ branch, kpis: k }) => (
-                      <tr key={branch.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                        <td className="px-5 py-3 font-medium text-slate-900">{branch.name}</td>
-                        <td className="px-5 py-3 text-right text-slate-600">R$ {formatBRL(k.gerado.value)} <span className="text-slate-400">({k.gerado.count})</span></td>
-                        <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(k.vendido.value)} <span className="text-slate-400 font-normal">({k.vendido.shares})</span></td>
-                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {formatBRL(k.encalhado.value)} <span className="text-slate-400 font-normal">({k.encalhado.shares})</span></td>
-                        <td className="px-5 py-3 text-right text-slate-600">R$ {formatBRL(k.emAberto.value)} <span className="text-slate-400">({k.emAberto.shares})</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-        </>
-      )}
-
-      {/* Per-operator breakdown (respeita o filtro de filial selecionado acima) */}
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
         <Users size={16} /> Por Operador
       </h2>
-
       {operatorStats.length === 0 ? (
-        <Card>
-          <EmptyState icon={<Users size={48} />} title="Nenhum operador com cotas alocadas" description="Quando o admin alocar cotas de bolão para os operadores, o desempenho de cada um aparecerá aqui." />
-        </Card>
+        <Card><EmptyState icon={<Users size={48} />} title="Nenhum operador com cotas alocadas" description="Quando o admin alocar cotas de bolão para os operadores, o desempenho de cada um aparecerá aqui." /></Card>
       ) : (
         <Card className="overflow-hidden mb-8">
           <div className="overflow-x-auto">
@@ -306,35 +275,29 @@ export function AdminDashboard() {
                   <th className="px-5 py-3 font-medium">Operador</th>
                   <th className="px-5 py-3 font-medium">Filial</th>
                   <th className="px-5 py-3 font-medium text-right">Recebido</th>
-                  <th className="px-5 py-3 font-medium text-right">Comissão Operador (30%)</th>
                   <th className="px-5 py-3 font-medium text-right">Vendido</th>
                   <th className="px-5 py-3 font-medium text-right">Encalhado</th>
+                  <th className="px-5 py-3 font-medium text-right">Comissão (mês)</th>
                 </tr>
               </thead>
               <tbody>
-                {operatorStats.map(({ operator: op, kpis: k, allocations: opAllocations }) => {
-                  const branchName = branches.find((br) => br.id === op.branch_id)?.name ?? '—';
+                {operatorStats.map(({ operator: op, kpis: k, allocations: opAllocations, monthlyServiceFee, commission }) => {
                   const isExpanded = expandedOperatorId === op.id;
                   return (
                     <Fragment key={op.id}>
-                      <tr
-                        onClick={() => setExpandedOperatorId(isExpanded ? null : op.id)}
-                        className="border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer"
-                      >
+                      <tr onClick={() => setExpandedOperatorId(isExpanded ? null : op.id)} className="border-b border-slate-50 hover:bg-slate-50 transition-colors cursor-pointer">
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2">
                             {isExpanded ? <ChevronDown size={16} className="text-slate-400 shrink-0" /> : <ChevronRight size={16} className="text-slate-400 shrink-0" />}
-                            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold">
-                              {op.name.charAt(0).toUpperCase()}
-                            </div>
+                            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold">{op.name.charAt(0).toUpperCase()}</div>
                             <span className="font-medium text-slate-900">{op.name}</span>
                           </div>
                         </td>
-                        <td className="px-5 py-3 text-slate-600">{branchName}</td>
+                        <td className="px-5 py-3 text-slate-600">{branchName(op.branch_id)}</td>
                         <td className="px-5 py-3 text-right text-slate-600">R$ {formatBRL(k.gerado.value)} <span className="text-slate-400">({k.gerado.count})</span></td>
-                        <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(k.vendido.operatorCommission)}</td>
                         <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(k.vendido.value)}</td>
-                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {formatBRL(k.encalhado.value)}</td>
+                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {formatBRL(k.encalhado.value + k.encalheBaixado.value)}</td>
+                        <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(commission)}</td>
                       </tr>
                       {isExpanded && (
                         <tr className="bg-slate-50/70">
@@ -362,16 +325,12 @@ export function AdminDashboard() {
                                         <p className="text-xs text-slate-400">Sorteio {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</p>
                                       </div>
                                       <div className="text-xs text-right">
-                                        <p className="text-emerald-600 font-semibold">{a.shares_sold} vendida(s) · R$ ${formatBRL(perShare * a.shares_sold)}</p>
-                                        <p className={pending > 0 ? 'text-amber-600' : 'text-slate-400'}>{pending} pendente(s) · R$ ${formatBRL(perShare * pending)}</p>
+                                        <p className="text-emerald-600 font-semibold">{a.shares_sold} vendida(s) · R$ {formatBRL(perShare * a.shares_sold)}</p>
+                                        <p className={pending > 0 ? 'text-amber-600' : 'text-slate-400'}>{pending} pendente(s) · R$ {formatBRL(perShare * pending)}</p>
                                       </div>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => { e.stopPropagation(); undoLastSale(a); }}
-                                        disabled={a.shares_sold <= 0 || undoingId === a.id}
-                                        title="Desfazer a última venda desta cota (volta 1 cota vendida para pendente)"
-                                        className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg px-2.5 py-1.5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
-                                      >
+                                      <button type="button" onClick={(e) => { e.stopPropagation(); undoLastSale(a); }} disabled={a.shares_sold <= 0 || undoingId === a.id}
+                                        title="Desfazer a última venda desta cota"
+                                        className="flex items-center gap-1.5 text-xs font-medium text-slate-500 hover:text-red-600 border border-slate-200 hover:border-red-200 rounded-lg px-2.5 py-1.5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0">
                                         <Undo2 size={13} /> {undoingId === a.id ? 'Desfazendo...' : 'Desfazer venda'}
                                       </button>
                                     </div>
@@ -394,34 +353,17 @@ export function AdminDashboard() {
   );
 }
 
-function KpiCard({
-  icon,
-  label,
-  bigValue,
-  smallValue,
-  lines,
-  color,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  bigValue: string;
-  smallValue?: string;
-  lines?: { label: string; value: string }[];
-  color: string;
+function KpiCard({ icon, label, bigValue, smallValue, lines, color }: {
+  icon: React.ReactNode; label: string; bigValue: string; smallValue?: string; lines?: { label: string; value: string }[]; color: string;
 }) {
   const colors: Record<string, string> = {
-    brand: 'bg-brand-50 text-brand-600',
-    emerald: 'bg-emerald-50 text-emerald-600',
-    red: 'bg-red-50 text-red-600',
-    amber: 'bg-amber-50 text-amber-600',
-    accent: 'bg-accent-50 text-accent-600',
+    brand: 'bg-brand-50 text-brand-600', emerald: 'bg-emerald-50 text-emerald-600',
+    red: 'bg-red-50 text-red-600', amber: 'bg-amber-50 text-amber-600', accent: 'bg-accent-50 text-accent-600',
   };
   return (
     <Card className="p-5">
       <div className="flex items-center gap-3 mb-3">
-        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${colors[color]}`}>
-          {icon}
-        </div>
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${colors[color]}`}>{icon}</div>
         <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">{label}</p>
       </div>
       <p className="text-2xl font-bold text-brand-950">{bigValue}</p>

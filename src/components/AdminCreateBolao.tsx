@@ -1,24 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Plus, Store, Calendar, Clock, Pencil } from 'lucide-react';
+import { Ticket, Plus, Calendar, Clock, Pencil } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { STATUS_LABELS } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import type { Branch, BranchProduct, Bolao } from '../lib/types';
+import type { Product, Bolao } from '../lib/types';
 
 const DEFAULT_DRAW_TIME = '20:00';
 
 export function AdminCreateBolao() {
-  const { profile } = useAuth();
-  const isSupervisor = profile?.role === 'supervisor';
-  const supervisorBranchId = profile?.branch_id ?? '';
-
-  const [branches, setBranches] = useState<Branch[]>([]);
-  const [branchId, setBranchId] = useState('');
-  const [availableProducts, setAvailableProducts] = useState<BranchProduct[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -50,62 +43,42 @@ export function AdminCreateBolao() {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  const fetchBranches = useCallback(async () => {
-    let query = supabase.from('branches').select('*').order('name');
-    if (isSupervisor && supervisorBranchId) query = query.eq('id', supervisorBranchId);
-    const { data } = await query;
-    const list = (data ?? []) as Branch[];
-    setBranches(list);
-    if (!branchId && list.length > 0) setBranchId(isSupervisor && supervisorBranchId ? supervisorBranchId : list[0].id);
-  }, [branchId, isSupervisor, supervisorBranchId]);
-
-  const fetchProductsForBranch = useCallback(async () => {
-    if (!branchId) { setLoading(false); return; }
-    setLoading(true);
-    const { data } = await supabase
-      .from('branch_products')
-      .select('*, product:products(*)')
-      .eq('branch_id', branchId)
-      .eq('active', true);
-    const items = (data ?? []) as BranchProduct[];
-    setAvailableProducts(items);
-    if (items.length > 0) {
-      const first = items[0];
-      setProductId(first.product_id);
-      setDezenas(first.product?.min_dezenas ?? 6);
-      setPrice(first.custom_price ?? Number(first.product?.base_price ?? 0));
-      setServiceFee(first.custom_service_fee ?? Number(first.product?.service_fee ?? 0));
-      setDrawTime(first.product?.default_draw_time?.slice(0, 5) ?? DEFAULT_DRAW_TIME);
-    } else {
-      setProductId('');
+  const fetchProducts = useCallback(async () => {
+    const { data } = await supabase.from('products').select('*').eq('active', true).order('name');
+    const list = (data ?? []) as Product[];
+    setProducts(list);
+    if (list.length > 0) {
+      const first = list[0];
+      setProductId(first.id);
+      setDezenas(first.min_dezenas);
+      setPrice(Number(first.base_price));
+      setServiceFee(Number(first.service_fee));
+      setDrawTime(first.default_draw_time?.slice(0, 5) ?? DEFAULT_DRAW_TIME);
     }
     setLoading(false);
-  }, [branchId]);
+  }, []);
 
   const fetchRecentBoloes = useCallback(async () => {
-    if (!branchId) return;
     const { data } = await supabase
       .from('boloes')
       .select('*, product:products(*)')
-      .eq('branch_id', branchId)
       .order('created_at', { ascending: false })
       .limit(10);
     setRecentBoloes((data ?? []) as Bolao[]);
-  }, [branchId]);
+  }, []);
 
-  useEffect(() => { fetchBranches(); }, [fetchBranches]);
-  useEffect(() => { fetchProductsForBranch(); fetchRecentBoloes(); }, [fetchProductsForBranch, fetchRecentBoloes]);
+  useEffect(() => { fetchProducts(); fetchRecentBoloes(); }, [fetchProducts, fetchRecentBoloes]);
 
-  const selectedProduct = availableProducts.find((bp) => bp.product_id === productId)?.product;
+  const selectedProduct = products.find((p) => p.id === productId);
 
   const onProductChange = (id: string) => {
     setProductId(id);
-    const bp = availableProducts.find((bp) => bp.product_id === id);
-    if (bp?.product) {
-      setDezenas(bp.product.min_dezenas);
-      setPrice(bp.custom_price ?? Number(bp.product.base_price));
-      setServiceFee(bp.custom_service_fee ?? Number(bp.product.service_fee));
-      setDrawTime(bp.product.default_draw_time?.slice(0, 5) ?? DEFAULT_DRAW_TIME);
+    const p = products.find((p) => p.id === id);
+    if (p) {
+      setDezenas(p.min_dezenas);
+      setPrice(Number(p.base_price));
+      setServiceFee(Number(p.service_fee));
+      setDrawTime(p.default_draw_time?.slice(0, 5) ?? DEFAULT_DRAW_TIME);
     }
   };
 
@@ -140,8 +113,6 @@ export function AdminCreateBolao() {
     }).eq('id', editing.id);
     setEditSaving(false);
     if (updateError) {
-      // O banco recusa reduzir total_shares abaixo do que já foi alocado
-      // a operadores (trigger trg_check_bolao_total_shares_reduction).
       setEditError(updateError.message);
       return;
     }
@@ -152,7 +123,6 @@ export function AdminCreateBolao() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!branchId) { setError('Selecione uma filial.'); return; }
     if (!productId) { setError('Selecione um produto.'); return; }
     if (!contestNumber.trim()) { setError('Informe o número do concurso.'); return; }
     if (!drawDate) { setError('Informe a data do sorteio.'); return; }
@@ -165,10 +135,8 @@ export function AdminCreateBolao() {
     }
 
     setSaving(true);
-    // Sem operator_id: o bolão nasce sem dono. A distribuição de cotas entre
-    // operadores acontece depois, na tela de Alocação de Bolões.
     const { error: insertError } = await supabase.from('boloes').insert({
-      branch_id: branchId,
+      branch_id: null,
       product_id: productId,
       operator_id: null,
       contest_number: contestNumber.trim(),
@@ -200,42 +168,23 @@ export function AdminCreateBolao() {
 
   return (
     <div>
-      <PageHeader title="Criar Bolão" subtitle="Crie o bolão pela filial — a distribuição de cotas entre operadores é feita depois, em Alocação de Bolões" />
-
-      {/* Branch selector — hidden for supervisors (locked to their branch) */}
-      {!isSupervisor && (
-        <div className="flex flex-wrap gap-2 mb-6">
-          {branches.map((b) => (
-            <button
-              key={b.id}
-              onClick={() => setBranchId(b.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all border ${
-                branchId === b.id
-                  ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
-                  : 'bg-white text-slate-600 border-slate-200 hover:border-brand-300'
-              }`}
-            >
-              <Store size={16} /> {b.name}
-            </button>
-          ))}
-        </div>
-      )}
+      <PageHeader title="Criar Bolão" subtitle="Crie bolões centralizados para o grupo Mega Bolão Brasil — a distribuição de cotas é feita depois, em Alocação de Bolões" />
 
       {success && (
         <div className="mb-4 bg-brand-50 border border-brand-200 rounded-lg p-4 flex items-center gap-2 text-brand-700">
           <Ticket size={20} />
-          <span className="font-medium">Bolão criado com sucesso! Vá em "Alocação de Bolões" para distribuir as cotas.</span>
+          <span className="font-medium">Bolão criado com sucesso! Vá em "Alocação de Bolões" para distribuir as cotas entre os operadores.</span>
         </div>
       )}
 
       {loading ? (
         <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>
-      ) : availableProducts.length === 0 ? (
+      ) : products.length === 0 ? (
         <Card>
           <EmptyState
             icon={<Ticket size={48} />}
-            title="Nenhum produto disponível para esta filial"
-            description="Aloque produtos para esta filial na tela de Alocação de Produtos antes de criar bolões."
+            title="Nenhum produto ativo"
+            description="Cadastre produtos na aba 'Produtos' antes de criar bolões."
           />
         </Card>
       ) : (
@@ -245,7 +194,7 @@ export function AdminCreateBolao() {
               label="Produto *"
               value={productId}
               onChange={onProductChange}
-              options={availableProducts.map((bp) => ({ value: bp.product_id, label: bp.product?.name ?? '—' }))}
+              options={products.map((p) => ({ value: p.id, label: p.name }))}
               placeholder="Selecione um produto"
               required
             />
@@ -285,14 +234,13 @@ export function AdminCreateBolao() {
 
             <div className="grid grid-cols-2 gap-4">
               <Input label="Preço da cota (R$) *" type="number" step="0.01" value={price} onChange={(v) => setPrice(Number(v))} min={0} required />
-              <Input label="Comissão por cota (R$) *" type="number" step="0.01" value={serviceFee} onChange={(v) => setServiceFee(Number(v))} min={0} required />
+              <Input label="Taxa de serviço por cota (R$) *" type="number" step="0.01" value={serviceFee} onChange={(v) => setServiceFee(Number(v))} min={0} required />
             </div>
 
             <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-6 gap-y-1">
               <span>Valor da cota: <strong>R$ {formatBRL(Number(price) + Number(serviceFee))}</strong></span>
-              <span>Comissão total ({totalShares} cotas): <strong>R$ {formatBRL(Number(serviceFee) * totalShares)}</strong></span>
-              <span>Loterica (70%): <strong>R$ {formatBRL(Number(serviceFee) * totalShares * 0.7)}</strong></span>
-              <span>Operador (30%): <strong>R$ {formatBRL(Number(serviceFee) * totalShares * 0.3)}</strong></span>
+              <span>Taxa total ({totalShares} cotas): <strong>R$ {formatBRL(Number(serviceFee) * totalShares)}</strong></span>
+              <span>Comissão base (30%): <strong>R$ {formatBRL(Number(serviceFee) * totalShares * 0.3)}</strong></span>
             </div>
 
             <label className="block">
@@ -320,10 +268,9 @@ export function AdminCreateBolao() {
         </Card>
       )}
 
-      {/* Recent bolões for this branch, so admin knows what's pending allocation */}
       <div>
         <h2 className="text-lg font-semibold text-brand-950 mb-4 flex items-center gap-2">
-          <Calendar size={20} /> Bolões recentes desta filial
+          <Calendar size={20} /> Bolões recentes
         </h2>
         {recentBoloes.length === 0 ? (
           <Card>
@@ -342,10 +289,16 @@ export function AdminCreateBolao() {
                         <span className="font-medium text-slate-900 text-sm">{b.product?.name ?? '—'}</span>
                         <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
                         <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+                        {b.status === 'encalhado' && !b.encalhe_settled && (
+                          <Badge color="amber">Pendente de baixa</Badge>
+                        )}
+                        {b.encalhe_settled && (
+                          <Badge color="red">Baixado</Badge>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
                         <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
-                        <span>Cota: R$ {formatBRL(Number(b.price))} + R$ {formatBRL(Number(b.service_fee))} comissão</span>
+                        <span>Cota: R$ {formatBRL(Number(b.price))} + R$ {formatBRL(Number(b.service_fee))} taxa</span>
                         <span className="font-medium text-slate-600">Total: R$ {formatBRL((Number(b.price) + Number(b.service_fee)) * b.total_shares)}</span>
                         <span>{b.sold_shares}/{b.total_shares} cotas vendidas</span>
                         <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
@@ -362,7 +315,6 @@ export function AdminCreateBolao() {
         )}
       </div>
 
-      {/* Edit modal */}
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Editar Bolão">
         {editing && (
           <div className="space-y-4">
@@ -397,12 +349,12 @@ export function AdminCreateBolao() {
 
             <div className="grid grid-cols-2 gap-4">
               <Input label="Preço da cota (R$) *" type="number" step="0.01" value={editPrice} onChange={(v) => setEditPrice(Number(v))} min={0} required />
-              <Input label="Comissão por cota (R$) *" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} required />
+              <Input label="Taxa por cota (R$) *" type="number" step="0.01" value={editFee} onChange={(v) => setEditFee(Number(v))} min={0} required />
             </div>
 
             <div className="bg-brand-50 rounded-lg p-3 text-xs text-brand-700 flex flex-wrap gap-x-6 gap-y-1">
               <span>Total do bolão ({editTotalShares} cotas): <strong>R$ {formatBRL((Number(editPrice) + Number(editFee)) * editTotalShares)}</strong></span>
-              <span>Comissão total: <strong>R$ {formatBRL(Number(editFee) * editTotalShares)}</strong></span>
+              <span>Taxa total: <strong>R$ {formatBRL(Number(editFee) * editTotalShares)}</strong></span>
             </div>
 
             <label className="block">

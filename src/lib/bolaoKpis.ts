@@ -1,51 +1,42 @@
 // lib/bolaoKpis.ts
 //
 // Fonte ÚNICA da verdade para os números de bolão/comissão/encalhe.
-// Tanto o dashboard do Operador quanto o do Admin devem importar daqui —
-// nunca recalcular isso localmente em cada componente. É exatamente essa
-// duplicação que causava divergência entre as duas telas.
 //
-// Regra de negócio (definida pelo usuário):
-// - `price` e `service_fee` são valores POR COTA (não o total do bolão).
-//   Ex: cota R$20 + taxa R$2,50 = R$22,50/cota. Com 10 cotas, o bolão
-//   gerado vale R$225,00 (22,50 * 10).
+// Regra de negócio:
+// - `price` e `service_fee` são valores POR COTA.
 // - "Gerado"     = (price + service_fee) * total_shares.
-// - "Vendido"    = (price + service_fee) * sold_shares — valor já
-//                  arrecadado, proporcional, independente do status final.
-// - "Encalhado"  = só existe depois que a data/hora do sorteio (draw_datetime)
-//                  já passou. É o valor das cotas que sobraram sem vender
-//                  nesse momento: (price + service_fee) * cotas_restantes.
-//                  Um bolão 100% vendido (status = 'sold') NUNCA é encalhe.
-// - "Em Aberto"  = ainda não chegou a data/hora do sorteio: valor das
-//                  cotas que faltam vender até lá.
+// - "Vendido"    = (price + service_fee) * sold_shares — valor arrecadado.
+// - "Encalhe Pendente" = bolão com status='encalhado' e encalhe_settled=false.
+//   Ainda não é prejuízo — é "pendente de baixa".
+// - "Prejuízo" (encalhe dado baixa) = bolão com status='encalhado' e encalhe_settled=true.
+// - "Em Aberto"  = cotas que faltam vender e o sorteio ainda não passou.
 //
-// status = 'encalhado' agora é decidido e persistido no banco (via
-// pg_cron, ver migration_encalhado.sql), então aqui só precisamos ler o
-// status — não recalcular data/hora no front.
+// A comissão do operador é por tier (ver commission.ts):
+// 10% até R$10k, 20% de R$10k-R$20k, 30% acima de R$20k — sobre a TAXA DE SERVIÇO.
 
 import type { Bolao, BolaoOperatorAllocation } from './types';
 
 export interface BucketKpis {
-  count: number;         // quantidade de bolões (inteiros) nesse balde
-  shares: number;        // quantidade de cotas nesse balde
-  value: number;         // soma (price + service_fee) do bucket
-  commission: number;    // soma service_fee do bucket
-  lotericaCommission: number; // 70%
-  operatorCommission: number; // 30%
+  count: number;
+  shares: number;
+  value: number;
+  commission: number;          // total service_fee do bucket
+  lotericaCommission: number;  // 70% (legacy — será recalculado por tier no frontend)
+  operatorCommission: number;  // 30% (legacy — será recalculado por tier no frontend)
 }
 
 export interface BolaoKpis {
   gerado: BucketKpis;
   vendido: BucketKpis;
-  encalhado: BucketKpis;
-  emAberto: BucketKpis; // ainda não chegou a data/hora do sorteio, nem foi 100% vendido
+  encalhado: BucketKpis;       // encalhe pendente de baixa (não é prejuízo ainda)
+  encalheBaixado: BucketKpis;  // encalhe dado baixa pelo admin = prejuízo
+  emAberto: BucketKpis;
 }
 
 function emptyBucket(): BucketKpis {
   return { count: 0, shares: 0, value: 0, commission: 0, lotericaCommission: 0, operatorCommission: 0 };
 }
 
-// price e service_fee já são o valor de UMA cota — não dividir por total_shares.
 function shareValue(b: Bolao): number {
   return Number(b.price) + Number(b.service_fee);
 }
@@ -66,50 +57,46 @@ export function computeBolaoKpis(boloes: Bolao[]): BolaoKpis {
   const gerado = emptyBucket();
   const vendido = emptyBucket();
   const encalhado = emptyBucket();
+  const encalheBaixado = emptyBucket();
   const emAberto = emptyBucket();
 
   for (const b of boloes) {
     const perShare = shareValue(b);
     const perShareCommission = shareCommission(b);
     const totalValue = perShare * b.total_shares;
+    const totalCommission = perShareCommission * b.total_shares;
 
-    // Gerado: todo bolão criado entra aqui, sempre. price/service_fee são
-    // por cota, então o valor gerado é (price + service_fee) * total_shares.
     gerado.count += 1;
     gerado.shares += b.total_shares;
     gerado.value += totalValue;
-    gerado.commission += perShareCommission * b.total_shares;
+    gerado.commission += totalCommission;
 
-    // Vendido: valor já arrecadado por cotas vendidas, proporcional,
-    // independente do status atual do bolão. A contagem aqui é em COTAS,
-    // não em bolões inteiros (um bolão pode estar parcialmente vendido).
     const soldValue = perShare * b.sold_shares;
     const soldCommissionValue = perShareCommission * b.sold_shares;
     if (b.sold_shares > 0) {
       vendido.shares += b.sold_shares;
       vendido.value += soldValue;
       vendido.commission += soldCommissionValue;
-      if (b.status === 'sold') vendido.count += 1; // conta bolão inteiro só quando 100% vendido
+      if (b.status === 'sold') vendido.count += 1;
     }
 
-    // Comissão total do bolão inteiro (por cota * total_shares) — usada como
-    // base para achar o quanto de comissão ainda está em cotas não vendidas.
-    const totalCommission = perShareCommission * b.total_shares;
-
-    // Encalhado: só existe quando o status persistido no banco diz que
-    // o sorteio já passou e sobrou cota sem vender. Contagem em cotas.
     if (b.status === 'encalhado') {
       const unsoldShares = b.total_shares - b.sold_shares;
       const unsoldValue = totalValue - soldValue;
       const unsoldCommission = totalCommission - soldCommissionValue;
-      encalhado.count += 1;
-      encalhado.shares += unsoldShares;
-      encalhado.value += unsoldValue;
-      encalhado.commission += unsoldCommission;
+      if (b.encalhe_settled) {
+        encalheBaixado.count += 1;
+        encalheBaixado.shares += unsoldShares;
+        encalheBaixado.value += unsoldValue;
+        encalheBaixado.commission += unsoldCommission;
+      } else {
+        encalhado.count += 1;
+        encalhado.shares += unsoldShares;
+        encalhado.value += unsoldValue;
+        encalhado.commission += unsoldCommission;
+      }
     }
 
-    // Em aberto: ainda não é hora do sorteio e ainda não vendeu tudo.
-    // Contagem em cotas.
     if (b.status === 'pending' || b.status === 'partial') {
       const remainingShares = b.total_shares - b.sold_shares;
       emAberto.count += 1;
@@ -123,6 +110,7 @@ export function computeBolaoKpis(boloes: Bolao[]): BolaoKpis {
     gerado: finalizeBucket(gerado),
     vendido: finalizeBucket(vendido),
     encalhado: finalizeBucket(encalhado),
+    encalheBaixado: finalizeBucket(encalheBaixado),
     emAberto: finalizeBucket(emAberto),
   };
 }
@@ -134,19 +122,15 @@ export const STATUS_LABELS: Record<Bolao['status'], { label: string; color: 'gre
   encalhado: { label: 'Encalhado', color: 'red' },
 };
 
-// Evita "1 bolões" / "1 cotas" nos cards de KPI.
 export function pluralize(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
-// Mesmos 4 baldes (Gerado/Vendido/Encalhado/Em Aberto), mas calculados a
-// partir da FATIA de um operador específico (bolao_operator_allocations),
-// não do bolão inteiro. Usado na tela do operador, que só vende as cotas
-// que foram alocadas a ele.
 export function computeAllocationKpis(allocations: BolaoOperatorAllocation[]): BolaoKpis {
   const gerado = emptyBucket();
   const vendido = emptyBucket();
   const encalhado = emptyBucket();
+  const encalheBaixado = emptyBucket();
   const emAberto = emptyBucket();
 
   for (const a of allocations) {
@@ -174,10 +158,17 @@ export function computeAllocationKpis(allocations: BolaoOperatorAllocation[]): B
 
     if (b.status === 'encalhado') {
       const unsoldShares = a.shares_allocated - a.shares_sold;
-      encalhado.count += 1;
-      encalhado.shares += unsoldShares;
-      encalhado.value += totalValue - soldValue;
-      encalhado.commission += totalCommission - soldCommissionValue;
+      if (b.encalhe_settled) {
+        encalheBaixado.count += 1;
+        encalheBaixado.shares += unsoldShares;
+        encalheBaixado.value += totalValue - soldValue;
+        encalheBaixado.commission += totalCommission - soldCommissionValue;
+      } else {
+        encalhado.count += 1;
+        encalhado.shares += unsoldShares;
+        encalhado.value += totalValue - soldValue;
+        encalhado.commission += totalCommission - soldCommissionValue;
+      }
     }
 
     if (b.status === 'pending' || b.status === 'partial') {
@@ -193,6 +184,7 @@ export function computeAllocationKpis(allocations: BolaoOperatorAllocation[]): B
     gerado: finalizeBucket(gerado),
     vendido: finalizeBucket(vendido),
     encalhado: finalizeBucket(encalhado),
+    encalheBaixado: finalizeBucket(encalheBaixado),
     emAberto: finalizeBucket(emAberto),
   };
 }
