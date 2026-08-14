@@ -77,7 +77,8 @@ export function OperatorManage() {
   const monthGroups = groupByMonth(allocations);
   const kpis = computeAllocationKpis(allocations);
 
-  // Monthly goal
+  // Monthly goal: tier is based on TOTAL sales value (price + service_fee);
+  // commission is calculated on the service_fee portion at the tier rate.
   const now = new Date();
   const currentMonthLabel = monthNames[now.getMonth()] + ' ' + now.getFullYear();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
@@ -86,15 +87,19 @@ export function OperatorManage() {
     const d = new Date(a.bolao.created_at);
     return `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}` === currentMonthKey;
   });
+  const monthlySalesValue = currentMonthAllocs.reduce((s, a) => {
+    if (!a.bolao) return s;
+    return s + (Number(a.bolao.price) + Number(a.bolao.service_fee)) * a.shares_sold;
+  }, 0);
   const monthlyServiceFee = currentMonthAllocs.reduce((s, a) => {
     if (!a.bolao) return s;
     return s + Number(a.bolao.service_fee) * a.shares_sold;
   }, 0);
-  const monthlyCommission = calculateTieredCommission(monthlyServiceFee);
-  const currentRate = getCommissionRate(monthlyServiceFee);
-  const currentTierIdx = getCurrentTierIndex(monthlyServiceFee);
-  const progressToNext = getProgressToNextTier(monthlyServiceFee);
-  const remainingToNext = getRemainingToNextTier(monthlyServiceFee);
+  const monthlyCommission = calculateTieredCommission(monthlySalesValue, monthlyServiceFee);
+  const currentRate = getCommissionRate(monthlySalesValue);
+  const currentTierIdx = getCurrentTierIndex(monthlySalesValue);
+  const progressToNext = getProgressToNextTier(monthlySalesValue);
+  const remainingToNext = getRemainingToNextTier(monthlySalesValue);
 
   return (
     <div>
@@ -108,8 +113,9 @@ export function OperatorManage() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
           <div className="bg-brand-50 rounded-lg p-3">
-            <p className="text-xs text-slate-500">Taxa de serviço vendida</p>
-            <p className="text-xl font-bold text-brand-950">R$ {formatBRL(monthlyServiceFee)}</p>
+            <p className="text-xs text-slate-500">Vendas totais (mês)</p>
+            <p className="text-xl font-bold text-brand-950">R$ {formatBRL(monthlySalesValue)}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Taxa de serviço: R$ {formatBRL(monthlyServiceFee)}</p>
           </div>
           <div className="bg-emerald-50 rounded-lg p-3">
             <p className="text-xs text-slate-500">Sua comissão ({(currentRate * 100).toFixed(0)}%)</p>
@@ -138,7 +144,7 @@ export function OperatorManage() {
         </div>
         {remainingToNext > 0 && (
           <p className="text-xs text-slate-400 mt-3">
-            Faltam <strong className="text-brand-600">R$ {formatBRL(remainingToNext)}</strong> em taxa de serviço para subir para {COMMISSION_TIERS[currentTierIdx + 1]?.label ?? 'o próximo tier'}.
+            Faltam <strong className="text-brand-600">R$ {formatBRL(remainingToNext)}</strong> em vendas totais para subir para {COMMISSION_TIERS[currentTierIdx + 1]?.label ?? 'o próximo tier'}.
           </p>
         )}
         {currentTierIdx === 2 && (

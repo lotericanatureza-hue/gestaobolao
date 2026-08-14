@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Calendar, Clock, DollarSign, ShoppingBag, TrendingDown, Repeat, Info, AlertCircle, Target } from 'lucide-react';
+import { Ticket, Calendar, Clock, DollarSign, ShoppingBag, TrendingDown, Repeat, Info, AlertCircle, Target, Eye } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -7,7 +7,7 @@ import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from '
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { computeAllocationKpis, STATUS_LABELS, pluralize } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS, TIER_1_LIMIT, TIER_2_LIMIT } from '../lib/commission';
+import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS } from '../lib/commission';
 import type { BolaoOperatorAllocation, Profile } from '../lib/types';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -43,6 +43,7 @@ export function OperatorSales() {
   const [transferShares, setTransferShares] = useState(1);
   const [transferSaving, setTransferSaving] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
+  const [details, setDetails] = useState<BolaoOperatorAllocation | null>(null);
 
   const fetchAllocations = useCallback(async () => {
     if (!profile?.id) { setLoading(false); return; }
@@ -138,7 +139,8 @@ export function OperatorSales() {
   const kpis = computeAllocationKpis(allocations);
   const monthGroups = groupByMonth(allocations);
 
-  // Monthly goal calculation: service fee sold in current month
+  // Monthly goal: tier is based on TOTAL sales value (price + service_fee);
+  // commission is calculated on the service_fee portion at the tier rate.
   const now = new Date();
   const currentMonthLabel = monthNames[now.getMonth()] + ' ' + now.getFullYear();
   const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth()).padStart(2, '0')}`;
@@ -147,15 +149,19 @@ export function OperatorSales() {
     const d = new Date(a.bolao.created_at);
     return `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}` === currentMonthKey;
   });
+  const monthlySalesValue = currentMonthAllocs.reduce((s, a) => {
+    if (!a.bolao) return s;
+    return s + (Number(a.bolao.price) + Number(a.bolao.service_fee)) * a.shares_sold;
+  }, 0);
   const monthlyServiceFee = currentMonthAllocs.reduce((s, a) => {
     if (!a.bolao) return s;
     return s + Number(a.bolao.service_fee) * a.shares_sold;
   }, 0);
-  const monthlyCommission = calculateTieredCommission(monthlyServiceFee);
-  const currentRate = getCommissionRate(monthlyServiceFee);
-  const currentTierIdx = getCurrentTierIndex(monthlyServiceFee);
-  const progressToNext = getProgressToNextTier(monthlyServiceFee);
-  const remainingToNext = getRemainingToNextTier(monthlyServiceFee);
+  const monthlyCommission = calculateTieredCommission(monthlySalesValue, monthlyServiceFee);
+  const currentRate = getCommissionRate(monthlySalesValue);
+  const currentTierIdx = getCurrentTierIndex(monthlySalesValue);
+  const progressToNext = getProgressToNextTier(monthlySalesValue);
+  const remainingToNext = getRemainingToNextTier(monthlySalesValue);
 
   return (
     <div>
@@ -176,8 +182,9 @@ export function OperatorSales() {
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
           <div className="bg-brand-50 rounded-lg p-3">
-            <p className="text-xs text-slate-500">Taxa de serviço vendida</p>
-            <p className="text-xl font-bold text-brand-950">R$ {formatBRL(monthlyServiceFee)}</p>
+            <p className="text-xs text-slate-500">Vendas totais (mês)</p>
+            <p className="text-xl font-bold text-brand-950">R$ {formatBRL(monthlySalesValue)}</p>
+            <p className="text-[11px] text-slate-400 mt-0.5">Taxa de serviço: R$ {formatBRL(monthlyServiceFee)}</p>
           </div>
           <div className="bg-emerald-50 rounded-lg p-3">
             <p className="text-xs text-slate-500">Sua comissão ({(currentRate * 100).toFixed(0)}%)</p>
@@ -208,7 +215,7 @@ export function OperatorSales() {
         </div>
         {remainingToNext > 0 && (
           <p className="text-xs text-slate-400 mt-3">
-            Faltam <strong className="text-brand-600">R$ {formatBRL(remainingToNext)}</strong> em taxa de serviço para subir para {COMMISSION_TIERS[currentTierIdx + 1]?.label ?? 'o próximo tier'}.
+            Faltam <strong className="text-brand-600">R$ {formatBRL(remainingToNext)}</strong> em vendas totais para subir para {COMMISSION_TIERS[currentTierIdx + 1]?.label ?? 'o próximo tier'}.
           </p>
         )}
         {currentTierIdx === 2 && (
@@ -277,6 +284,7 @@ export function OperatorSales() {
                           <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden">
                             <div className={`h-full rounded-full ${pct === 100 ? 'bg-emerald-500' : pct > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
                           </div>
+                          <Button size="sm" variant="secondary" onClick={() => setDetails(a)} title="Ver detalhes por jogo"><Eye size={14} /></Button>
                           {canTransfer && <Button size="sm" variant="secondary" onClick={() => openTransfer(a)} title="Repassar cotas"><Repeat size={14} /></Button>}
                           <Button size="sm" onClick={() => openEdit(a)} disabled={!canSell && a.shares_sold === 0}>Dar baixa</Button>
                         </div>
@@ -362,6 +370,116 @@ export function OperatorSales() {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal open={!!details} onClose={() => setDetails(null)} title="Detalhes da venda por jogo">
+        {details?.bolao && (() => {
+          const b = details.bolao;
+          const perShare = Number(b.price) + Number(b.service_fee);
+          const perShareFee = Number(b.service_fee);
+          const perSharePrice = Number(b.price);
+          const soldShares = details.shares_sold;
+          const allocatedShares = details.shares_allocated;
+          const unsoldShares = allocatedShares - soldShares;
+          const soldValue = perShare * soldShares;
+          const unsoldValue = perShare * unsoldShares;
+          const soldFee = perShareFee * soldShares;
+          const commissionRate = getCommissionRate(monthlySalesValue);
+          const shareCommission = soldFee * commissionRate;
+          return (
+            <div className="space-y-4">
+              <div className="bg-slate-50 rounded-lg p-3 flex items-center gap-3">
+                <LotteryIcon slug={b.product?.slug ?? ''} size={32} />
+                <div>
+                  <p className="font-semibold text-brand-950">{b.product?.name}</p>
+                  <p className="text-xs text-slate-400">Concurso {b.contest_number} · {b.jogos} jogo(s) de {b.dezenas} dezenas</p>
+                  <p className="text-xs text-slate-400">Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="bg-brand-50 p-3 rounded-lg">
+                  <p className="text-slate-500 text-xs">Cotas recebidas</p>
+                  <p className="font-bold text-brand-950 text-lg">{allocatedShares}</p>
+                  <p className="text-xs text-slate-400">R$ {formatBRL(perShare * allocatedShares)}</p>
+                </div>
+                <div className="bg-emerald-50 p-3 rounded-lg">
+                  <p className="text-slate-500 text-xs">Cotas vendidas</p>
+                  <p className="font-bold text-emerald-700 text-lg">{soldShares}</p>
+                  <p className="text-xs text-slate-400">R$ {formatBRL(soldValue)}</p>
+                </div>
+                <div className="bg-amber-50 p-3 rounded-lg">
+                  <p className="text-slate-500 text-xs">Cotas não vendidas</p>
+                  <p className="font-bold text-amber-700 text-lg">{unsoldShares}</p>
+                  <p className="text-xs text-slate-400">R$ {formatBRL(unsoldValue)}</p>
+                </div>
+                <div className="bg-slate-100 p-3 rounded-lg">
+                  <p className="text-slate-500 text-xs">Taxa de serviço vendida</p>
+                  <p className="font-bold text-slate-700 text-lg">R$ {formatBRL(soldFee)}</p>
+                  <p className="text-xs text-slate-400">Comissão ({(commissionRate * 100).toFixed(0)}%): R$ {formatBRL(shareCommission)}</p>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="px-4 py-2 bg-slate-50 border-b border-slate-200">
+                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">Detalhamento por cota</p>
+                </div>
+                <div className="max-h-64 overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-white">
+                      <tr className="text-left text-slate-500 border-b border-slate-100">
+                        <th className="px-4 py-2 font-medium">Cota</th>
+                        <th className="px-4 py-2 font-medium text-right">Valor</th>
+                        <th className="px-4 py-2 font-medium text-right">Taxa serviço</th>
+                        <th className="px-4 py-2 font-medium text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Array.from({ length: allocatedShares }).map((_, i) => {
+                        const isSold = i < soldShares;
+                        return (
+                          <tr key={i} className="border-b border-slate-50">
+                            <td className="px-4 py-2 text-slate-700">#{i + 1}</td>
+                            <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(perShare)}</td>
+                            <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(perShareFee)}</td>
+                            <td className="px-4 py-2 text-center">
+                              {isSold ? (
+                                <Badge color="green">Vendida</Badge>
+                              ) : b.status === 'encalhado' ? (
+                                <Badge color="red">Encalhada</Badge>
+                              ) : (
+                                <Badge color="slate">Disponível</Badge>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="bg-brand-50 rounded-lg p-3 text-sm">
+                <div className="flex justify-between mb-1">
+                  <span className="text-slate-600">Valor total vendido</span>
+                  <span className="font-semibold text-brand-950">R$ {formatBRL(soldValue)}</span>
+                </div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-slate-600">- Valor da cota (casa)</span>
+                  <span className="text-slate-500">R$ {formatBRL(perSharePrice * soldShares)}</span>
+                </div>
+                <div className="flex justify-between mb-1">
+                  <span className="text-slate-600">= Taxa de serviço</span>
+                  <span className="font-semibold text-slate-700">R$ {formatBRL(soldFee)}</span>
+                </div>
+                <div className="flex justify-between pt-1 border-t border-brand-200">
+                  <span className="text-slate-600 font-medium">Sua comissão ({(commissionRate * 100).toFixed(0)}%)</span>
+                  <span className="font-bold text-emerald-600">R$ {formatBRL(shareCommission)}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );

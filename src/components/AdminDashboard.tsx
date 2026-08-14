@@ -27,7 +27,7 @@ function groupByMonth(boloes: Bolao[]): MonthGroup[] {
   return groups;
 }
 
-interface OperatorStats { operator: Profile; kpis: BolaoKpis; allocations: BolaoOperatorAllocation[]; monthlyServiceFee: number; commission: number; }
+interface OperatorStats { operator: Profile; kpis: BolaoKpis; allocations: BolaoOperatorAllocation[]; monthlySalesValue: number; monthlyServiceFee: number; commission: number; }
 
 export function AdminDashboard() {
   const { profile } = useAuth();
@@ -104,8 +104,9 @@ export function AdminDashboard() {
     return `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}` === currentMonthKey;
   });
   const currentMonthKpis = computeBolaoKpis(currentMonthBoloes);
+  const groupMonthlySalesValue = currentMonthKpis.vendido.value;
   const groupMonthlyServiceFee = currentMonthKpis.vendido.commission;
-  const groupGoalProgress = Math.min(100, (groupMonthlyServiceFee / GROUP_MONTHLY_GOAL) * 100);
+  const groupGoalProgress = Math.min(100, (groupMonthlySalesValue / GROUP_MONTHLY_GOAL) * 100);
 
   const operatorStats: OperatorStats[] = operators.map((op) => {
     const opAllocations = allocations.filter((a) => a.operator_id === op.id);
@@ -115,15 +116,19 @@ export function AdminDashboard() {
       const d = new Date(a.bolao.created_at);
       return `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}` === currentMonthKey;
     });
+    const monthlySalesValue = monthlyAllocs.reduce((s, a) => {
+      if (!a.bolao) return s;
+      return s + (Number(a.bolao.price) + Number(a.bolao.service_fee)) * a.shares_sold;
+    }, 0);
     const monthlyServiceFee = monthlyAllocs.reduce((s, a) => {
       if (!a.bolao) return s;
       return s + Number(a.bolao.service_fee) * a.shares_sold;
     }, 0);
-    const commission = calculateTieredCommission(monthlyServiceFee);
-    return { operator: op, kpis: k, allocations: opAllocations, monthlyServiceFee, commission };
+    const commission = calculateTieredCommission(monthlySalesValue, monthlyServiceFee);
+    return { operator: op, kpis: k, allocations: opAllocations, monthlySalesValue, monthlyServiceFee, commission };
   }).filter((s) => s.kpis.gerado.count > 0).sort((a, b) => b.kpis.vendido.value - a.kpis.vendido.value);
 
-  const top5ByGoal = [...operatorStats].sort((a, b) => b.monthlyServiceFee - a.monthlyServiceFee).slice(0, 5);
+  const top5ByGoal = [...operatorStats].sort((a, b) => b.monthlySalesValue - a.monthlySalesValue).slice(0, 5);
   const encalhesPendentes = allBoloes.filter((b) => b.status === 'encalhado' && !b.encalhe_settled);
 
   return (
@@ -134,8 +139,9 @@ export function AdminDashboard() {
       <Card className="p-5 mb-6">
         <div className="flex items-center justify-between mb-3">
           <div>
-            <p className="text-sm text-slate-500">Taxa de serviço vendida no mês</p>
-            <p className="text-2xl font-bold text-brand-950">R$ {formatBRL(groupMonthlyServiceFee)}</p>
+            <p className="text-sm text-slate-500">Vendas totais no mês</p>
+            <p className="text-2xl font-bold text-brand-950">R$ {formatBRL(groupMonthlySalesValue)}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Taxa de serviço: R$ {formatBRL(groupMonthlyServiceFee)}</p>
           </div>
           <div className="text-right">
             <p className="text-sm text-slate-500">Meta</p>
@@ -145,7 +151,7 @@ export function AdminDashboard() {
         <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
           <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500 transition-all duration-500" style={{ width: `${groupGoalProgress}%` }} />
         </div>
-        <p className="text-xs text-slate-400 mt-2">{groupGoalProgress.toFixed(1)}% da meta alcançada · Faltam R$ {formatBRL(Math.max(0, GROUP_MONTHLY_GOAL - groupMonthlyServiceFee))}</p>
+        <p className="text-xs text-slate-400 mt-2">{groupGoalProgress.toFixed(1)}% da meta alcançada · Faltam R$ {formatBRL(Math.max(0, GROUP_MONTHLY_GOAL - groupMonthlySalesValue))}</p>
       </Card>
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral — Todos os Bolões</h2>
@@ -209,14 +215,14 @@ export function AdminDashboard() {
                   <th className="px-5 py-3 font-medium">#</th>
                   <th className="px-5 py-3 font-medium">Operador</th>
                   <th className="px-5 py-3 font-medium">Filial</th>
-                  <th className="px-5 py-3 font-medium text-right">Taxa vendida (mês)</th>
+                  <th className="px-5 py-3 font-medium text-right">Vendas (mês)</th>
                   <th className="px-5 py-3 font-medium text-right">Tier</th>
                   <th className="px-5 py-3 font-medium text-right">Comissão</th>
                 </tr>
               </thead>
               <tbody>
                 {top5ByGoal.map((s, i) => {
-                  const rate = getCommissionRate(s.monthlyServiceFee);
+                  const rate = getCommissionRate(s.monthlySalesValue);
                   const tierLabel = rate === 0.10 ? '10%' : rate === 0.20 ? '20%' : '30%';
                   const tierColor = rate === 0.10 ? 'slate' : rate === 0.20 ? 'amber' : 'green';
                   return (
@@ -228,7 +234,7 @@ export function AdminDashboard() {
                       </td>
                       <td className="px-5 py-3 font-medium text-slate-900">{s.operator.name}</td>
                       <td className="px-5 py-3 text-slate-600">{branchName(s.operator.branch_id)}</td>
-                      <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(s.monthlyServiceFee)}</td>
+                      <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(s.monthlySalesValue)}</td>
                       <td className="px-5 py-3 text-right"><Badge color={tierColor}>{tierLabel}</Badge></td>
                       <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(s.commission)}</td>
                     </tr>
@@ -281,7 +287,7 @@ export function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {operatorStats.map(({ operator: op, kpis: k, allocations: opAllocations, monthlyServiceFee, commission }) => {
+                {operatorStats.map(({ operator: op, kpis: k, allocations: opAllocations, monthlySalesValue, commission }) => {
                   const isExpanded = expandedOperatorId === op.id;
                   return (
                     <Fragment key={op.id}>
