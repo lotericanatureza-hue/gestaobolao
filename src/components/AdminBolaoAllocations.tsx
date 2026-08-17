@@ -152,6 +152,8 @@ export function AdminBolaoAllocations() {
                 const pct = bolao.total_shares > 0 ? Math.round((allocated / bolao.total_shares) * 100) : 0;
                 const statusInfo = STATUS_LABELS[bolao.status];
                 const isSelected = bolao.id === selectedBolaoId;
+                // CORREÇÃO: formatação manual para evitar deslocamento de fuso
+                const drawDateFormatted = bolao.draw_date.split('-').reverse().join('/');
                 return (
                   <button key={bolao.id} onClick={() => setSelectedBolaoId(bolao.id)}
                     className={`w-full text-left border rounded-lg p-3 transition-all ${isSelected ? 'border-brand-400 bg-brand-50 shadow-sm' : 'border-slate-200 bg-white hover:border-brand-300'}`}>
@@ -162,7 +164,7 @@ export function AdminBolaoAllocations() {
                           <span className="font-medium text-slate-900 text-sm truncate">{bolao.product?.name ?? '—'}</span>
                           <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
                         </div>
-                        <p className="text-xs text-slate-400">Concurso {bolao.contest_number} · {new Date(bolao.draw_date).toLocaleDateString('pt-BR')}</p>
+                        <p className="text-xs text-slate-400">Concurso {bolao.contest_number} · {drawDateFormatted}</p>
                         <div className="flex items-center gap-2 mt-1">
                           <p className="text-sm font-semibold text-brand-700">R$ {formatBRL(totalValue)}</p>
                           <p className="text-xs text-slate-400">(R$ {formatBRL(perShare)}/cota)</p>
@@ -324,6 +326,8 @@ function BolaoAllocationPanel({
   const unallocatedValue = perShare * unallocated;
   const statusInfo = STATUS_LABELS[bolao.status];
   const locked = bolao.status === 'sold' || bolao.status === 'encalhado';
+  // CORREÇÃO: formatação manual para evitar deslocamento de fuso
+  const drawDateFormatted = bolao.draw_date.split('-').reverse().join('/');
 
   return (
     <Card className="overflow-hidden">
@@ -336,7 +340,7 @@ function BolaoAllocationPanel({
               <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
             </div>
             <p className="text-xs text-slate-500">
-              Concurso {bolao.contest_number} · {bolao.jogos} jogo(s) de {bolao.dezenas} dezenas · Sorteio {new Date(bolao.draw_date).toLocaleDateString('pt-BR')} às {bolao.draw_time?.slice(0, 5)}
+              Concurso {bolao.contest_number} · {bolao.jogos} jogo(s) de {bolao.dezenas} dezenas · Sorteio {drawDateFormatted} às {bolao.draw_time?.slice(0, 5)}
             </p>
           </div>
         </div>
