@@ -301,7 +301,11 @@ export function AdminCreateBolao() {
                         <span>Cota: R$ {formatBRL(Number(b.price))} + R$ {formatBRL(Number(b.service_fee))} taxa</span>
                         <span className="font-medium text-slate-600">Total: R$ {formatBRL((Number(b.price) + Number(b.service_fee)) * b.total_shares)}</span>
                         <span>{b.sold_shares}/{b.total_shares} cotas vendidas</span>
-                        <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
+                        {/* CORREÇÃO AQUI: formatação manual da data sem new Date() */}
+                        <span className="flex items-center gap-1">
+                          <Clock size={11} />
+                          {b.draw_date.split('-').reverse().join('/')} às {b.draw_time?.slice(0, 5)}
+                        </span>
                       </div>
                     </div>
                     <Button size="sm" variant="secondary" onClick={() => openEdit(b)}>
