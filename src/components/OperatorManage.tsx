@@ -7,8 +7,9 @@ import { Card, Input, Select, Spinner, EmptyState, Badge } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { computeAllocationKpis, STATUS_LABELS, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS } from '../lib/commission';
+import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS, OPERATOR_SERVICE_FEE_GOAL } from '../lib/commission';
 import type { BolaoOperatorAllocation, BolaoStatus } from '../lib/types';
+import { ServiceFeeGoal } from './ServiceFeeGoal';
 
 type FilterStatus = 'all' | BolaoStatus;
 
@@ -151,6 +152,14 @@ export function OperatorManage() {
           <p className="text-xs text-emerald-600 mt-3 font-medium">Você está no tier máximo de 30%!</p>
         )}
       </Card>
+
+      {/* Meta de Taxa de Serviço (o que a casa recebe) */}
+      <ServiceFeeGoal
+        title={`Meta de Taxa de Serviço — ${currentMonthLabel}`}
+        serviceFeeTotal={monthlyServiceFee}
+        goal={OPERATOR_SERVICE_FEE_GOAL}
+        subtitle="A casa recebe apenas a taxa de serviço — esta meta acompanha quanto você já gerou para a casa."
+      />
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

@@ -8,7 +8,8 @@ import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Bolao, Branch, Profile, BolaoOperatorAllocation } from '../lib/types';
 import { computeBolaoKpis, computeAllocationKpis, pluralize, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL } from '../lib/commission';
+import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL, GROUP_SERVICE_FEE_GOAL } from '../lib/commission';
+import { ServiceFeeGoal } from './ServiceFeeGoal';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -153,6 +154,14 @@ export function AdminDashboard() {
         </div>
         <p className="text-xs text-slate-400 mt-2">{groupGoalProgress.toFixed(1)}% da meta alcançada · Faltam R$ {formatBRL(Math.max(0, GROUP_MONTHLY_GOAL - groupMonthlySalesValue))}</p>
       </Card>
+
+      {/* Meta de Taxa de Serviço do Grupo (o que a casa recebe) */}
+      <ServiceFeeGoal
+        title={`Meta de Taxa de Serviço do Grupo — ${currentMonthLabel}`}
+        serviceFeeTotal={groupMonthlyServiceFee}
+        goal={GROUP_SERVICE_FEE_GOAL}
+        subtitle="A casa recebe apenas a taxa de serviço arrecadada em todas as filiais — esta meta acompanha quanto o grupo já gerou para a casa."
+      />
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral — Todos os Bolões</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

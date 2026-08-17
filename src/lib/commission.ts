@@ -77,3 +77,9 @@ export function calculateTieredCommission(totalSalesValue: number, serviceFeeSol
 }
 
 export const GROUP_MONTHLY_GOAL = 50000;
+
+// --- Meta de Taxa de Serviço (o que a casa recebe) ---
+// A casa só recebe a taxa de serviço — não recebe o valor total da venda.
+// Esta meta acompanha a taxa de serviço arrecadada separadamente.
+export const GROUP_SERVICE_FEE_GOAL = 15000;
+export const OPERATOR_SERVICE_FEE_GOAL = 6000;
