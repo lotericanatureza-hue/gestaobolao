@@ -30,7 +30,7 @@ export function AdminBolaoAllocations() {
     const [{ data: p }, { data: b }, { data: boloesData }] = await Promise.all([
       supabase.from('profiles').select('*').eq('role', 'operator').eq('active', true).order('name'),
       supabase.from('branches').select('*').order('name'),
-      supabase.from('boloes').select('*, product:products(*)').order('draw_date', { ascending: false }),
+      supabase.from('boloes').select('*, product:products(*)').order('created_at', { ascending: false }),
     ]);
     setOperators((p ?? []) as Profile[]);
     setBranches((b ?? []) as Branch[]);
@@ -367,7 +367,7 @@ function BolaoAllocationPanel({
         </div>
       )}
 
-      <div className="p-5 space-y-3">
+      <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
         {operators.map((op) => {
           const alloc = getAllocation(bolao.id, op.id);
           const key = `${bolao.id}-${op.id}`;
@@ -376,17 +376,17 @@ function BolaoAllocationPanel({
           const maxAllowed = opShares + unallocated;
           const isWhole = opShares === bolao.total_shares;
           return (
-            <div key={op.id} className={`border rounded-lg p-3 flex items-center gap-3 ${isWhole ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200'}`}>
-              <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold shrink-0">
+            <div key={op.id} className={`border rounded-lg p-4 flex items-center gap-4 ${isWhole ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200'}`}>
+              <div className="w-10 h-10 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-semibold shrink-0">
                 {op.name.charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium text-slate-900 truncate">{op.name}</p>
-                <p className="text-xs text-slate-400 flex items-center gap-1">
+                <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
                   <Store size={11} /> {branchName(op.branch_id)} · {alloc?.shares_sold ?? 0} vendida(s) · R$ {formatBRL(opValue)}
                 </p>
               </div>
-              <div className="w-24">
+              <div className="w-28">
                 <Input type="number" min={alloc?.shares_sold ?? 0} max={maxAllowed} value={opShares}
                   onChange={(v) => onSetAllocation(bolao.id, op.id, Number(v))} />
               </div>
