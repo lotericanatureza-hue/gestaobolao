@@ -8,8 +8,7 @@ import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Bolao, Branch, Profile, BolaoOperatorAllocation } from '../lib/types';
 import { computeBolaoKpis, computeAllocationKpis, pluralize, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL, GROUP_SERVICE_FEE_GOAL } from '../lib/commission';
-import { ServiceFeeGoal } from './ServiceFeeGoal';
+import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL } from '../lib/commission';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -153,15 +152,23 @@ export function AdminDashboard() {
           <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500 transition-all duration-500" style={{ width: `${groupGoalProgress}%` }} />
         </div>
         <p className="text-xs text-slate-400 mt-2">{groupGoalProgress.toFixed(1)}% da meta alcançada · Faltam R$ {formatBRL(Math.max(0, GROUP_MONTHLY_GOAL - groupMonthlySalesValue))}</p>
-      </Card>
 
-      {/* Meta de Taxa de Serviço do Grupo (o que a casa recebe) */}
-      <ServiceFeeGoal
-        title={`Meta de Taxa de Serviço do Grupo — ${currentMonthLabel}`}
-        serviceFeeTotal={groupMonthlyServiceFee}
-        goal={GROUP_SERVICE_FEE_GOAL}
-        subtitle="A casa recebe apenas a taxa de serviço arrecadada em todas as filiais — esta meta acompanha quanto o grupo já gerou para a casa."
-      />
+        {/* Commission breakdown */}
+        <div className="mt-4 bg-slate-50 rounded-lg p-4 text-sm">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Repasse de comissões para os operadores</p>
+          <div className="space-y-1.5">
+            <div className="flex justify-between">
+              <span className="text-slate-600">Vendas totais do grupo no mês</span>
+              <span className="font-medium text-slate-900">R$ {formatBRL(groupMonthlySalesValue)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Taxa de serviço arrecadada</span>
+              <span className="font-medium text-slate-900">R$ {formatBRL(groupMonthlyServiceFee)}</span>
+            </div>
+            <p className="text-[11px] text-slate-400 pt-1">A comissão de cada operador é calculada sobre a taxa de serviço, no percentual do tier que ele atingiu em vendas totais (10% até R$ 10k, 20% até R$ 20k, 30% acima).</p>
+          </div>
+        </div>
+      </Card>
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral — Todos os Bolões</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

@@ -7,9 +7,8 @@ import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from '
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { computeAllocationKpis, STATUS_LABELS, pluralize } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS, OPERATOR_SERVICE_FEE_GOAL } from '../lib/commission';
+import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS } from '../lib/commission';
 import type { BolaoOperatorAllocation, Profile } from '../lib/types';
-import { ServiceFeeGoal } from './ServiceFeeGoal';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -222,15 +221,30 @@ export function OperatorSales() {
         {currentTierIdx === 2 && (
           <p className="text-xs text-emerald-600 mt-3 font-medium">Você está no tier máximo de 30%!</p>
         )}
-      </Card>
 
-      {/* Meta de Taxa de Serviço (o que a casa recebe) */}
-      <ServiceFeeGoal
-        title={`Meta de Taxa de Serviço — ${currentMonthLabel}`}
-        serviceFeeTotal={monthlyServiceFee}
-        goal={OPERATOR_SERVICE_FEE_GOAL}
-        subtitle="A casa recebe apenas a taxa de serviço — esta meta acompanha quanto você já gerou para a casa."
-      />
+        {/* Commission breakdown */}
+        <div className="mt-4 bg-slate-50 rounded-lg p-4 text-sm">
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Como sua comissão é calculada</p>
+          <div className="space-y-1.5">
+            <div className="flex justify-between">
+              <span className="text-slate-600">Vendas totais no mês</span>
+              <span className="font-medium text-slate-900">R$ {formatBRL(monthlySalesValue)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Tier atingido ({(currentRate * 100).toFixed(0)}% sobre a taxa)</span>
+              <span className="font-medium text-brand-700">{COMMISSION_TIERS[currentTierIdx].label}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-600">Taxa de serviço arrecadada</span>
+              <span className="font-medium text-slate-900">R$ {formatBRL(monthlyServiceFee)}</span>
+            </div>
+            <div className="flex justify-between pt-1.5 border-t border-slate-200">
+              <span className="text-slate-600 font-medium">Comissão = taxa × {(currentRate * 100).toFixed(0)}%</span>
+              <span className="font-bold text-emerald-600">R$ {formatBRL(monthlyCommission)}</span>
+            </div>
+          </div>
+        </div>
+      </Card>
 
       {/* KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
