@@ -1,14 +1,14 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
-import { ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2, Trophy, CheckCircle2, AlertTriangle, Store, Package, TrendingUp } from 'lucide-react';
+import { ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2, Trophy, CheckCircle2, AlertTriangle, Store, Package, TrendingUp, Pencil, Save, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Spinner, EmptyState, Badge, Button } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import type { Bolao, Branch, Profile, BolaoOperatorAllocation, BolaoBranchAllocation } from '../lib/types';
+import type { Bolao, Branch, Profile, BolaoOperatorAllocation, BolaoBranchAllocation, MonthlyGoal } from '../lib/types';
 import { computeBolaoKpis, computeAllocationKpis, pluralize, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL } from '../lib/commission';
+import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL as DEFAULT_GOAL } from '../lib/commission';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
@@ -57,7 +57,11 @@ export function AdminDashboard() {
   const [operators, setOperators] = useState<Profile[]>([]);
   const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
   const [branchAllocations, setBranchAllocations] = useState<BolaoBranchAllocation[]>([]);
+  const [monthlyGoals, setMonthlyGoals] = useState<MonthlyGoal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [goalEditing, setGoalEditing] = useState(false);
+  const [goalInput, setGoalInput] = useState('');
+  const [goalSaving, setGoalSaving] = useState(false);
   const [expandedOperatorId, setExpandedOperatorId] = useState<string | null>(null);
   const [undoingId, setUndoingId] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
@@ -67,18 +71,20 @@ export function AdminDashboard() {
   const [detailMonthKey, setDetailMonthKey] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }, { data: baList }] = await Promise.all([
+    const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }, { data: baList }, { data: goalsData }] = await Promise.all([
       supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false }),
       supabase.from('branches').select('*').order('name'),
       supabase.from('profiles').select('*').eq('role', 'operator').order('name'),
       supabase.from('bolao_operator_allocations').select('*, bolao:boloes(*, product:products(*), branch:branches(*))'),
       supabase.from('bolao_branch_allocations').select('*, bolao:boloes(*, product:products(*)), branch:branches(*)'),
+      supabase.from('monthly_goals').select('*'),
     ]);
     setAllBoloes((boloes ?? []) as Bolao[]);
     setBranches((branchList ?? []) as Branch[]);
     setOperators((opList ?? []) as Profile[]);
     setAllocations((allocList ?? []) as BolaoOperatorAllocation[]);
     setBranchAllocations((baList ?? []) as BolaoBranchAllocation[]);
+    setMonthlyGoals((goalsData ?? []) as MonthlyGoal[]);
     setLoading(false);
   }, []);
 
@@ -89,6 +95,7 @@ export function AdminDashboard() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_operator_allocations' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_branch_allocations' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'monthly_goals' }, () => fetchData())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
@@ -114,6 +121,29 @@ export function AdminDashboard() {
     fetchData();
   };
 
+  const getMonthGoal = (monthKey: string): number => {
+    const g = monthlyGoals.find((mg) => mg.month_key === monthKey);
+    return g ? Number(g.goal_amount) : DEFAULT_GOAL;
+  };
+
+  const saveGoal = async () => {
+    const amount = Number(goalInput.replace(/[.,\s]/g, ''));
+    if (isNaN(amount) || amount < 0) return;
+    setGoalSaving(true);
+    const { error } = await supabase
+      .from('monthly_goals')
+      .upsert({ month_key: currentMonthKey, goal_amount: amount, updated_by: profile?.id ?? null }, { onConflict: 'month_key' });
+    setGoalSaving(false);
+    if (error) { setUndoError(error.message); return; }
+    setGoalEditing(false);
+    fetchData();
+  };
+
+  const startGoalEdit = () => {
+    setGoalInput(String(getMonthGoal(currentMonthKey)));
+    setGoalEditing(true);
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
@@ -132,7 +162,7 @@ export function AdminDashboard() {
   const currentMonthKpis = computeBolaoKpis(currentMonthBoloes);
   const groupMonthlySalesValue = currentMonthKpis.vendido.value;
   const groupMonthlyServiceFee = currentMonthKpis.vendido.commission;
-  const groupGoalProgress = Math.min(100, (groupMonthlySalesValue / GROUP_MONTHLY_GOAL) * 100);
+  const groupGoalProgress = Math.min(100, (groupMonthlySalesValue / getMonthGoal(currentMonthKey)) * 100);
 
   const operatorStats: OperatorStats[] = operators.map((op) => {
     const opAllocations = allocations.filter((a) => a.operator_id === op.id);
@@ -202,14 +232,40 @@ export function AdminDashboard() {
             <p className="text-xs text-slate-400 mt-0.5">Taxa de serviço: R$ {formatBRL(groupMonthlyServiceFee)}</p>
           </div>
           <div className="text-right">
-            <p className="text-sm text-slate-500">Meta</p>
-            <p className="text-lg font-semibold text-brand-700">R$ {formatBRL(GROUP_MONTHLY_GOAL)}</p>
+            <div className="flex items-center gap-2 justify-end">
+              <p className="text-sm text-slate-500">Meta</p>
+              {isAdmin && !goalEditing && (
+                <button onClick={startGoalEdit} className="text-slate-400 hover:text-brand-600 transition-colors" title="Editar meta">
+                  <Pencil size={14} />
+                </button>
+              )}
+            </div>
+            {goalEditing ? (
+              <div className="flex items-center gap-2 mt-1">
+                <input
+                  type="text"
+                  value={goalInput}
+                  onChange={(e) => setGoalInput(e.target.value)}
+                  className="w-32 px-2 py-1 text-right text-lg font-semibold text-brand-700 border border-brand-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-200"
+                  placeholder="Valor da meta"
+                  autoFocus
+                />
+                <button onClick={saveGoal} disabled={goalSaving} className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50" title="Salvar">
+                  <Save size={18} />
+                </button>
+                <button onClick={() => setGoalEditing(false)} className="text-slate-400 hover:text-red-500" title="Cancelar">
+                  <X size={18} />
+                </button>
+              </div>
+            ) : (
+              <p className="text-lg font-semibold text-brand-700">R$ {formatBRL(getMonthGoal(currentMonthKey))}</p>
+            )}
           </div>
         </div>
         <div className="w-full h-3 bg-slate-100 rounded-full overflow-hidden">
           <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500 transition-all duration-500" style={{ width: `${groupGoalProgress}%` }} />
         </div>
-        <p className="text-xs text-slate-400 mt-2">{groupGoalProgress.toFixed(1)}% da meta alcançada · Faltam R$ {formatBRL(Math.max(0, GROUP_MONTHLY_GOAL - groupMonthlySalesValue))}</p>
+        <p className="text-xs text-slate-400 mt-2">{groupGoalProgress.toFixed(1)}% da meta alcançado · Faltam R$ {formatBRL(Math.max(0, getMonthGoal(currentMonthKey) - groupMonthlySalesValue))}</p>
 
         {/* Commission breakdown */}
         <div className="mt-4 bg-slate-50 rounded-lg p-4 text-sm">
@@ -457,6 +513,15 @@ export function AdminDashboard() {
                 </button>
                 {isExpanded && (
                   <>
+                    <div className="px-5 pt-4 pb-1 flex items-center justify-between text-sm">
+                      <span className="text-slate-500">Meta do mês</span>
+                      <span className="font-semibold text-brand-700">R$ {formatBRL(getMonthGoal(group.key))}</span>
+                    </div>
+                    <div className="px-5 pb-3">
+                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500" style={{ width: `${Math.min(100, (group.kpis.vendido.value / getMonthGoal(group.key)) * 100)}%` }} />
+                      </div>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
                       <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${formatBRL(group.kpis.gerado.value)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
                       <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${formatBRL(group.kpis.vendido.value)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />

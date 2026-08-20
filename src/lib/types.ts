@@ -105,3 +105,10 @@ export interface BolaoShareTransfer {
   from_operator?: Profile;
   to_operator?: Profile;
 }
+
+export interface MonthlyGoal {
+  month_key: string;
+  goal_amount: number;
+  updated_by: string | null;
+  updated_at: string;
+}
