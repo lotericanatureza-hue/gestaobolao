@@ -1,55 +1,51 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ArrowRightLeft, Users, Ticket, Repeat, Check, History, Store } from 'lucide-react';
+import { Store, Ticket } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
-import { Card, Input, Button, Select, Badge, Spinner, EmptyState } from './ui';
+import { Card, Input, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { STATUS_LABELS } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
-import type { Profile, Bolao, BolaoOperatorAllocation, BolaoShareTransfer, Branch } from '../lib/types';
+import type { Branch, Bolao, BolaoBranchAllocation, Profile, BolaoOperatorAllocation } from '../lib/types';
 
 export function AdminBolaoAllocations() {
-  const [operators, setOperators] = useState<Profile[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [boloes, setBoloes] = useState<Bolao[]>([]);
-  const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
-  const [transfers, setTransfers] = useState<BolaoShareTransfer[]>([]);
+  const [branchAllocations, setBranchAllocations] = useState<BolaoBranchAllocation[]>([]);
+  const [operatorAllocations, setOperatorAllocations] = useState<BolaoOperatorAllocation[]>([]);
+  const [operators, setOperators] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedBolaoId, setSelectedBolaoId] = useState<string>('');
   const [search, setSearch] = useState('');
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [transferFrom, setTransferFrom] = useState('');
-  const [transferTo, setTransferTo] = useState('');
-  const [transferShares, setTransferShares] = useState(1);
-  const [transferSaving, setTransferSaving] = useState(false);
-
   const fetchAll = useCallback(async () => {
     setLoading(true);
-    const [{ data: p }, { data: b }, { data: boloesData }] = await Promise.all([
-      supabase.from('profiles').select('*').eq('role', 'operator').eq('active', true).order('name'),
+    const [{ data: b }, { data: boloesData }, { data: opList }] = await Promise.all([
       supabase.from('branches').select('*').order('name'),
       supabase.from('boloes').select('*, product:products(*)').order('created_at', { ascending: false }),
+      supabase.from('profiles').select('*').eq('role', 'operator').eq('active', true).order('name'),
     ]);
-    setOperators((p ?? []) as Profile[]);
     setBranches((b ?? []) as Branch[]);
+    setOperators((opList ?? []) as Profile[]);
     const list = (boloesData ?? []) as Bolao[];
     setBoloes(list);
 
     if (list.length > 0) {
-      const [{ data: allocData }, { data: transferData }] = await Promise.all([
-        supabase.from('bolao_operator_allocations').select('*, operator:profiles(*)').in('bolao_id', list.map((bl) => bl.id)),
-        supabase.from('bolao_share_transfers')
-          .select('*, bolao:boloes(*, product:products(*)), from_operator:profiles!bolao_share_transfers_from_operator_id_fkey(*), to_operator:profiles!bolao_share_transfers_to_operator_id_fkey(*)')
-          .in('bolao_id', list.map((bl) => bl.id))
-          .order('created_at', { ascending: false }),
+      const [{ data: baData }, { data: oaData }] = await Promise.all([
+        supabase.from('bolao_branch_allocations')
+          .select('*, branch:branches(*)')
+          .in('bolao_id', list.map((bl) => bl.id)),
+        supabase.from('bolao_operator_allocations')
+          .select('*, operator:profiles(*)')
+          .in('bolao_id', list.map((bl) => bl.id)),
       ]);
-      setAllocations((allocData ?? []) as BolaoOperatorAllocation[]);
-      setTransfers((transferData ?? []) as BolaoShareTransfer[]);
+      setBranchAllocations((baData ?? []) as BolaoBranchAllocation[]);
+      setOperatorAllocations((oaData ?? []) as BolaoOperatorAllocation[]);
     } else {
-      setAllocations([]);
-      setTransfers([]);
+      setBranchAllocations([]);
+      setOperatorAllocations([]);
     }
 
     setSelectedBolaoId((current) => (list.some((bl) => bl.id === current) ? current : (list[0]?.id ?? '')));
@@ -64,59 +60,22 @@ export function AdminBolaoAllocations() {
     if (!branchId) return '—';
     return branches.find((br) => br.id === branchId)?.name ?? '—';
   };
+  void branchName;
 
-  const allocationsFor = (bolaoId: string) => allocations.filter((a) => a.bolao_id === bolaoId);
-  const getAllocation = (bolaoId: string, operatorId: string) =>
-    allocations.find((a) => a.bolao_id === bolaoId && a.operator_id === operatorId);
-  const allocatedSum = (bolaoId: string) => allocationsFor(bolaoId).reduce((s, a) => s + a.shares_allocated, 0);
+  const branchAllocationsFor = (bolaoId: string) => branchAllocations.filter((a) => a.bolao_id === bolaoId);
+  const getBranchAllocation = (bolaoId: string, branchId: string) =>
+    branchAllocations.find((a) => a.bolao_id === bolaoId && a.branch_id === branchId);
+  const allocatedSum = (bolaoId: string) => branchAllocationsFor(bolaoId).reduce((s, a) => s + a.shares_allocated, 0);
 
-  const setAllocation = async (bolaoId: string, operatorId: string, shares: number) => {
-    const key = `${bolaoId}-${operatorId}`;
+  const setBranchAllocation = async (bolaoId: string, branchId: string, shares: number) => {
+    const key = `${bolaoId}-${branchId}`;
     setSavingKey(key);
     setError(null);
-    const { error: rpcError } = await supabase.rpc('allocate_bolao_shares', {
-      p_bolao_id: bolaoId, p_operator_id: operatorId, p_shares: shares,
+    const { error: rpcError } = await supabase.rpc('allocate_bolao_to_branch', {
+      p_bolao_id: bolaoId, p_branch_id: branchId, p_shares: shares,
     });
     setSavingKey(null);
     if (rpcError) { setError(rpcError.message); return; }
-    fetchAll();
-  };
-
-  const allocateWhole = async (bolao: Bolao, operatorId: string) => {
-    const key = `${bolao.id}-whole`;
-    setSavingKey(key);
-    setError(null);
-    const others = allocationsFor(bolao.id).filter((a) => a.operator_id !== operatorId);
-    for (const alloc of others) {
-      if (alloc.shares_sold > 0) {
-        setSavingKey(null);
-        setError(`${alloc.operator?.name ?? 'um operador'} já vendeu ${alloc.shares_sold} cota(s) — não é possível realocar.`);
-        return;
-      }
-      const { error: zeroError } = await supabase.rpc('allocate_bolao_shares', {
-        p_bolao_id: bolao.id, p_operator_id: alloc.operator_id, p_shares: 0,
-      });
-      if (zeroError) { setSavingKey(null); setError(zeroError.message); return; }
-    }
-    const { error: rpcError } = await supabase.rpc('allocate_bolao_shares', {
-      p_bolao_id: bolao.id, p_operator_id: operatorId, p_shares: bolao.total_shares,
-    });
-    setSavingKey(null);
-    if (rpcError) { setError(rpcError.message); return; }
-    fetchAll();
-  };
-
-  const doTransfer = async () => {
-    if (!selectedBolaoId || !transferFrom || !transferTo) { setError('Selecione os dois operadores para o repasse.'); return; }
-    if (transferFrom === transferTo) { setError('Selecione operadores diferentes para o repasse.'); return; }
-    setTransferSaving(true);
-    setError(null);
-    const { error: rpcError } = await supabase.rpc('transfer_bolao_shares', {
-      p_bolao_id: selectedBolaoId, p_from_operator_id: transferFrom, p_to_operator_id: transferTo, p_shares: Number(transferShares),
-    });
-    setTransferSaving(false);
-    if (rpcError) { setError(rpcError.message); return; }
-    setTransferFrom(''); setTransferTo(''); setTransferShares(1);
     fetchAll();
   };
 
@@ -126,16 +85,16 @@ export function AdminBolaoAllocations() {
 
   return (
     <div>
-      <PageHeader title="Alocação de Bolões" subtitle="Distribua cotas entre operadores de todas as filiais — o bolão é centralizado para o grupo" />
+      <PageHeader title="Alocação de Bolões para Filiais" subtitle="Distribua cotas de bolões para o estoque de cada filial" />
 
       {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 mb-4">{error}</p>}
 
-      {operators.length === 0 ? (
-        <Card><EmptyState icon={<Users size={48} />} title="Nenhum operador ativo" description="Cadastre operadores antes de distribuir cotas." /></Card>
+      {branches.length === 0 ? (
+        <Card><EmptyState icon={<Store size={48} />} title="Nenhuma filial cadastrada" description="Cadastre filiais antes de alocar bolões." /></Card>
       ) : loading ? (
         <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>
       ) : boloes.length === 0 ? (
-        <Card><EmptyState icon={<Ticket size={48} />} title="Nenhum bolão criado" description="Crie um bolão na aba 'Criar Bolão' para começar a distribuir cotas." /></Card>
+        <Card><EmptyState icon={<Ticket size={48} />} title="Nenhum bolão criado" description="Crie um bolão na aba 'Criar Bolão' para começar a distribuir cotas para as filiais." /></Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-5 items-start">
           <div className="lg:col-span-2">
@@ -152,7 +111,6 @@ export function AdminBolaoAllocations() {
                 const pct = bolao.total_shares > 0 ? Math.round((allocated / bolao.total_shares) * 100) : 0;
                 const statusInfo = STATUS_LABELS[bolao.status];
                 const isSelected = bolao.id === selectedBolaoId;
-                // CORREÇÃO: formatação manual para evitar deslocamento de fuso
                 const drawDateFormatted = bolao.draw_date.split('-').reverse().join('/');
                 return (
                   <button key={bolao.id} onClick={() => setSelectedBolaoId(bolao.id)}
@@ -175,7 +133,7 @@ export function AdminBolaoAllocations() {
                       <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
                         <div className={`h-full rounded-full ${allocated >= bolao.total_shares ? 'bg-emerald-500' : allocated > 0 ? 'bg-amber-500' : 'bg-slate-300'}`} style={{ width: `${pct}%` }} />
                       </div>
-                      <p className="text-[11px] text-slate-400 mt-1">{allocated}/{bolao.total_shares} cotas alocadas</p>
+                      <p className="text-[11px] text-slate-400 mt-1">{allocated}/{bolao.total_shares} cotas alocadas para filiais</p>
                     </div>
                   </button>
                 );
@@ -185,139 +143,75 @@ export function AdminBolaoAllocations() {
 
           <div className="lg:col-span-3 lg:sticky lg:top-4">
             {!selectedBolao ? (
-              <Card><EmptyState icon={<Ticket size={48} />} title="Selecione um bolão" description="Escolha um bolão na lista ao lado para distribuir as cotas." /></Card>
+              <Card><EmptyState icon={<Ticket size={48} />} title="Selecione um bolão" description="Escolha um bolão na lista ao lado para distribuir as cotas para as filiais." /></Card>
             ) : (
-              <BolaoAllocationPanel bolao={selectedBolao} operators={operators} getAllocation={getAllocation}
-                allocatedSum={allocatedSum(selectedBolao.id)} onSetAllocation={setAllocation}
-                onAllocateWhole={allocateWhole} savingKey={savingKey} branchName={branchName} />
+              <BranchAllocationPanel bolao={selectedBolao} branches={branches}
+                getBranchAllocation={getBranchAllocation}
+                operatorAllocations={operatorAllocations}
+                operators={operators}
+                allocatedSum={allocatedSum(selectedBolao.id)}
+                onSetBranchAllocation={setBranchAllocation}
+                savingKey={savingKey} />
             )}
           </div>
         </div>
       )}
 
-      {selectedBolao && operators.length > 0 && (
-        <Card className="p-5 mt-6">
-          <div className="flex items-center gap-2 mb-1">
-            <Repeat size={18} className="text-slate-400" />
-            <h2 className="font-semibold text-slate-900">Repassar cotas entre operadores</h2>
-          </div>
-          <p className="text-xs text-slate-500 mb-4">
-            Repassando cotas de <strong>{selectedBolao.product?.name} · Concurso {selectedBolao.contest_number}</strong>.
-            Só é possível repassar cotas ainda não vendidas — a comissão passa a ser de quem recebe.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-            <Select label="De (operador)" value={transferFrom} onChange={setTransferFrom} placeholder="Selecione"
-              options={operators.map((op) => ({ value: op.id, label: `${op.name} (${branchName(op.branch_id)})` }))} />
-            <Select label="Para (operador)" value={transferTo} onChange={setTransferTo} placeholder="Selecione"
-              options={operators.map((op) => ({ value: op.id, label: `${op.name} (${branchName(op.branch_id)})` }))} />
-            <Input label="Cotas" type="number" min={1} value={transferShares} onChange={(v) => setTransferShares(Number(v))} />
-          </div>
-          <div className="flex justify-end mt-4">
-            <Button onClick={doTransfer} disabled={transferSaving}>{transferSaving ? 'Repassando...' : 'Repassar cotas'}</Button>
-          </div>
-        </Card>
-      )}
-
-      {operators.length > 0 && boloes.length > 0 && (
+      {selectedBolao && branches.length > 0 && (
         <Card className="overflow-hidden mt-6">
           <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-            <Users size={18} className="text-slate-400" />
-            <h2 className="font-semibold text-slate-900">Cotas recebidas por operador</h2>
+            <Store size={18} className="text-slate-400" />
+            <h2 className="font-semibold text-slate-900">Resumo por filial — {selectedBolao.product?.name} · Concurso {selectedBolao.contest_number}</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
-                  <th className="px-5 py-2.5 font-medium">Operador</th>
                   <th className="px-5 py-2.5 font-medium">Filial</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Cotas recebidas</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Cotas vendidas</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Valor recebido</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Cotas em estoque</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Pegas por operadores</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Disponível no estoque</th>
+                  <th className="px-5 py-2.5 font-medium text-right">Valor em estoque</th>
                 </tr>
               </thead>
               <tbody>
-                {operators.map((op) => {
-                  const opAllocs = allocations.filter((a) => a.operator_id === op.id);
-                  const totalAllocated = opAllocs.reduce((s, a) => s + a.shares_allocated, 0);
-                  const totalSold = opAllocs.reduce((s, a) => s + a.shares_sold, 0);
-                  const totalValue = opAllocs.reduce((s, a) => {
-                    const bl = boloes.find((bol) => bol.id === a.bolao_id);
-                    const perShare = bl ? Number(bl.price) + Number(bl.service_fee) : 0;
-                    return s + perShare * a.shares_allocated;
-                  }, 0);
-                  if (totalAllocated === 0) return null;
+                {branchAllocationsFor(selectedBolao.id).map((ba) => {
+                  const perShare = Number(selectedBolao.price) + Number(selectedBolao.service_fee);
+                  const available = ba.shares_allocated - ba.shares_picked;
                   return (
-                    <tr key={op.id} className="border-b border-slate-50">
-                      <td className="px-5 py-2.5 font-medium text-slate-900">{op.name}</td>
-                      <td className="px-5 py-2.5 text-slate-600">{branchName(op.branch_id)}</td>
-                      <td className="px-5 py-2.5 text-right text-slate-600">{totalAllocated}</td>
-                      <td className="px-5 py-2.5 text-right text-slate-600">{totalSold}</td>
-                      <td className="px-5 py-2.5 text-right font-semibold text-brand-700">R$ {formatBRL(totalValue)}</td>
+                    <tr key={ba.id} className="border-b border-slate-50">
+                      <td className="px-5 py-2.5 font-medium text-slate-900">{ba.branch?.name ?? '—'}</td>
+                      <td className="px-5 py-2.5 text-right text-slate-600">{ba.shares_allocated}</td>
+                      <td className="px-5 py-2.5 text-right text-slate-600">{ba.shares_picked}</td>
+                      <td className="px-5 py-2.5 text-right font-semibold text-amber-600">{available}</td>
+                      <td className="px-5 py-2.5 text-right font-semibold text-brand-700">R$ {formatBRL(perShare * ba.shares_allocated)}</td>
                     </tr>
                   );
                 })}
+                {branchAllocationsFor(selectedBolao.id).length === 0 && (
+                  <tr><td colSpan={5} className="px-5 py-6 text-center text-slate-400">Nenhuma filial recebeu cotas deste bolão ainda.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
         </Card>
       )}
-
-      <Card className="overflow-hidden mt-6">
-        <div className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-          <History size={18} className="text-slate-400" />
-          <h2 className="font-semibold text-slate-900">Histórico de repasses</h2>
-        </div>
-        {transfers.length === 0 ? (
-          <div className="p-5"><EmptyState icon={<Repeat size={40} />} title="Nenhum repasse ainda" description="Quando um operador repassar cotas para outro, o histórico aparece aqui." /></div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
-                  <th className="px-5 py-2.5 font-medium">Data</th>
-                  <th className="px-5 py-2.5 font-medium">Bolão</th>
-                  <th className="px-5 py-2.5 font-medium">De</th>
-                  <th className="px-5 py-2.5 font-medium">Para</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Cotas</th>
-                  <th className="px-5 py-2.5 font-medium text-right">Valor</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transfers.map((t) => {
-                  const perShare = t.bolao ? Number(t.bolao.price) + Number(t.bolao.service_fee) : 0;
-                  return (
-                    <tr key={t.id} className="border-b border-slate-50">
-                      <td className="px-5 py-2.5 text-slate-500 whitespace-nowrap">
-                        {new Date(t.created_at).toLocaleDateString('pt-BR')} {new Date(t.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td className="px-5 py-2.5 text-slate-700">{t.bolao?.product?.name ?? '—'} <span className="text-slate-400">· Concurso {t.bolao?.contest_number}</span></td>
-                      <td className="px-5 py-2.5 text-slate-700">{t.from_operator?.name ?? '—'}</td>
-                      <td className="px-5 py-2.5 text-slate-700">{t.to_operator?.name ?? '—'}</td>
-                      <td className="px-5 py-2.5 text-right text-slate-600">{t.shares}</td>
-                      <td className="px-5 py-2.5 text-right font-medium text-slate-700">R$ {formatBRL(perShare * t.shares)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
     </div>
   );
 }
 
-function BolaoAllocationPanel({
-  bolao, operators, getAllocation, allocatedSum, onSetAllocation, onAllocateWhole, savingKey, branchName,
+function BranchAllocationPanel({
+  bolao, branches, getBranchAllocation, operatorAllocations, operators,
+  allocatedSum, onSetBranchAllocation, savingKey,
 }: {
   bolao: Bolao;
+  branches: Branch[];
+  getBranchAllocation: (bolaoId: string, branchId: string) => BolaoBranchAllocation | undefined;
+  operatorAllocations: BolaoOperatorAllocation[];
   operators: Profile[];
-  getAllocation: (bolaoId: string, operatorId: string) => BolaoOperatorAllocation | undefined;
   allocatedSum: number;
-  onSetAllocation: (bolaoId: string, operatorId: string, shares: number) => void;
-  onAllocateWhole: (bolao: Bolao, operatorId: string) => void;
+  onSetBranchAllocation: (bolaoId: string, branchId: string, shares: number) => void;
   savingKey: string | null;
-  branchName: (branchId: string | null) => string;
 }) {
   const perShare = Number(bolao.price) + Number(bolao.service_fee);
   const totalValue = perShare * bolao.total_shares;
@@ -326,7 +220,6 @@ function BolaoAllocationPanel({
   const unallocatedValue = perShare * unallocated;
   const statusInfo = STATUS_LABELS[bolao.status];
   const locked = bolao.status === 'sold' || bolao.status === 'encalhado';
-  // CORREÇÃO: formatação manual para evitar deslocamento de fuso
   const drawDateFormatted = bolao.draw_date.split('-').reverse().join('/');
 
   return (
@@ -351,12 +244,12 @@ function BolaoAllocationPanel({
             <p className="text-[11px] text-slate-400">{bolao.total_shares} cotas · R$ {formatBRL(perShare)}/cota</p>
           </div>
           <div className="bg-white rounded-lg p-2.5 border border-brand-100">
-            <p className="text-[11px] text-slate-400 uppercase tracking-wide">Já alocado</p>
+            <p className="text-[11px] text-slate-400 uppercase tracking-wide">Já no estoque</p>
             <p className="text-lg font-bold text-emerald-600">R$ {formatBRL(allocatedValue)}</p>
             <p className="text-[11px] text-slate-400">{allocatedSum} cota(s)</p>
           </div>
           <div className="bg-white rounded-lg p-2.5 border border-brand-100">
-            <p className="text-[11px] text-slate-400 uppercase tracking-wide">Sem dono</p>
+            <p className="text-[11px] text-slate-400 uppercase tracking-wide">Sem destino</p>
             <p className={`text-lg font-bold ${unallocated > 0 ? 'text-amber-600' : 'text-slate-400'}`}>R$ {formatBRL(unallocatedValue)}</p>
             <p className="text-[11px] text-slate-400">{unallocated} cota(s)</p>
           </div>
@@ -372,33 +265,38 @@ function BolaoAllocationPanel({
       )}
 
       <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-        {operators.map((op) => {
-          const alloc = getAllocation(bolao.id, op.id);
-          const key = `${bolao.id}-${op.id}`;
-          const opShares = alloc?.shares_allocated ?? 0;
-          const opValue = perShare * opShares;
-          const maxAllowed = opShares + unallocated;
-          const isWhole = opShares === bolao.total_shares;
+        {branches.map((br) => {
+          const alloc = getBranchAllocation(bolao.id, br.id);
+          const key = `${bolao.id}-${br.id}`;
+          const brShares = alloc?.shares_allocated ?? 0;
+          const brPicked = alloc?.shares_picked ?? 0;
+          const brValue = perShare * brShares;
+          const maxAllowed = brShares + unallocated;
+          const branchOps = operators.filter((op) => op.branch_id === br.id);
+          const opsWithAlloc = operatorAllocations.filter((a) => a.bolao_id === bolao.id && branchOps.some((op) => op.id === a.operator_id));
           return (
-            <div key={op.id} className={`border rounded-lg p-4 flex items-center gap-4 ${isWhole ? 'border-emerald-300 bg-emerald-50/40' : 'border-slate-200'}`}>
-              <div className="w-10 h-10 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-semibold shrink-0">
-                {op.name.charAt(0).toUpperCase()}
+            <div key={br.id} className={`border rounded-lg p-4 ${brShares > 0 ? 'border-brand-300 bg-brand-50/30' : 'border-slate-200'}`}>
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-xl bg-brand-100 text-brand-700 flex items-center justify-center shrink-0">
+                  <Store size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-slate-900 truncate">{br.name}</p>
+                  <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
+                    {brShares} cota(s) em estoque · {brPicked} pega(s) · R$ {formatBRL(brValue)}
+                  </p>
+                  {opsWithAlloc.length > 0 && (
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      {opsWithAlloc.length} operador(es) com cotas: {opsWithAlloc.map((a) => a.operator?.name).filter(Boolean).join(', ')}
+                    </p>
+                  )}
+                </div>
+                <div className="w-28">
+                  <Input type="number" min={brPicked} max={maxAllowed} value={brShares}
+                    onChange={(v) => onSetBranchAllocation(bolao.id, br.id, Number(v))} disabled={locked} />
+                </div>
+                {savingKey === key && <span className="text-[11px] text-slate-400 shrink-0">Salvando...</span>}
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-900 truncate">{op.name}</p>
-                <p className="text-xs text-slate-400 flex items-center gap-1 mt-0.5">
-                  <Store size={11} /> {branchName(op.branch_id)} · {alloc?.shares_sold ?? 0} vendida(s) · R$ {formatBRL(opValue)}
-                </p>
-              </div>
-              <div className="w-28">
-                <Input type="number" min={alloc?.shares_sold ?? 0} max={maxAllowed} value={opShares}
-                  onChange={(v) => onSetAllocation(bolao.id, op.id, Number(v))} />
-              </div>
-              <Button size="sm" variant={isWhole ? 'accent' : 'secondary'} onClick={() => onAllocateWhole(bolao, op.id)}
-                disabled={savingKey === `${bolao.id}-whole` || locked} title="Alocar o bolão inteiro para este operador">
-                {isWhole ? <Check size={14} /> : 'Tudo'}
-              </Button>
-              {savingKey === key && <span className="text-[11px] text-slate-400 shrink-0">Salvando...</span>}
             </div>
           );
         })}

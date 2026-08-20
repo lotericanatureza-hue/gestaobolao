@@ -4,7 +4,7 @@ import { useAuth } from '../lib/AuthContext';
 import { Badge } from './ui';
 
 export type AdminView = 'dashboard' | 'branches' | 'products' | 'allocations' | 'create-bolao' | 'bolao-allocations' | 'users';
-export type OperatorView = 'sales' | 'manage';
+export type OperatorView = 'stock' | 'sales' | 'manage';
 
 interface LayoutProps {
   children: ReactNode;

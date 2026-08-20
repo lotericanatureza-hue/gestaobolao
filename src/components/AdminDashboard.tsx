@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
-import { ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2, Trophy, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2, Trophy, CheckCircle2, AlertTriangle, Store, Package, TrendingUp } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Spinner, EmptyState, Badge, Button } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import type { Bolao, Branch, Profile, BolaoOperatorAllocation } from '../lib/types';
+import type { Bolao, Branch, Profile, BolaoOperatorAllocation, BolaoBranchAllocation } from '../lib/types';
 import { computeBolaoKpis, computeAllocationKpis, pluralize, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
 import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL } from '../lib/commission';
@@ -37,6 +37,7 @@ export function AdminDashboard() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [operators, setOperators] = useState<Profile[]>([]);
   const [allocations, setAllocations] = useState<BolaoOperatorAllocation[]>([]);
+  const [branchAllocations, setBranchAllocations] = useState<BolaoBranchAllocation[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedOperatorId, setExpandedOperatorId] = useState<string | null>(null);
   const [undoingId, setUndoingId] = useState<string | null>(null);
@@ -44,16 +45,18 @@ export function AdminDashboard() {
   const [settlingId, setSettlingId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
-    const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }] = await Promise.all([
+    const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }, { data: baList }] = await Promise.all([
       supabase.from('boloes').select('*, product:products(*), branch:branches(*), operator:profiles(*)').order('created_at', { ascending: false }),
       supabase.from('branches').select('*').order('name'),
       supabase.from('profiles').select('*').eq('role', 'operator').order('name'),
       supabase.from('bolao_operator_allocations').select('*, bolao:boloes(*, product:products(*), branch:branches(*))'),
+      supabase.from('bolao_branch_allocations').select('*, bolao:boloes(*, product:products(*)), branch:branches(*)'),
     ]);
     setAllBoloes((boloes ?? []) as Bolao[]);
     setBranches((branchList ?? []) as Branch[]);
     setOperators((opList ?? []) as Profile[]);
     setAllocations((allocList ?? []) as BolaoOperatorAllocation[]);
+    setBranchAllocations((baList ?? []) as BolaoBranchAllocation[]);
     setLoading(false);
   }, []);
 
@@ -63,6 +66,7 @@ export function AdminDashboard() {
       .channel('admin-dashboard-boloes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'boloes' }, () => fetchData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_operator_allocations' }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bolao_branch_allocations' }, () => fetchData())
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
@@ -131,6 +135,38 @@ export function AdminDashboard() {
   const top5ByGoal = [...operatorStats].sort((a, b) => b.monthlySalesValue - a.monthlySalesValue).slice(0, 5);
   const encalhesPendentes = allBoloes.filter((b) => b.status === 'encalhado' && !b.encalhe_settled);
 
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayBoloes = allBoloes.filter((b) => b.created_at.startsWith(todayStr));
+  const todayTotalValue = todayBoloes.reduce((s, b) => s + (Number(b.price) + Number(b.service_fee)) * b.total_shares, 0);
+  const todayTotalShares = todayBoloes.reduce((s, b) => s + b.total_shares, 0);
+
+  const branchSummary = branches.map((br) => {
+    const brAllocs = branchAllocations.filter((ba) => ba.branch_id === br.id);
+    const totalShares = brAllocs.reduce((s, ba) => s + ba.shares_allocated, 0);
+    const totalValue = brAllocs.reduce((s, ba) => {
+      if (!ba.bolao) return s;
+      return s + (Number(ba.bolao.price) + Number(ba.bolao.service_fee)) * ba.shares_allocated;
+    }, 0);
+    const pickedShares = brAllocs.reduce((s, ba) => s + ba.shares_picked, 0);
+    const bolaoCount = brAllocs.length;
+    return { branch: br, totalShares, totalValue, pickedShares, bolaoCount };
+  }).sort((a, b) => b.totalValue - a.totalValue);
+
+  const productSummaryMap = new Map<string, { productName: string; slug: string; count: number; totalShares: number; totalValue: number; soldShares: number; soldValue: number }>();
+  for (const b of allBoloes) {
+    if (!b.product) continue;
+    const key = b.product.id;
+    const existing = productSummaryMap.get(key) ?? { productName: b.product.name, slug: b.product.slug ?? '', count: 0, totalShares: 0, totalValue: 0, soldShares: 0, soldValue: 0 };
+    const perShare = Number(b.price) + Number(b.service_fee);
+    existing.count += 1;
+    existing.totalShares += b.total_shares;
+    existing.totalValue += perShare * b.total_shares;
+    existing.soldShares += b.sold_shares;
+    existing.soldValue += perShare * b.sold_shares;
+    productSummaryMap.set(key, existing);
+  }
+  const productSummary = Array.from(productSummaryMap.values()).sort((a, b) => b.totalValue - a.totalValue);
+
   return (
     <div>
       <PageHeader title="Dashboard" subtitle="Visão consolidada do grupo Mega Bolão Brasil" />
@@ -169,6 +205,35 @@ export function AdminDashboard() {
           </div>
         </div>
       </Card>
+
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+        <TrendingUp size={16} /> Bolões de Hoje — {new Date().toLocaleDateString('pt-BR')}
+      </h2>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><Package size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Bolões criados hoje</p>
+          </div>
+          <p className="text-2xl font-bold text-brand-950">{todayBoloes.length}</p>
+          <p className="text-sm text-slate-500 mt-1">{todayTotalShares} cotas no total</p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><DollarSign size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Valor gerado hoje</p>
+          </div>
+          <p className="text-2xl font-bold text-brand-950">R$ {formatBRL(todayTotalValue)}</p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><Store size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Filiais ativas</p>
+          </div>
+          <p className="text-2xl font-bold text-brand-950">{branches.length}</p>
+          <p className="text-sm text-slate-500 mt-1">{branchSummary.filter((bs) => bs.bolaoCount > 0).length} receberam bolões</p>
+        </Card>
+      </div>
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral — Todos os Bolões</h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -213,6 +278,81 @@ export function AdminDashboard() {
                 </div>
               );
             })}
+          </div>
+        </Card>
+      )}
+
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Store size={16} /> Filiais — Bolões Recebidos em Estoque
+      </h2>
+      {branchSummary.length === 0 ? (
+        <Card className="mb-8"><EmptyState icon={<Store size={48} />} title="Nenhuma filial cadastrada" description="Cadastre filiais para distribuir bolões." /></Card>
+      ) : (
+        <Card className="overflow-hidden mb-8">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                  <th className="px-5 py-3 font-medium">Filial</th>
+                  <th className="px-5 py-3 font-medium text-right">Bolões recebidos</th>
+                  <th className="px-5 py-3 font-medium text-right">Cotas em estoque</th>
+                  <th className="px-5 py-3 font-medium text-right">Cotas pegas por operadores</th>
+                  <th className="px-5 py-3 font-medium text-right">Valor em estoque</th>
+                </tr>
+              </thead>
+              <tbody>
+                {branchSummary.map((bs) => (
+                  <tr key={bs.branch.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3 font-medium text-slate-900">{bs.branch.name}</td>
+                    <td className="px-5 py-3 text-right text-slate-600">{bs.bolaoCount}</td>
+                    <td className="px-5 py-3 text-right text-slate-600">{bs.totalShares}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-amber-600">{bs.pickedShares}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(bs.totalValue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+
+      <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+        <Package size={16} /> Resumo por Produto (Jogos)
+      </h2>
+      {productSummary.length === 0 ? (
+        <Card className="mb-8"><EmptyState icon={<Package size={48} />} title="Nenhum bolão criado" description="Os bolões criados aparecerão aqui agrupados por produto." /></Card>
+      ) : (
+        <Card className="overflow-hidden mb-8">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                  <th className="px-5 py-3 font-medium">Produto</th>
+                  <th className="px-5 py-3 font-medium text-right">Bolões</th>
+                  <th className="px-5 py-3 font-medium text-right">Cotas totais</th>
+                  <th className="px-5 py-3 font-medium text-right">Cotas vendidas</th>
+                  <th className="px-5 py-3 font-medium text-right">Valor total</th>
+                  <th className="px-5 py-3 font-medium text-right">Valor vendido</th>
+                </tr>
+              </thead>
+              <tbody>
+                {productSummary.map((ps) => (
+                  <tr key={ps.slug} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3">
+                      <div className="flex items-center gap-2">
+                        <LotteryIcon slug={ps.slug} size={24} />
+                        <span className="font-medium text-slate-900">{ps.productName}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3 text-right text-slate-600">{ps.count}</td>
+                    <td className="px-5 py-3 text-right text-slate-600">{ps.totalShares}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-emerald-600">{ps.soldShares}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(ps.totalValue)}</td>
+                    <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(ps.soldValue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
       )}
@@ -303,7 +443,7 @@ export function AdminDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {operatorStats.map(({ operator: op, kpis: k, allocations: opAllocations, monthlySalesValue, commission }) => {
+                {operatorStats.map(({ operator: op, kpis: k, allocations: opAllocations, commission }) => {
                   const isExpanded = expandedOperatorId === op.id;
                   return (
                     <Fragment key={op.id}>

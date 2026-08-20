@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle } from 'lucide-react';
+import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse } from 'lucide-react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
 import { Layout, AdminView, OperatorView } from './components/Layout';
@@ -11,6 +11,7 @@ import { AdminAllocations } from './components/AdminAllocations';
 import { AdminUsers } from './components/AdminUsers';
 import { AdminCreateBolao } from './components/AdminCreateBolao';
 import { AdminBolaoAllocations } from './components/AdminBolaoAllocations';
+import { OperatorStock } from './components/OperatorStock';
 import { OperatorSales } from './components/OperatorSales';
 import { OperatorManage } from './components/OperatorManage';
 function AppContent() {
@@ -45,11 +46,13 @@ function AppContent() {
   }
   // operator
   const operatorNav = [
+    { id: 'stock', label: 'Estoque da Filial', icon: <Warehouse size={18} /> },
     { id: 'sales', label: 'Minhas Vendas', icon: <Ticket size={18} /> },
     { id: 'manage', label: 'Gestão de Bolões', icon: <ShoppingBag size={18} /> },
   ];
   return (
     <Layout activeView={operatorView} onNavigate={(v) => setOperatorView(v as OperatorView)} navItems={operatorNav}>
+      {operatorView === 'stock' && <OperatorStock />}
       {operatorView === 'sales' && <OperatorSales />}
       {operatorView === 'manage' && <OperatorManage />}
     </Layout>

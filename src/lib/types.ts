@@ -69,6 +69,18 @@ export interface Bolao {
   operator?: Profile;
 }
 
+export interface BolaoBranchAllocation {
+  id: string;
+  bolao_id: string;
+  branch_id: string;
+  shares_allocated: number;
+  shares_picked: number;
+  created_at: string;
+  updated_at: string;
+  bolao?: Bolao;
+  branch?: Branch;
+}
+
 export interface BolaoOperatorAllocation {
   id: string;
   bolao_id: string;
