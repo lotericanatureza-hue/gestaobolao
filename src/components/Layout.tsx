@@ -1,6 +1,7 @@
-import { ReactNode, useState } from 'react';
-import { LogOut, Menu, X } from 'lucide-react';
+import { ReactNode, useState, useEffect } from 'react';
+import { LogOut, Menu, X, Store } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
+import { supabase } from '../lib/supabase';
 import { Badge } from './ui';
 
 export type AdminView = 'dashboard' | 'branches' | 'products' | 'allocations' | 'create-bolao' | 'bolao-allocations' | 'users';
@@ -16,6 +17,13 @@ interface LayoutProps {
 export function Layout({ children, activeView, onNavigate, navItems }: LayoutProps) {
   const { profile, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [branchName, setBranchName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!profile?.branch_id) { setBranchName(null); return; }
+    supabase.from('branches').select('name').eq('id', profile.branch_id).maybeSingle()
+      .then(({ data }) => setBranchName(data?.name ?? null));
+  }, [profile?.branch_id]);
 
   return (
     <div className="min-h-screen bg-slate-100 flex">
@@ -62,6 +70,11 @@ export function Layout({ children, activeView, onNavigate, navItems }: LayoutPro
               <Badge color={profile?.role === 'admin' ? 'orange' : profile?.role === 'supervisor' ? 'amber' : 'blue'}>
                 {profile?.role === 'admin' ? 'Administrador' : profile?.role === 'supervisor' ? 'Supervisor' : 'Operador'}
               </Badge>
+              {branchName && (
+                <p className="text-slate-400 text-xs mt-1 flex items-center gap-1 truncate">
+                  <Store size={12} /> {branchName}
+                </p>
+              )}
             </div>
           </div>
           <button

@@ -17,6 +17,7 @@ interface PickSelection {
 export function OperatorStock() {
   const { profile } = useAuth();
   const [branchAllocations, setBranchAllocations] = useState<BolaoBranchAllocation[]>([]);
+  const [branchName, setBranchName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -30,13 +31,21 @@ export function OperatorStock() {
     if (!profile?.branch_id) { setLoading(false); return; }
     setLoading(true);
     setError(null);
-    const { data, error: err } = await supabase
-      .from('bolao_branch_allocations')
-      .select('*, bolao:boloes(*, product:products(*), branch:branches(*))')
-      .eq('branch_id', profile.branch_id)
-      .order('created_at', { ascending: false });
-    if (err) { setError('Erro ao carregar estoque: ' + err.message); }
-    else { setBranchAllocations((data ?? []) as BolaoBranchAllocation[]); }
+    const [allocRes, branchRes] = await Promise.all([
+      supabase
+        .from('bolao_branch_allocations')
+        .select('*, bolao:boloes(*, product:products(*), branch:branches(*))')
+        .eq('branch_id', profile.branch_id)
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('branches')
+        .select('name')
+        .eq('id', profile.branch_id)
+        .maybeSingle(),
+    ]);
+    if (allocRes.error) { setError('Erro ao carregar estoque: ' + allocRes.error.message); }
+    else { setBranchAllocations((allocRes.data ?? []) as BolaoBranchAllocation[]); }
+    setBranchName(branchRes.data?.name ?? null);
     setLoading(false);
   }, [profile]);
 
@@ -154,7 +163,7 @@ export function OperatorStock() {
             <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><Store size={22} /></div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Sua Filial</p>
           </div>
-          <p className="text-lg font-bold text-brand-950">{branchAllocations[0]?.branch?.name ?? '—'}</p>
+          <p className="text-lg font-bold text-brand-950">{branchName ?? '—'}</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-3">
