@@ -63,10 +63,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })();
     });
 
+    let profileChannel: ReturnType<typeof supabase.channel> | null = null;
+    if (user?.id) {
+      profileChannel = supabase
+        .channel('auth-profile-changes')
+        .on('postgres_changes', {
+          event: '*',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`,
+        }, () => { fetchProfile(user.id); })
+        .subscribe();
+    }
+
     return () => {
       listener.subscription.unsubscribe();
+      if (profileChannel) supabase.removeChannel(profileChannel);
     };
-  }, []);
+  }, [user?.id]);
 
   const signIn = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
