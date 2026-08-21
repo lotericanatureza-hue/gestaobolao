@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Calendar, Clock, DollarSign, ShoppingBag, TrendingDown, Repeat, Info, AlertCircle, Target, Eye } from 'lucide-react';
+import { Ticket, Calendar, Clock, DollarSign, ShoppingBag, Repeat, Info, AlertCircle, Target, Eye } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -247,11 +247,10 @@ export function OperatorSales() {
       </Card>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <KpiCard icon={<ShoppingBag size={22} />} label="Recebido" bigValue={`R$ ${formatBRL(kpis.gerado.value)}`} smallValue={pluralize(kpis.gerado.shares, 'cota', 'cotas')} color="brand" />
         <KpiCard icon={<DollarSign size={22} />} label="Vendido" bigValue={`R$ ${formatBRL(kpis.vendido.value)}`} smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')} color="emerald"
           lines={[{ label: 'Sua comissão', value: `R$ ${formatBRL(monthlyCommission)}` }]} />
-        <KpiCard icon={<TrendingDown size={22} />} label="Encalhado" bigValue={`R$ ${formatBRL(kpis.encalhado.value)}`} smallValue={pluralize(kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
         <KpiCard icon={<Clock size={22} />} label="Em Aberto" bigValue={`R$ ${formatBRL(kpis.emAberto.value)}`} smallValue={pluralize(kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
       </div>
 
@@ -272,7 +271,6 @@ export function OperatorSales() {
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-brand-700">
                     <span>Recebido: <strong>R$ {formatBRL(k.gerado.value)}</strong></span>
                     <span>Vendido: <strong>R$ {formatBRL(k.vendido.value)}</strong></span>
-                    <span>Encalhado: <strong>R$ {formatBRL(k.encalhado.value)}</strong></span>
                   </div>
                 </div>
                 <div className="divide-y divide-slate-50">
@@ -281,7 +279,7 @@ export function OperatorSales() {
                     if (!b) return null;
                     const statusInfo = STATUS_LABELS[b.status];
                     const pct = a.shares_allocated > 0 ? Math.round((a.shares_sold / a.shares_allocated) * 100) : 0;
-                    const canSell = b.status !== 'encalhado' && a.shares_sold < a.shares_allocated;
+                    const canSell = a.shares_sold < a.shares_allocated;
                     const canTransfer = a.shares_allocated - a.shares_sold > 0;
                     const perShare = Number(b.price) + Number(b.service_fee);
                     const totalAllocatedValue = perShare * a.shares_allocated;
@@ -347,15 +345,15 @@ export function OperatorSales() {
                 <p className="font-semibold">{editing.shares_allocated - editing.shares_sold} cotas</p>
               </div>
             </div>
-            {editing.bolao.status === 'encalhado' && (
-              <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-xs text-red-700">Este bolão já passou da data/hora do sorteio. Não é possível vender mais cotas dele.</div>
+            {editing.bolao.status === 'sold' && (
+              <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-xs text-red-700">Este bolão já está totalmente vendido.</div>
             )}
             <Input label={`Cotas vendidas (de 0 a ${editing.shares_allocated})`} type="number" min={0} max={editing.shares_allocated}
-              value={editSold} onChange={(v) => setEditSold(Number(v))} disabled={editing.bolao.status === 'encalhado'} />
+              value={editSold} onChange={(v) => setEditSold(Number(v))} disabled={editing.bolao.status === 'sold'} />
             {editError && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{editError}</p>}
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="secondary" onClick={() => setEditing(null)}>Cancelar</Button>
-              <Button onClick={saveEdit} disabled={editSaving || editing.bolao.status === 'encalhado'}>{editSaving ? 'Salvando...' : 'Salvar'}</Button>
+              <Button onClick={saveEdit} disabled={editSaving || editing.bolao.status === 'sold'}>{editSaving ? 'Salvando...' : 'Salvar'}</Button>
             </div>
           </div>
         )}
@@ -468,8 +466,6 @@ export function OperatorSales() {
                             <td className="px-4 py-2 text-center">
                               {isSold ? (
                                 <Badge color="green">Vendida</Badge>
-                              ) : b.status === 'encalhado' ? (
-                                <Badge color="red">Encalhada</Badge>
                               ) : (
                                 <Badge color="slate">Disponível</Badge>
                               )}

@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, useCallback } from 'react';
-import { ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2, Trophy, CheckCircle2, AlertTriangle, Store, Package, TrendingUp, Pencil, Save, X } from 'lucide-react';
+import { ShoppingBag, DollarSign, TrendingDown, Calendar, Users, Clock, ChevronDown, ChevronRight, Undo2, Trophy, Store, Package, TrendingUp, Pencil, Save, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -70,8 +70,6 @@ export function AdminDashboard() {
   const [expandedOperatorId, setExpandedOperatorId] = useState<string | null>(null);
   const [undoingId, setUndoingId] = useState<string | null>(null);
   const [undoError, setUndoError] = useState<string | null>(null);
-  const [settlingId, setSettlingId] = useState<string | null>(null);
-  const [encalhesExpanded, setEncalhesExpanded] = useState(false);
   const [dayPage, setDayPage] = useState(0);
   const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
 
@@ -113,15 +111,6 @@ export function AdminDashboard() {
       p_bolao_id: allocation.bolao_id, p_operator_id: allocation.operator_id, p_shares_sold: allocation.shares_sold - 1,
     });
     setUndoingId(null);
-    if (error) { setUndoError(error.message); return; }
-    fetchData();
-  };
-
-  const settleEncalhe = async (bolaoId: string) => {
-    setSettlingId(bolaoId);
-    setUndoError(null);
-    const { error } = await supabase.rpc('settle_encalhe', { p_bolao_id: bolaoId });
-    setSettlingId(null);
     if (error) { setUndoError(error.message); return; }
     fetchData();
   };
@@ -193,7 +182,6 @@ export function AdminDashboard() {
   }).filter((s) => s.kpis.gerado.count > 0).sort((a, b) => b.kpis.vendido.value - a.kpis.vendido.value);
 
   const top5ByGoal = [...operatorStats].sort((a, b) => b.monthlySalesValue - a.monthlySalesValue).slice(0, 5);
-  const encalhesPendentes = allBoloes.filter((b) => b.status === 'encalhado' && !b.encalhe_settled);
 
   const todayStr = new Date().toISOString().split('T')[0];
   const todayBoloes = allBoloes.filter((b) => b.created_at.startsWith(todayStr));
@@ -327,54 +315,9 @@ export function AdminDashboard() {
           lines={[{ label: 'Taxa total', value: `R$ ${formatBRL(kpis.gerado.commission)}` }]} />
         <KpiCard icon={<DollarSign size={22} />} label="Vendido" bigValue={`R$ ${formatBRL(kpis.vendido.value)}`} smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')} color="emerald"
           lines={[{ label: 'Taxa vendida', value: `R$ ${formatBRL(kpis.vendido.commission)}` }]} />
-        <KpiCard icon={<TrendingDown size={22} />} label="Encalhe Pendente" bigValue={`R$ ${formatBRL(kpis.encalhado.value)}`} smallValue={pluralize(kpis.encalhado.shares, 'cota', 'cotas')} color="amber" />
         <KpiCard icon={<Clock size={22} />} label="Em Aberto" bigValue={`R$ ${formatBRL(kpis.emAberto.value)}`} smallValue={pluralize(kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
       </div>
 
-      {isAdmin && encalhesPendentes.length > 0 && (
-        <Card className="overflow-hidden mb-8 border-amber-200">
-          <button
-            onClick={() => setEncalhesExpanded(!encalhesExpanded)}
-            className="w-full px-5 py-3 bg-amber-50 border-b border-amber-100 flex items-center gap-2 text-left hover:bg-amber-100/50 transition-colors"
-          >
-            {encalhesExpanded ? <ChevronDown size={18} className="text-amber-600" /> : <ChevronRight size={18} className="text-amber-600" />}
-            <AlertTriangle size={18} className="text-amber-600" />
-            <h2 className="font-semibold text-amber-900">Encalhes Pendentes de Baixa ({encalhesPendentes.length})</h2>
-          </button>
-          {encalhesExpanded && (
-            <>
-              {undoError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 m-3">{undoError}</p>}
-              <div className="divide-y divide-slate-50">
-                {encalhesPendentes.map((b) => {
-                  const perShare = Number(b.price) + Number(b.service_fee);
-                  const unsoldShares = b.total_shares - b.sold_shares;
-                  const unsoldValue = perShare * unsoldShares;
-                  const statusInfo = STATUS_LABELS[b.status];
-                  return (
-                    <div key={b.id} className="px-5 py-3 flex items-center gap-3">
-                      <LotteryIcon slug={b.product?.slug ?? ''} size={32} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-medium text-slate-900 text-sm">{b.product?.name ?? '—'}</span>
-                          <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
-                          <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
-                        </div>
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-500 mt-0.5">
-                          <span className="font-medium text-red-600">{unsoldShares} cotas sem vender · R$ {formatBRL(unsoldValue)}</span>
-                          <span>Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
-                        </div>
-                      </div>
-                      <Button size="sm" variant="danger" onClick={() => settleEncalhe(b.id)} disabled={settlingId === b.id}>
-                        <CheckCircle2 size={14} /> {settlingId === b.id ? 'Baixando...' : 'Dar baixa'}
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </Card>
-      )}
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
         <Store size={16} /> Filiais — Bolões Recebidos em Estoque
@@ -522,10 +465,9 @@ export function AdminDashboard() {
                   </button>
                   {isExpanded && (
                     <div className="px-5 pb-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
                         <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${formatBRL(group.kpis.gerado.value)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
                         <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${formatBRL(group.kpis.vendido.value)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
-                        <KpiCard icon={<TrendingDown size={20} />} label="Encalhe Pend." bigValue={`R$ ${formatBRL(group.kpis.encalhado.value)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="amber" />
                         <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${formatBRL(group.kpis.emAberto.value)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
                       </div>
                       <div className="overflow-x-auto border border-slate-100 rounded-lg">
@@ -617,7 +559,6 @@ export function AdminDashboard() {
                   <th className="px-5 py-3 font-medium">Filial</th>
                   <th className="px-5 py-3 font-medium text-right">Recebido</th>
                   <th className="px-5 py-3 font-medium text-right">Vendido</th>
-                  <th className="px-5 py-3 font-medium text-right">Encalhado</th>
                   <th className="px-5 py-3 font-medium text-right">Comissão (mês)</th>
                 </tr>
               </thead>
@@ -637,12 +578,11 @@ export function AdminDashboard() {
                         <td className="px-5 py-3 text-slate-600">{branchName(op.branch_id)}</td>
                         <td className="px-5 py-3 text-right text-slate-600">R$ {formatBRL(k.gerado.value)} <span className="text-slate-400">({k.gerado.count})</span></td>
                         <td className="px-5 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(k.vendido.value)}</td>
-                        <td className="px-5 py-3 text-right font-semibold text-red-600">R$ {formatBRL(k.encalhado.value + k.encalheBaixado.value)}</td>
                         <td className="px-5 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(commission)}</td>
                       </tr>
                       {isExpanded && (
                         <tr className="bg-slate-50/70">
-                          <td colSpan={6} className="px-5 py-4">
+                          <td colSpan={5} className="px-5 py-4">
                             {undoError && <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2 mb-2">{undoError}</p>}
                             {opAllocations.length === 0 ? (
                               <p className="text-xs text-slate-400">Nenhuma cota alocada.</p>

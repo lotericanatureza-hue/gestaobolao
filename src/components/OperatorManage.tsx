@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { ShoppingBag, DollarSign, TrendingDown, Calendar, Clock, Target } from 'lucide-react';
+import { ShoppingBag, DollarSign, Calendar, Clock, Target } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -103,7 +103,7 @@ export function OperatorManage() {
 
   return (
     <div>
-      <PageHeader title="Dashboard" subtitle="Suas cotas, comissões e encalhes — só o que está alocado a você" />
+      <PageHeader title="Dashboard" subtitle="Suas cotas e comissões — só o que está alocado a você" />
 
       {/* Monthly Goal Card */}
       <Card className="p-5 mb-6">
@@ -176,12 +176,11 @@ export function OperatorManage() {
       </Card>
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Visão Geral</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <KpiCard icon={<ShoppingBag size={22} />} label="Recebido" bigValue={`R$ ${formatBRL(kpis.gerado.value)}`} smallValue={pluralize(kpis.gerado.shares, 'cota', 'cotas')} color="brand"
           lines={[{ label: 'Taxa total', value: `R$ ${formatBRL(kpis.gerado.commission)}` }]} />
         <KpiCard icon={<DollarSign size={22} />} label="Vendido" bigValue={`R$ ${formatBRL(kpis.vendido.value)}`} smallValue={pluralize(kpis.vendido.shares, 'cota vendida', 'cotas vendidas')} color="emerald"
           lines={[{ label: 'Sua comissão', value: `R$ ${formatBRL(monthlyCommission)}` }]} />
-        <KpiCard icon={<TrendingDown size={22} />} label="Encalhado" bigValue={`R$ ${formatBRL(kpis.encalhado.value)}`} smallValue={pluralize(kpis.encalhado.shares, 'cota encalhada', 'cotas encalhadas')} color="red" />
         <KpiCard icon={<Clock size={22} />} label="Em Aberto" bigValue={`R$ ${formatBRL(kpis.emAberto.value)}`} smallValue={pluralize(kpis.emAberto.shares, 'cota aguardando sorteio', 'cotas aguardando sorteio')} color="accent" />
       </div>
 
@@ -195,10 +194,9 @@ export function OperatorManage() {
           {monthGroups.map((group) => (
             <Card key={group.key} className="overflow-hidden">
               <div className="px-5 py-3 bg-brand-50 border-b border-brand-100"><h3 className="font-semibold text-brand-900">{group.label}</h3></div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-5">
                 <KpiCard icon={<ShoppingBag size={20} />} label="Recebido" bigValue={`R$ ${formatBRL(group.kpis.gerado.value)}`} smallValue={pluralize(group.kpis.gerado.shares, 'cota', 'cotas')} color="brand" />
                 <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${formatBRL(group.kpis.vendido.value)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
-                <KpiCard icon={<TrendingDown size={20} />} label="Encalhado" bigValue={`R$ ${formatBRL(group.kpis.encalhado.value)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="red" />
                 <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${formatBRL(group.kpis.emAberto.value)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
               </div>
             </Card>
@@ -216,7 +214,6 @@ export function OperatorManage() {
               { value: 'pending', label: 'Aguardando venda' },
               { value: 'partial', label: 'Parciais' },
               { value: 'sold', label: 'Vendidos' },
-              { value: 'encalhado', label: 'Encalhados' },
             ]} />
         </div>
       </div>
@@ -243,7 +240,7 @@ export function OperatorManage() {
                       <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="font-semibold text-brand-950">{b.product?.name ?? '—'}</h3>
                         <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
-                        {b.status === 'encalhado' && !b.encalhe_settled && <Badge color="amber">Pendente de baixa</Badge>}
+                        {b.status === 'sold' && <Badge color="amber">Totalmente vendido</Badge>}
                       </div>
                       <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-400 mt-1">
                         <span>Concurso: {b.contest_number}</span>

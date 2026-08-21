@@ -62,7 +62,7 @@ export function OperatorStock() {
   const availableAllocations = branchAllocations.filter((a) => {
     const b = a.bolao;
     if (!b) return false;
-    if (b.status === 'encalhado' || b.status === 'sold') return false;
+    if (b.status === 'sold') return false;
     const available = a.shares_allocated - a.shares_picked;
     return available > 0;
   });
