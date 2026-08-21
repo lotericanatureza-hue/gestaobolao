@@ -17,7 +17,7 @@ interface DayGroup { key: string; label: string; boloes: Bolao[]; kpis: BolaoKpi
 function groupByDay(boloes: Bolao[]): DayGroup[] {
   const map = new Map<string, DayGroup>();
   for (const b of boloes) {
-    const d = new Date(b.created_at + 'Z');
+    const d = new Date(b.created_at);
     const key = d.toISOString().split('T')[0];
     if (!map.has(key)) {
       const label = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
