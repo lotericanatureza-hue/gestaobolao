@@ -219,7 +219,7 @@ function BranchAllocationPanel({
   const unallocated = bolao.total_shares - allocatedSum;
   const unallocatedValue = perShare * unallocated;
   const statusInfo = STATUS_LABELS[bolao.status];
-  const locked = bolao.status === 'sold';
+  const locked = bolao.status === 'sold' || bolao.status === 'encalhado';
   const drawDateFormatted = bolao.draw_date.split('-').reverse().join('/');
 
   return (
@@ -259,7 +259,7 @@ function BranchAllocationPanel({
       {locked && (
         <div className="px-5 pt-4 -mb-2">
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-2.5">
-            Este bolão já está totalmente vendido — reveja com cuidado antes de mudar a distribuição.
+            Este bolão já está {bolao.status === 'sold' ? 'totalmente vendido' : 'encalhado'} — reveja com cuidado antes de mudar a distribuição.
           </p>
         </div>
       )}

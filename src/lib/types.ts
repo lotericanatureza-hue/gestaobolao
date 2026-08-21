@@ -43,7 +43,7 @@ export interface BranchProduct {
   product?: Product;
   branch?: Branch;
 }
-export type BolaoStatus = 'pending' | 'partial' | 'sold';
+export type BolaoStatus = 'pending' | 'partial' | 'sold' | 'encalhado';
 export interface Bolao {
   id: string;
   branch_id: string | null;
@@ -60,6 +60,7 @@ export interface Bolao {
   total_shares: number;
   sold_shares: number;
   status: BolaoStatus;
+  encalhe_settled: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;

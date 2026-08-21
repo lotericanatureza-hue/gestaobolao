@@ -333,6 +333,12 @@ export function AdminCreateBolao() {
                                     <span className="font-medium text-slate-900 text-sm">{b.product?.name ?? '—'}</span>
                                     <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
                                     <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+                                    {b.status === 'encalhado' && !b.encalhe_settled && (
+                                      <Badge color="amber">Pendente de baixa</Badge>
+                                    )}
+                                    {b.encalhe_settled && (
+                                      <Badge color="red">Baixado</Badge>
+                                    )}
                                   </div>
                                   <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
                                     <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
@@ -388,9 +394,9 @@ export function AdminCreateBolao() {
               </div>
             </div>
 
-            {editing.status === 'sold' && (
+            {(editing.status === 'sold' || editing.status === 'encalhado') && (
               <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 text-xs text-amber-700">
-                Este bolão já está totalmente vendido. Você ainda pode corrigir dados de cadastro, mas tenha cuidado ao mudar o total de cotas.
+                Este bolão já está {editing.status === 'sold' ? 'totalmente vendido' : 'encalhado'}. Você ainda pode corrigir dados de cadastro, mas tenha cuidado ao mudar o total de cotas.
               </div>
             )}
 
