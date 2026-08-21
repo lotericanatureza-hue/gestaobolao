@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Plus, Calendar, Clock, Pencil } from 'lucide-react';
+import { Ticket, Plus, Calendar, Clock, Pencil, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
@@ -9,6 +9,23 @@ import { formatBRL } from '../lib/format';
 import type { Product, Bolao } from '../lib/types';
 
 const DEFAULT_DRAW_TIME = '20:00';
+const DAY_PAGE_SIZE = 7;
+
+interface DayGroup { key: string; label: string; boloes: Bolao[]; }
+
+function groupByDay(boloes: Bolao[]): DayGroup[] {
+  const map = new Map<string, DayGroup>();
+  for (const b of boloes) {
+    const d = new Date(b.created_at + 'Z');
+    const key = d.toISOString().split('T')[0];
+    if (!map.has(key)) {
+      const label = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+      map.set(key, { key, label: label.charAt(0).toUpperCase() + label.slice(1), boloes: [] });
+    }
+    map.get(key)!.boloes.push(b);
+  }
+  return Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
+}
 
 export function AdminCreateBolao() {
   const [products, setProducts] = useState<Product[]>([]);
@@ -29,6 +46,8 @@ export function AdminCreateBolao() {
   const [notes, setNotes] = useState('');
 
   const [recentBoloes, setRecentBoloes] = useState<Bolao[]>([]);
+  const [dayPage, setDayPage] = useState(0);
+  const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
 
   const [editing, setEditing] = useState<Bolao | null>(null);
   const [editContestNumber, setEditContestNumber] = useState('');
@@ -62,8 +81,7 @@ export function AdminCreateBolao() {
     const { data } = await supabase
       .from('boloes')
       .select('*, product:products(*)')
-      .order('created_at', { ascending: false })
-      .limit(10);
+      .order('created_at', { ascending: false });
     setRecentBoloes((data ?? []) as Bolao[]);
   }, []);
 
@@ -270,53 +288,99 @@ export function AdminCreateBolao() {
 
       <div>
         <h2 className="text-lg font-semibold text-brand-950 mb-4 flex items-center gap-2">
-          <Calendar size={20} /> Bolões recentes
+          <Calendar size={20} /> Bolões Criados por Dia
         </h2>
         {recentBoloes.length === 0 ? (
           <Card>
-            <EmptyState icon={<Ticket size={48} />} title="Nenhum bolão criado ainda" description="Os bolões criados aparecerão aqui." />
+            <EmptyState icon={<Ticket size={48} />} title="Nenhum bolão criado ainda" description="Os bolões criados aparecerão aqui agrupados por dia." />
           </Card>
-        ) : (
-          <Card className="overflow-hidden">
-            <div className="divide-y divide-slate-50">
-              {recentBoloes.map((b) => {
-                const statusInfo = STATUS_LABELS[b.status];
-                return (
-                  <div key={b.id} className="px-5 py-3 flex items-center gap-3">
-                    <LotteryIcon slug={b.product?.slug ?? ''} size={32} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-slate-900 text-sm">{b.product?.name ?? '—'}</span>
-                        <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
-                        <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
-                        {b.status === 'encalhado' && !b.encalhe_settled && (
-                          <Badge color="amber">Pendente de baixa</Badge>
-                        )}
-                        {b.encalhe_settled && (
-                          <Badge color="red">Baixado</Badge>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
-                        <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
-                        <span>Cota: R$ {formatBRL(Number(b.price))} + R$ {formatBRL(Number(b.service_fee))} taxa</span>
-                        <span className="font-medium text-slate-600">Total: R$ {formatBRL((Number(b.price) + Number(b.service_fee)) * b.total_shares)}</span>
-                        <span>{b.sold_shares}/{b.total_shares} cotas vendidas</span>
-                        {/* CORREÇÃO AQUI: formatação manual da data sem new Date() */}
-                        <span className="flex items-center gap-1">
-                          <Clock size={11} />
-                          {b.draw_date.split('-').reverse().join('/')} às {b.draw_time?.slice(0, 5)}
-                        </span>
-                      </div>
+        ) : (() => {
+          const dayGroups = groupByDay(recentBoloes);
+          const totalDays = dayGroups.length;
+          const totalPages = Math.max(1, Math.ceil(totalDays / DAY_PAGE_SIZE));
+          const currentPage = Math.min(dayPage, totalPages - 1);
+          const startIdx = currentPage * DAY_PAGE_SIZE;
+          const pagedGroups = dayGroups.slice(startIdx, startIdx + DAY_PAGE_SIZE);
+          const todayStr = new Date().toISOString().split('T')[0];
+          return (
+            <Card className="overflow-hidden flex flex-col">
+              <div className="max-h-[28rem] overflow-y-auto divide-y divide-slate-100">
+                {pagedGroups.map((group) => {
+                  const isToday = group.key === todayStr;
+                  const isExpanded = isToday || expandedDayKey === group.key;
+                  const dayTotalValue = group.boloes.reduce((s, b) => s + (Number(b.price) + Number(b.service_fee)) * b.total_shares, 0);
+                  return (
+                    <div key={group.key} className={isToday ? 'bg-brand-50/40' : ''}>
+                      <button
+                        onClick={() => isToday ? null : setExpandedDayKey(isExpanded ? null : group.key)}
+                        className={`w-full px-5 py-3 flex items-center gap-2 text-left transition-colors ${isToday ? 'cursor-default' : 'hover:bg-slate-50'}`}
+                      >
+                        {!isToday && (isExpanded ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />)}
+                        <span className="text-xs font-mono text-slate-400 tabular-nums shrink-0">{group.key.split('-').reverse().join('/')}</span>
+                        <h3 className="font-semibold text-brand-900 flex-1 capitalize">{group.label}</h3>
+                        {isToday && <Badge color="brand">Hoje</Badge>}
+                        <span className="text-xs text-slate-500 shrink-0">{group.boloes.length} bolão(ões) · R$ {formatBRL(dayTotalValue)}</span>
+                      </button>
+                      {isExpanded && (
+                        <div className="px-5 pb-3 space-y-2">
+                          {group.boloes.map((b) => {
+                            const statusInfo = STATUS_LABELS[b.status];
+                            return (
+                              <div key={b.id} className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-4 py-2.5">
+                                <LotteryIcon slug={b.product?.slug ?? ''} size={28} />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-medium text-slate-900 text-sm">{b.product?.name ?? '—'}</span>
+                                    <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
+                                    <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
+                                    {b.status === 'encalhado' && !b.encalhe_settled && (
+                                      <Badge color="amber">Pendente de baixa</Badge>
+                                    )}
+                                    {b.encalhe_settled && (
+                                      <Badge color="red">Baixado</Badge>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-slate-400 mt-0.5">
+                                    <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
+                                    <span>Cota: R$ {formatBRL(Number(b.price))} + R$ {formatBRL(Number(b.service_fee))} taxa</span>
+                                    <span className="font-medium text-slate-600">Total: R$ {formatBRL((Number(b.price) + Number(b.service_fee)) * b.total_shares)}</span>
+                                    <span>{b.sold_shares}/{b.total_shares} cotas vendidas</span>
+                                    <span className="flex items-center gap-1">
+                                      <Clock size={11} />
+                                      {b.draw_date.split('-').reverse().join('/')} às {b.draw_time?.slice(0, 5)}
+                                    </span>
+                                  </div>
+                                </div>
+                                <Button size="sm" variant="secondary" onClick={() => openEdit(b)}>
+                                  <Pencil size={14} /> Editar
+                                </Button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
-                    <Button size="sm" variant="secondary" onClick={() => openEdit(b)}>
-                      <Pencil size={14} /> Editar
+                  );
+                })}
+              </div>
+              {totalPages > 1 && (
+                <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-sm">
+                  <span className="text-slate-500">
+                    Página {currentPage + 1} de {totalPages} · {totalDays} dia(s) no total
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="ghost" onClick={() => setDayPage((p) => Math.max(0, p - 1))} disabled={currentPage === 0}>
+                      <ChevronRight size={14} className="rotate-180" /> Anterior
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setDayPage((p) => Math.min(totalPages - 1, p + 1))} disabled={currentPage >= totalPages - 1}>
+                      Próxima <ChevronRight size={14} />
                     </Button>
                   </div>
-                );
-              })}
-            </div>
-          </Card>
-        )}
+                </div>
+              )}
+            </Card>
+          );
+        })()}
       </div>
 
       <Modal open={!!editing} onClose={() => setEditing(null)} title="Editar Bolão">
