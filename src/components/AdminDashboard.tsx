@@ -12,20 +12,25 @@ import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL as DEF
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
-interface MonthGroup { key: string; label: string; boloes: Bolao[]; kpis: BolaoKpis; }
+interface DayGroup { key: string; label: string; boloes: Bolao[]; kpis: BolaoKpis; }
 
-function groupByMonth(boloes: Bolao[]): MonthGroup[] {
-  const map = new Map<string, MonthGroup>();
+function groupByDay(boloes: Bolao[]): DayGroup[] {
+  const map = new Map<string, DayGroup>();
   for (const b of boloes) {
-    const d = new Date(b.created_at);
-    const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, '0')}`;
-    if (!map.has(key)) map.set(key, { key, label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`, boloes: [], kpis: computeBolaoKpis([]) });
+    const d = new Date(b.created_at + 'Z');
+    const key = d.toISOString().split('T')[0];
+    if (!map.has(key)) {
+      const label = d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+      map.set(key, { key, label: label.charAt(0).toUpperCase() + label.slice(1), boloes: [], kpis: computeBolaoKpis([]) });
+    }
     map.get(key)!.boloes.push(b);
   }
   const groups = Array.from(map.values()).sort((a, b) => b.key.localeCompare(a.key));
   for (const g of groups) g.kpis = computeBolaoKpis(g.boloes);
   return groups;
 }
+
+const DAY_PAGE_SIZE = 7;
 
 interface MonthProductSummary { productName: string; slug: string; count: number; totalShares: number; totalValue: number; soldShares: number; soldValue: number; }
 
@@ -67,8 +72,8 @@ export function AdminDashboard() {
   const [undoError, setUndoError] = useState<string | null>(null);
   const [settlingId, setSettlingId] = useState<string | null>(null);
   const [encalhesExpanded, setEncalhesExpanded] = useState(false);
-  const [expandedMonthKey, setExpandedMonthKey] = useState<string | null>(null);
-  const [detailMonthKey, setDetailMonthKey] = useState<string | null>(null);
+  const [dayPage, setDayPage] = useState(0);
+  const [expandedDayKey, setExpandedDayKey] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     const [{ data: boloes }, { data: branchList }, { data: opList }, { data: allocList }, { data: baList }, { data: goalsData }] = await Promise.all([
@@ -149,7 +154,10 @@ export function AdminDashboard() {
   }
 
   const kpis = computeBolaoKpis(allBoloes);
-  const monthGroups = groupByMonth(allBoloes);
+  const dayGroups = groupByDay(allBoloes);
+  const dayTotalPages = Math.max(1, Math.ceil(dayGroups.length / DAY_PAGE_SIZE));
+  const dayStartIdx = dayPage * DAY_PAGE_SIZE;
+  const pagedDayGroups = dayGroups.slice(dayStartIdx, dayStartIdx + DAY_PAGE_SIZE);
   const branchName = (id: string | null) => id ? (branches.find((br) => br.id === id)?.name ?? '—') : '—';
 
   const now = new Date();
@@ -489,95 +497,109 @@ export function AdminDashboard() {
       )}
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-        <Calendar size={16} /> Por Mês
+        <Calendar size={16} /> Bolões por Dia de Criação
       </h2>
-      {monthGroups.length === 0 ? (
-        <Card className="mb-8"><EmptyState icon={<ShoppingBag size={48} />} title="Nenhum bolão criado" description="Os bolões criados aparecerão aqui." /></Card>
+      {dayGroups.length === 0 ? (
+        <Card className="mb-8"><EmptyState icon={<ShoppingBag size={48} />} title="Nenhum bolão criado" description="Os bolões criados aparecerão aqui agrupados por dia." /></Card>
       ) : (
-        <div className="space-y-3 mb-8">
-          {monthGroups.map((group) => {
-            const isCurrentMonth = group.key === currentMonthKey;
-            const isExpanded = isCurrentMonth || expandedMonthKey === group.key;
-            const isDetailOpen = detailMonthKey === group.key;
-            const monthProducts = computeMonthProductSummary(group.boloes);
-            return (
-              <Card key={group.key} className={`overflow-hidden ${isCurrentMonth ? 'border-brand-300 ring-1 ring-brand-200' : ''}`}>
-                <button
-                  onClick={() => isCurrentMonth ? null : setExpandedMonthKey(isExpanded ? null : group.key)}
-                  className={`w-full px-5 py-3 border-b flex items-center gap-2 text-left transition-colors ${isCurrentMonth ? 'bg-brand-100 border-brand-200 cursor-default' : 'bg-slate-50 border-slate-100 hover:bg-slate-100'}`}
-                >
-                  {!isCurrentMonth && (isExpanded ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />)}
-                  <h3 className="font-semibold text-brand-900 flex-1">{group.label}</h3>
-                  {isCurrentMonth && <Badge color="brand">Mês atual</Badge>}
-                  <span className="text-xs text-slate-500">{group.boloes.length} bolão(ões) · R$ {formatBRL(group.kpis.gerado.value)}</span>
-                </button>
-                {isExpanded && (
-                  <>
-                    <div className="px-5 pt-4 pb-1 flex items-center justify-between text-sm">
-                      <span className="text-slate-500">Meta do mês</span>
-                      <span className="font-semibold text-brand-700">R$ {formatBRL(getMonthGoal(group.key))}</span>
-                    </div>
-                    <div className="px-5 pb-3">
-                      <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-accent-500" style={{ width: `${Math.min(100, (group.kpis.vendido.value / getMonthGoal(group.key)) * 100)}%` }} />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-5">
-                      <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${formatBRL(group.kpis.gerado.value)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
-                      <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${formatBRL(group.kpis.vendido.value)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
-                      <KpiCard icon={<TrendingDown size={20} />} label="Encalhe Pend." bigValue={`R$ ${formatBRL(group.kpis.encalhado.value)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="amber" />
-                      <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${formatBRL(group.kpis.emAberto.value)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
-                    </div>
+        <Card className="mb-8 overflow-hidden flex flex-col" >
+          <div className="max-h-[28rem] overflow-y-auto divide-y divide-slate-100">
+            {pagedDayGroups.map((group) => {
+              const isToday = group.key === todayStr;
+              const isExpanded = isToday || expandedDayKey === group.key;
+              const dayProducts = computeMonthProductSummary(group.boloes);
+              return (
+                <div key={group.key} className={isToday ? 'bg-brand-50/40' : ''}>
+                  <button
+                    onClick={() => isToday ? null : setExpandedDayKey(isExpanded ? null : group.key)}
+                    className={`w-full px-5 py-3 flex items-center gap-2 text-left transition-colors ${isToday ? 'cursor-default' : 'hover:bg-slate-50'}`}
+                  >
+                    {!isToday && (isExpanded ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />)}
+                    <span className="text-xs font-mono text-slate-400 tabular-nums shrink-0">{group.key.split('-').reverse().join('/')}</span>
+                    <h3 className="font-semibold text-brand-900 flex-1 capitalize">{group.label}</h3>
+                    {isToday && <Badge color="brand">Hoje</Badge>}
+                    <span className="text-xs text-slate-500 shrink-0">{group.boloes.length} bolão(ões) · R$ {formatBRL(group.kpis.gerado.value)}</span>
+                  </button>
+                  {isExpanded && (
                     <div className="px-5 pb-4">
-                      <button
-                        onClick={() => setDetailMonthKey(isDetailOpen ? null : group.key)}
-                        className="text-sm font-medium text-brand-600 hover:text-brand-700 flex items-center gap-1.5"
-                      >
-                        {isDetailOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                        {isDetailOpen ? 'Ocultar detalhes por produto' : 'Ver detalhes por produto'}
-                      </button>
-                    </div>
-                    {isDetailOpen && (
-                      <div className="px-5 pb-5">
-                        <div className="overflow-x-auto border border-slate-100 rounded-lg">
-                          <table className="w-full text-sm">
-                            <thead>
-                              <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
-                                <th className="px-4 py-2.5 font-medium">Produto</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Bolões</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Cotas totais</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Cotas vendidas</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Valor gerado</th>
-                                <th className="px-4 py-2.5 font-medium text-right">Valor vendido</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {monthProducts.map((mp) => (
-                                <tr key={mp.slug} className="border-b border-slate-50">
-                                  <td className="px-4 py-2.5">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                        <KpiCard icon={<ShoppingBag size={20} />} label="Gerado" bigValue={`R$ ${formatBRL(group.kpis.gerado.value)}`} smallValue={pluralize(group.kpis.gerado.count, 'bolão', 'bolões')} color="brand" />
+                        <KpiCard icon={<DollarSign size={20} />} label="Vendido" bigValue={`R$ ${formatBRL(group.kpis.vendido.value)}`} smallValue={pluralize(group.kpis.vendido.shares, 'cota', 'cotas')} color="emerald" />
+                        <KpiCard icon={<TrendingDown size={20} />} label="Encalhe Pend." bigValue={`R$ ${formatBRL(group.kpis.encalhado.value)}`} smallValue={pluralize(group.kpis.encalhado.shares, 'cota', 'cotas')} color="amber" />
+                        <KpiCard icon={<Clock size={20} />} label="Em Aberto" bigValue={`R$ ${formatBRL(group.kpis.emAberto.value)}`} smallValue={pluralize(group.kpis.emAberto.shares, 'cota', 'cotas')} color="accent" />
+                      </div>
+                      <div className="overflow-x-auto border border-slate-100 rounded-lg">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
+                              <th className="px-4 py-2 font-medium">Produto</th>
+                              <th className="px-4 py-2 font-medium text-right">Concurso</th>
+                              <th className="px-4 py-2 font-medium text-right">Cotas</th>
+                              <th className="px-4 py-2 font-medium text-right">Vendidas</th>
+                              <th className="px-4 py-2 font-medium text-right">Valor gerado</th>
+                              <th className="px-4 py-2 font-medium text-right">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {group.boloes.map((b) => {
+                              const perShare = Number(b.price) + Number(b.service_fee);
+                              const statusInfo = STATUS_LABELS[b.status];
+                              return (
+                                <tr key={b.id} className="border-b border-slate-50">
+                                  <td className="px-4 py-2">
                                     <div className="flex items-center gap-2">
-                                      <LotteryIcon slug={mp.slug} size={20} />
-                                      <span className="font-medium text-slate-900">{mp.productName}</span>
+                                      <LotteryIcon slug={b.product?.slug ?? ''} size={20} />
+                                      <span className="font-medium text-slate-900">{b.product?.name ?? '—'}</span>
                                     </div>
                                   </td>
-                                  <td className="px-4 py-2.5 text-right text-slate-600">{mp.count}</td>
-                                  <td className="px-4 py-2.5 text-right text-slate-600">{mp.totalShares}</td>
-                                  <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">{mp.soldShares}</td>
-                                  <td className="px-4 py-2.5 text-right font-semibold text-brand-700">R$ {formatBRL(mp.totalValue)}</td>
-                                  <td className="px-4 py-2.5 text-right font-semibold text-emerald-600">R$ {formatBRL(mp.soldValue)}</td>
+                                  <td className="px-4 py-2 text-right text-slate-600">{b.contest_number}</td>
+                                  <td className="px-4 py-2 text-right text-slate-600">{b.total_shares}</td>
+                                  <td className="px-4 py-2 text-right font-semibold text-emerald-600">{b.sold_shares}</td>
+                                  <td className="px-4 py-2 text-right font-semibold text-brand-700">R$ {formatBRL(perShare * b.total_shares)}</td>
+                                  <td className="px-4 py-2 text-right"><Badge color={statusInfo.color}>{statusInfo.label}</Badge></td>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                              );
+                            })}
+                          </tbody>
+                        </table>
                       </div>
-                    )}
-                  </>
-                )}
-              </Card>
-            );
-          })}
-        </div>
+                      {dayProducts.length > 1 && (
+                        <div className="mt-3">
+                          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Resumo por produto</p>
+                          <div className="flex flex-wrap gap-2">
+                            {dayProducts.map((dp) => (
+                              <span key={dp.slug} className="inline-flex items-center gap-1.5 text-xs bg-slate-100 rounded-full px-3 py-1">
+                                <LotteryIcon slug={dp.slug} size={14} />
+                                <span className="font-medium text-slate-700">{dp.productName}</span>
+                                <span className="text-slate-400">· {dp.count} bolão(ões)</span>
+                                <span className="text-brand-700 font-semibold">R$ {formatBRL(dp.totalValue)}</span>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {dayTotalPages > 1 && (
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-sm">
+              <span className="text-slate-500">
+                Página {dayPage + 1} de {dayTotalPages} · {dayGroups.length} dia(s) no total
+              </span>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setDayPage((p) => Math.max(0, p - 1))} disabled={dayPage === 0}>
+                  <ChevronRight size={14} className="rotate-180" /> Anterior
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setDayPage((p) => Math.min(dayTotalPages - 1, p + 1))} disabled={dayPage >= dayTotalPages - 1}>
+                  Próxima <ChevronRight size={14} />
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
       )}
 
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
