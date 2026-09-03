@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import { STATUS_LABELS } from '../lib/bolaoKpis';
+import { getStatusLabel } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
 import type { Product, Bolao } from '../lib/types';
 
@@ -324,7 +324,7 @@ export function AdminCreateBolao() {
                       {isExpanded && (
                         <div className="px-5 pb-3 space-y-2">
                           {group.boloes.map((b) => {
-                            const statusInfo = STATUS_LABELS[b.status];
+                            const statusInfo = getStatusLabel(b.status);
                             return (
                               <div key={b.id} className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-4 py-2.5">
                                 <LotteryIcon slug={b.product?.slug ?? ''} size={28} />

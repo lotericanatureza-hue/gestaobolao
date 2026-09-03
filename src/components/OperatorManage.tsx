@@ -5,7 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Input, Select, Spinner, EmptyState, Badge } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import { computeAllocationKpis, STATUS_LABELS, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
+import { computeAllocationKpis, getStatusLabel, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
 import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS } from '../lib/commission';
 import type { BolaoOperatorAllocation, BolaoStatus } from '../lib/types';
@@ -230,7 +230,7 @@ export function OperatorManage() {
             const b = a.bolao;
             if (!b) return null;
             const pct = a.shares_allocated > 0 ? Math.round((a.shares_sold / a.shares_allocated) * 100) : 0;
-            const statusInfo = STATUS_LABELS[b.status];
+            const statusInfo = getStatusLabel(b.status);
             return (
               <Card key={a.id} className="p-4 hover:shadow-md transition-shadow">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

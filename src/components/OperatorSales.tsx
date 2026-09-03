@@ -5,7 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import { computeAllocationKpis, STATUS_LABELS, pluralize } from '../lib/bolaoKpis';
+import { computeAllocationKpis, getStatusLabel, pluralize } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
 import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS } from '../lib/commission';
 import type { BolaoOperatorAllocation, Profile } from '../lib/types';
@@ -278,7 +278,7 @@ export function OperatorSales() {
                   {group.allocations.map((a) => {
                     const b = a.bolao;
                     if (!b) return null;
-                    const statusInfo = STATUS_LABELS[b.status];
+                    const statusInfo = getStatusLabel(b.status);
                     const pct = a.shares_allocated > 0 ? Math.round((a.shares_sold / a.shares_allocated) * 100) : 0;
                     const canSell = a.shares_sold < a.shares_allocated;
                     const canTransfer = a.shares_allocated - a.shares_sold > 0;

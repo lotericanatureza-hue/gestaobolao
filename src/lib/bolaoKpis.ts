@@ -95,6 +95,10 @@ export const STATUS_LABELS: Record<Bolao['status'], { label: string; color: 'gre
   pending: { label: 'Aguardando venda', color: 'slate' },
 };
 
+export function getStatusLabel(status: string | null | undefined): { label: string; color: 'green' | 'amber' | 'slate' } {
+  return STATUS_LABELS[status as Bolao['status']] ?? { label: 'Aguardando venda', color: 'slate' };
+}
+
 export function pluralize(count: number, singular: string, plural: string): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }

@@ -6,7 +6,7 @@ import { PageHeader } from './Layout';
 import { Card, Spinner, EmptyState, Badge, Button } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Bolao, Branch, Profile, BolaoOperatorAllocation, BolaoBranchAllocation, MonthlyGoal } from '../lib/types';
-import { computeBolaoKpis, computeAllocationKpis, pluralize, STATUS_LABELS, type BolaoKpis } from '../lib/bolaoKpis';
+import { computeBolaoKpis, computeAllocationKpis, pluralize, getStatusLabel, type BolaoKpis } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
 import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL as DEFAULT_GOAL } from '../lib/commission';
 
@@ -484,7 +484,7 @@ export function AdminDashboard() {
                           <tbody>
                             {group.boloes.map((b) => {
                               const perShare = Number(b.price) + Number(b.service_fee);
-                              const statusInfo = STATUS_LABELS[b.status];
+                              const statusInfo = getStatusLabel(b.status);
                               return (
                                 <tr key={b.id} className="border-b border-slate-50">
                                   <td className="px-4 py-2">
@@ -594,7 +594,7 @@ export function AdminDashboard() {
                                   if (!b) return null;
                                   const perShare = Number(b.price) + Number(b.service_fee);
                                   const pending = a.shares_allocated - a.shares_sold;
-                                  const statusInfo = STATUS_LABELS[b.status];
+                                  const statusInfo = getStatusLabel(b.status);
                                   return (
                                     <div key={a.id} className="flex flex-wrap items-center gap-3 bg-white border border-slate-200 rounded-lg px-4 py-2.5">
                                       <LotteryIcon slug={b.product?.slug ?? ''} size={24} />

@@ -5,7 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import { STATUS_LABELS } from '../lib/bolaoKpis';
+import { getStatusLabel } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
 import type { BolaoBranchAllocation } from '../lib/types';
 
@@ -198,7 +198,7 @@ export function OperatorStock() {
             if (!b) return null;
             const perShare = Number(b.price) + Number(b.service_fee);
             const available = a.shares_allocated - a.shares_picked;
-            const statusInfo = STATUS_LABELS[b.status];
+            const statusInfo = getStatusLabel(b.status);
             const selectedShares = selections.get(b.id) ?? 0;
             const isExpanded = expandedId === b.id;
             const drawDateFormatted = b.draw_date.split('-').reverse().join('/');

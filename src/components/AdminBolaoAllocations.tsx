@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Input, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
-import { STATUS_LABELS } from '../lib/bolaoKpis';
+import { getStatusLabel } from '../lib/bolaoKpis';
 import { formatBRL } from '../lib/format';
 import type { Branch, Bolao, BolaoBranchAllocation, Profile, BolaoOperatorAllocation } from '../lib/types';
 
@@ -109,7 +109,7 @@ export function AdminBolaoAllocations() {
                 const totalValue = perShare * bolao.total_shares;
                 const allocated = allocatedSum(bolao.id);
                 const pct = bolao.total_shares > 0 ? Math.round((allocated / bolao.total_shares) * 100) : 0;
-                const statusInfo = STATUS_LABELS[bolao.status];
+                const statusInfo = getStatusLabel(bolao.status);
                 const isSelected = bolao.id === selectedBolaoId;
                 const drawDateFormatted = bolao.draw_date.split('-').reverse().join('/');
                 return (
@@ -218,7 +218,7 @@ function BranchAllocationPanel({
   const allocatedValue = perShare * allocatedSum;
   const unallocated = bolao.total_shares - allocatedSum;
   const unallocatedValue = perShare * unallocated;
-  const statusInfo = STATUS_LABELS[bolao.status];
+  const statusInfo = getStatusLabel(bolao.status);
   const locked = bolao.status === 'sold';
   const drawDateFormatted = bolao.draw_date.split('-').reverse().join('/');
 
