@@ -4,11 +4,9 @@
 //
 // Regra de negócio:
 // - `price` e `service_fee` são valores POR COTA.
-// - "Gerado"       = (price + service_fee) * total_shares.
-// - "Vendido"      = (price + service_fee) * sold_shares — valor arrecadado.
-// - "Encalhado"    = cotas não vendidas cujo sorteio já passou (status encalhado, sem baixa).
-// - "Encalhe Baixado" = cotas encalhadas já contabilizadas (status encalhado + encalhe_settled).
-// - "Em Aberto"    = cotas que faltam vender e o sorteio ainda não passou.
+// - "Gerado"    = (price + service_fee) * total_shares.
+// - "Vendido"   = (price + service_fee) * sold_shares — valor arrecadado.
+// - "Em Aberto" = cotas que faltam vender.
 //
 // A comissão do operador é por tier (ver commission.ts):
 // 10% até R$10k, 20% de R$10k-R$20k, 30% acima de R$20k — sobre a TAXA DE SERVIÇO.
@@ -19,16 +17,14 @@ export interface BucketKpis {
   count: number;
   shares: number;
   value: number;
-  commission: number;          // total service_fee do bucket
-  lotericaCommission: number;  // 70% (legacy — será recalculado por tier no frontend)
-  operatorCommission: number;  // 30% (legacy — será recalculado por tier no frontend)
+  commission: number;
+  lotericaCommission: number;
+  operatorCommission: number;
 }
 
 export interface BolaoKpis {
   gerado: BucketKpis;
   vendido: BucketKpis;
-  encalhado: BucketKpis;
-  encalheBaixado: BucketKpis;
   emAberto: BucketKpis;
 }
 
@@ -55,8 +51,6 @@ function finalizeBucket(bucket: BucketKpis): BucketKpis {
 export function computeBolaoKpis(boloes: Bolao[]): BolaoKpis {
   const gerado = emptyBucket();
   const vendido = emptyBucket();
-  const encalhado = emptyBucket();
-  const encalheBaixado = emptyBucket();
   const emAberto = emptyBucket();
 
   for (const b of boloes) {
@@ -79,22 +73,7 @@ export function computeBolaoKpis(boloes: Bolao[]): BolaoKpis {
       if (b.status === 'sold') vendido.count += 1;
     }
 
-    if (b.status === 'encalhado') {
-      const unsoldShares = b.total_shares - b.sold_shares;
-      const unsoldValue = totalValue - soldValue;
-      const unsoldCommission = totalCommission - soldCommissionValue;
-      if (b.encalhe_settled) {
-        encalheBaixado.count += 1;
-        encalheBaixado.shares += unsoldShares;
-        encalheBaixado.value += unsoldValue;
-        encalheBaixado.commission += unsoldCommission;
-      } else {
-        encalhado.count += 1;
-        encalhado.shares += unsoldShares;
-        encalhado.value += unsoldValue;
-        encalhado.commission += unsoldCommission;
-      }
-    } else if (b.status === 'pending' || b.status === 'partial') {
+    if (b.status !== 'sold') {
       const remainingShares = b.total_shares - b.sold_shares;
       emAberto.count += 1;
       emAberto.shares += remainingShares;
@@ -106,17 +85,14 @@ export function computeBolaoKpis(boloes: Bolao[]): BolaoKpis {
   return {
     gerado: finalizeBucket(gerado),
     vendido: finalizeBucket(vendido),
-    encalhado: finalizeBucket(encalhado),
-    encalheBaixado: finalizeBucket(encalheBaixado),
     emAberto: finalizeBucket(emAberto),
   };
 }
 
-export const STATUS_LABELS: Record<Bolao['status'], { label: string; color: 'green' | 'amber' | 'red' | 'slate' }> = {
+export const STATUS_LABELS: Record<Bolao['status'], { label: string; color: 'green' | 'amber' | 'slate' }> = {
   sold: { label: 'Vendido', color: 'green' },
   partial: { label: 'Parcial', color: 'amber' },
   pending: { label: 'Aguardando venda', color: 'slate' },
-  encalhado: { label: 'Encalhado', color: 'red' },
 };
 
 export function pluralize(count: number, singular: string, plural: string): string {
@@ -126,8 +102,6 @@ export function pluralize(count: number, singular: string, plural: string): stri
 export function computeAllocationKpis(allocations: BolaoOperatorAllocation[]): BolaoKpis {
   const gerado = emptyBucket();
   const vendido = emptyBucket();
-  const encalhado = emptyBucket();
-  const encalheBaixado = emptyBucket();
   const emAberto = emptyBucket();
 
   for (const a of allocations) {
@@ -153,22 +127,7 @@ export function computeAllocationKpis(allocations: BolaoOperatorAllocation[]): B
       if (a.shares_sold === a.shares_allocated) vendido.count += 1;
     }
 
-    if (b.status === 'encalhado') {
-      const unsoldShares = a.shares_allocated - a.shares_sold;
-      const unsoldValue = totalValue - soldValue;
-      const unsoldCommission = totalCommission - soldCommissionValue;
-      if (b.encalhe_settled) {
-        encalheBaixado.count += 1;
-        encalheBaixado.shares += unsoldShares;
-        encalheBaixado.value += unsoldValue;
-        encalheBaixado.commission += unsoldCommission;
-      } else {
-        encalhado.count += 1;
-        encalhado.shares += unsoldShares;
-        encalhado.value += unsoldValue;
-        encalhado.commission += unsoldCommission;
-      }
-    } else if (b.status === 'pending' || b.status === 'partial') {
+    if (a.shares_sold < a.shares_allocated) {
       const remainingShares = a.shares_allocated - a.shares_sold;
       emAberto.count += 1;
       emAberto.shares += remainingShares;
@@ -180,8 +139,6 @@ export function computeAllocationKpis(allocations: BolaoOperatorAllocation[]): B
   return {
     gerado: finalizeBucket(gerado),
     vendido: finalizeBucket(vendido),
-    encalhado: finalizeBucket(encalhado),
-    encalheBaixado: finalizeBucket(encalheBaixado),
     emAberto: finalizeBucket(emAberto),
   };
 }
