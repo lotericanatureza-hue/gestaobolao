@@ -11,7 +11,6 @@ const emptyForm = {
   control_date: new Date().toISOString().split('T')[0],
   worked_amount: '',
   safe_amount: '',
-  balance_difference: '',
   notes: '',
 };
 
@@ -66,7 +65,6 @@ export function FinancialDailyControl() {
       control_date: r.control_date,
       worked_amount: String(r.worked_amount),
       safe_amount: String(r.safe_amount),
-      balance_difference: String(r.balance_difference),
       notes: r.notes ?? '',
     });
     setError(null);
@@ -76,7 +74,7 @@ export function FinancialDailyControl() {
   const save = async () => {
     const worked = parseFloat(form.worked_amount.replace(',', '.')) || 0;
     const safe = parseFloat(form.safe_amount.replace(',', '.')) || 0;
-    const diff = parseFloat(form.balance_difference.replace(',', '.')) || 0;
+    const diff = worked - safe;
     setSaving(true);
     setError(null);
     const payload = {
@@ -215,7 +213,12 @@ export function FinancialDailyControl() {
           <Input label="Data" type="date" value={form.control_date} onChange={(v) => setForm({ ...form, control_date: v })} required />
           <Input label="Trabalhado no Dia (R$)" type="text" value={form.worked_amount} onChange={(v) => setForm({ ...form, worked_amount: v })} placeholder="0,00" />
           <Input label="Valor no Cofre" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
-          <Input label="Diferença de Saldo" type="text" value={form.balance_difference} onChange={(v) => setForm({ ...form, balance_difference: v })} placeholder="0,00" />
+          <div className="bg-slate-50 rounded-lg p-4 flex items-center justify-between">
+            <span className="text-sm font-medium text-slate-600">Diferença de Saldo (automático)</span>
+            <span className={`text-lg font-bold ${(parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              R$ {formatBRL((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0))}
+            </span>
+          </div>
           <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
