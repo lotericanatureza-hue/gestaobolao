@@ -632,6 +632,3 @@ export function FinancialCashClosing() {
     </div>
   );
 }
-
-
-export { FinancialCashClosing }
