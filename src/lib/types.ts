@@ -197,6 +197,8 @@ export interface FinCashClosing {
   shortage: number;
   safe_amount: number;
   cash_drawer: number;
+  deposit_amount: number;
+  sangria_amount: number;
   pdf_path: string | null;
   notes: string | null;
   status: 'open' | 'closed';

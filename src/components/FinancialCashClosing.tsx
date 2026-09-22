@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar, TrendingUp, TrendingDown, Banknote } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -84,6 +84,8 @@ const emptyForm = {
   total_income: 0,
   safe_amount: 0,
   cash_drawer: 0,
+  deposit_amount: '',
+  sangria_amount: '',
   surplus: '',
   shortage: '',
   notes: '',
@@ -162,6 +164,8 @@ export function FinancialCashClosing() {
       total_income: Number(c.total_income),
       safe_amount: Number(c.safe_amount),
       cash_drawer: Number(c.cash_drawer),
+      deposit_amount: String(c.deposit_amount ?? 0),
+      sangria_amount: String(c.sangria_amount ?? 0),
       surplus: String(c.surplus),
       shortage: String(c.shortage),
       notes: c.notes ?? '',
@@ -233,6 +237,8 @@ export function FinancialCashClosing() {
       shortage: parseFloat(form.shortage.replace(',', '.')) || 0,
       safe_amount: form.safe_amount,
       cash_drawer: form.cash_drawer,
+      deposit_amount: parseFloat(form.deposit_amount.replace(',', '.')) || 0,
+      sangria_amount: parseFloat(form.sangria_amount.replace(',', '.')) || 0,
       pdf_path: pdfPath,
       notes: form.notes.trim() || null,
       status: form.status,
@@ -457,6 +463,8 @@ export function FinancialCashClosing() {
                                 <div><span className="text-slate-500">Falta:</span> <span className="font-medium text-red-600">R$ {formatBRL(Number(c.shortage))}</span></div>
                                 <div><span className="text-slate-500">Cofre:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount))}</span></div>
                                 <div><span className="text-slate-500">Caixa:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
+                                <div><span className="text-slate-500">Depósitos:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
+                                <div><span className="text-slate-500">Sangria:</span> <span className="font-medium">R$ {formatBRL(Number(c.sangria_amount ?? 0))}</span></div>
                                 {c.notes && <div className="col-span-2"><span className="text-slate-500">Obs.:</span> <span className="text-slate-600">{c.notes}</span></div>}
                               </div>
                             </details>
@@ -515,15 +523,59 @@ export function FinancialCashClosing() {
             </label>
           </div>
 
-          {/* Extracted data (read-only) */}
+          {/* Extracted data — detailed */}
           {extracted && (
-            <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Dados extraídos do PDF</p>
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="flex justify-between"><span className="text-slate-600">Vendas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_sales)}</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">Entradas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_income)}</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">Cofre</span><span className="font-medium text-slate-900">R$ {formatBRL(form.safe_amount)}</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">Caixa</span><span className="font-medium text-slate-900">R$ {formatBRL(form.cash_drawer)}</span></div>
+            <div className="space-y-3">
+              {/* KPI cards */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
+                  <div className="flex items-center gap-1.5 mb-1 text-emerald-700">
+                    <TrendingUp size={14} />
+                    <span className="text-[10px] font-bold uppercase">Total Vendas</span>
+                  </div>
+                  <p className="text-lg font-black tabular-nums text-emerald-700">R$ {formatBRL(form.total_sales)}</p>
+                </div>
+                <div className="p-4 rounded-xl border border-red-200 bg-red-50">
+                  <div className="flex items-center gap-1.5 mb-1 text-red-700">
+                    <TrendingDown size={14} />
+                    <span className="text-[10px] font-bold uppercase">Total Entradas</span>
+                  </div>
+                  <p className="text-lg font-black tabular-nums text-red-700">R$ {formatBRL(form.total_income)}</p>
+                </div>
+                <div className="p-4 rounded-xl border border-brand-200 bg-brand-50">
+                  <div className="flex items-center gap-1.5 mb-1 text-brand-700">
+                    <Banknote size={14} />
+                    <span className="text-[10px] font-bold uppercase">Saldo Final</span>
+                  </div>
+                  <p className="text-lg font-black tabular-nums text-brand-700">R$ {formatBRL(form.total_sales - form.total_income)}</p>
+                </div>
+              </div>
+
+              {/* Detailed breakdown */}
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Detalhes extraídos do PDF</p>
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Vendas</span>
+                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_sales)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Entradas / Receitas</span>
+                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_income)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Cofre</span>
+                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.safe_amount)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Caixa (Gaveta)</span>
+                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.cash_drawer)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 font-bold border-t-2 border-slate-300 pt-2">
+                    <span className="text-slate-700">Saldo (Vendas - Entradas)</span>
+                    <span className={`tabular-nums ${form.total_sales - form.total_income >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>R$ {formatBRL(form.total_sales - form.total_income)}</span>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -562,6 +614,11 @@ export function FinancialCashClosing() {
             <Input label="Faltas" type="text" value={form.shortage} onChange={(v) => setForm({ ...form, shortage: v })} placeholder="0,00" />
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Depósitos" type="text" value={form.deposit_amount} onChange={(v) => setForm({ ...form, deposit_amount: v })} placeholder="0,00" />
+            <Input label="Sangria" type="text" value={form.sangria_amount} onChange={(v) => setForm({ ...form, sangria_amount: v })} placeholder="0,00" />
+          </div>
+
           <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />
           <Select label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as 'open' | 'closed' })} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
 
@@ -575,3 +632,6 @@ export function FinancialCashClosing() {
     </div>
   );
 }
+
+
+export { FinancialCashClosing }
