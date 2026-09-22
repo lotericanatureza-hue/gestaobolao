@@ -37,8 +37,8 @@ function extractDate(text: string): string {
 async function extractPdfData(file: File): Promise<ExtractedData> {
   const arrayBuffer = await file.arrayBuffer();
   const pdfjs = await import('pdfjs-dist');
-  const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.mjs');
-  pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker.default;
+  const workerUrl = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).href;
+  pdfjs.GlobalWorkerOptions.workerSrc = workerUrl;
 
   const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
   let fullText = '';
