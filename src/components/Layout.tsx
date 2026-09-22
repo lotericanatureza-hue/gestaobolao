@@ -1,20 +1,23 @@
 import { ReactNode, useState, useEffect } from 'react';
-import { LogOut, Menu, X, Store } from 'lucide-react';
+import { LogOut, Menu, X, Store, ArrowLeftRight } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Badge } from './ui';
 
 export type AdminView = 'dashboard' | 'branches' | 'products' | 'allocations' | 'create-bolao' | 'bolao-allocations' | 'users';
 export type OperatorView = 'stock' | 'sales' | 'manage';
+export type FinancialView = 'fin-dashboard' | 'fin-bills' | 'fin-categories' | 'fin-daily' | 'fin-closing' | 'fin-employees';
 
 interface LayoutProps {
   children: ReactNode;
   activeView: string;
   onNavigate: (view: string) => void;
   navItems: { id: string; label: string; icon: ReactNode }[];
+  area?: 'bolao' | 'financial';
+  onSwitchArea?: () => void;
 }
 
-export function Layout({ children, activeView, onNavigate, navItems }: LayoutProps) {
+export function Layout({ children, activeView, onNavigate, navItems, area = 'bolao', onSwitchArea }: LayoutProps) {
   const { profile, signOut } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [branchName, setBranchName] = useState<string | null>(null);
@@ -59,6 +62,17 @@ export function Layout({ children, activeView, onNavigate, navItems }: LayoutPro
             </button>
           ))}
         </nav>
+
+        {onSwitchArea && (
+          <div className="px-3 pb-2">
+            <button
+              onClick={onSwitchArea}
+              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium bg-brand-900 text-accent-400 hover:bg-brand-800 transition-all"
+            >
+              <ArrowLeftRight size={18} /> {area === 'bolao' ? 'Ir para Financeiro' : 'Ir para Bolão'}
+            </button>
+          </div>
+        )}
 
         <div className="px-3 py-4 border-t border-brand-900">
           <div className="flex items-center gap-3 px-3 py-2 mb-2">

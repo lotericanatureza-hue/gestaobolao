@@ -111,3 +111,107 @@ export interface MonthlyGoal {
   updated_by: string | null;
   updated_at: string;
 }
+
+// ===== Financial Module Types =====
+
+export interface FinCategory {
+  id: string;
+  branch_id: string;
+  name: string;
+  type: 'expense' | 'income';
+  active: boolean;
+  created_at: string;
+}
+
+export interface FinSubcategory {
+  id: string;
+  category_id: string;
+  branch_id: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface FinPaymentSource {
+  id: string;
+  branch_id: string;
+  name: string;
+  active: boolean;
+  created_at: string;
+}
+
+export interface FinBill {
+  id: string;
+  branch_id: string;
+  description: string;
+  type: 'expense' | 'income';
+  category_id: string | null;
+  subcategory_id: string | null;
+  amount: number;
+  origin: string | null;
+  payment_source_id: string | null;
+  due_date: string | null;
+  payment_date: string | null;
+  status: 'pending' | 'paid';
+  month_ref: number;
+  year_ref: number;
+  recurring: boolean;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  category?: FinCategory;
+  subcategory?: FinSubcategory;
+  payment_source?: FinPaymentSource;
+  branch?: Branch;
+}
+
+export interface FinDailyControl {
+  id: string;
+  branch_id: string;
+  control_date: string;
+  worked: boolean;
+  safe_amount: number;
+  balance_difference: number;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+export interface PixExternal {
+  id: string;
+  description: string;
+  amount: number;
+}
+
+export interface FinCashClosing {
+  id: string;
+  branch_id: string;
+  closing_date: string;
+  total_sales: number;
+  total_income: number;
+  pix_externals: PixExternal[];
+  total_pix_externals: number;
+  surplus: number;
+  shortage: number;
+  safe_amount: number;
+  cash_drawer: number;
+  pdf_path: string | null;
+  notes: string | null;
+  status: 'open' | 'closed';
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  branch?: Branch;
+}
+
+export interface FinEmployee {
+  id: string;
+  branch_id: string;
+  name: string;
+  tfl: string;
+  position: string | null;
+  active: boolean;
+  created_at: string;
+  branch?: Branch;
+}

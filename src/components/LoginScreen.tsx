@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LogIn, UserPlus, AlertCircle } from 'lucide-react';
+import { LogIn, UserPlus, AlertCircle, Ticket, Wallet } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { Button, Input } from './ui';
 
@@ -47,7 +47,29 @@ export function LoginScreen() {
             />
           </div>
           <h1 className="text-2xl font-bold text-white">Mega Bolão Brasil</h1>
-          <p className="text-slate-400 text-sm mt-1">Sistema de Gestão de Bolões de Loterias</p>
+          <p className="text-slate-400 text-sm mt-1">Sistema de Gestão</p>
+        </div>
+
+        {/* Area selector */}
+        <div className="grid grid-cols-2 gap-3 mb-4">
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-accent-500/20 flex items-center justify-center text-accent-400">
+              <Ticket size={22} />
+            </div>
+            <div>
+              <p className="text-white text-sm font-semibold">Bolão</p>
+              <p className="text-slate-400 text-xs">Gestão de Bolões</p>
+            </div>
+          </div>
+          <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <Wallet size={22} />
+            </div>
+            <div>
+              <p className="text-white text-sm font-semibold">Financeiro</p>
+              <p className="text-slate-400 text-xs">Controle Financeiro</p>
+            </div>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl p-8">

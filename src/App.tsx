@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse } from 'lucide-react';
+import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse, Wallet, Receipt, Tag, CalendarCheck, BookX, UserCog } from 'lucide-react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
-import { Layout, AdminView, OperatorView } from './components/Layout';
+import { Layout, AdminView, OperatorView, FinancialView } from './components/Layout';
 import { LoadingScreen } from './components/ui';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AdminBranches } from './components/AdminBranches';
@@ -14,14 +14,52 @@ import { AdminBolaoAllocations } from './components/AdminBolaoAllocations';
 import { OperatorStock } from './components/OperatorStock';
 import { OperatorSales } from './components/OperatorSales';
 import { OperatorManage } from './components/OperatorManage';
+import { FinancialDashboard } from './components/FinancialDashboard';
+import { FinancialBills } from './components/FinancialBills';
+import { FinancialCategories } from './components/FinancialCategories';
+import { FinancialDailyControl } from './components/FinancialDailyControl';
+import { FinancialCashClosing } from './components/FinancialCashClosing';
+import { FinancialEmployees } from './components/FinancialEmployees';
+
 function AppContent() {
   const { profile, loading } = useAuth();
+  const [area, setArea] = useState<'bolao' | 'financial'>('bolao');
   const [adminView, setAdminView] = useState<AdminView>('dashboard');
   const [operatorView, setOperatorView] = useState<OperatorView>('sales');
+  const [finView, setFinView] = useState<FinancialView>('fin-dashboard');
+
   if (loading) return <LoadingScreen />;
   if (!profile) return <LoginScreen />;
+
   const isAdmin = profile.role === 'admin';
   const isSupervisor = profile.role === 'supervisor';
+
+  const switchArea = () => {
+    setArea((prev) => prev === 'bolao' ? 'financial' : 'bolao');
+  };
+
+  // Financial area - admin only
+  if (area === 'financial' && isAdmin) {
+    const finNav: { id: string; label: string; icon: React.ReactNode }[] = [
+      { id: 'fin-dashboard', label: 'Dashboard', icon: <Wallet size={18} /> },
+      { id: 'fin-bills', label: 'Contas a Pagar', icon: <Receipt size={18} /> },
+      { id: 'fin-categories', label: 'Categorias', icon: <Tag size={18} /> },
+      { id: 'fin-daily', label: 'Controle Diário', icon: <CalendarCheck size={18} /> },
+      { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
+      { id: 'fin-employees', label: 'Funcionários', icon: <UserCog size={18} /> },
+    ];
+    return (
+      <Layout activeView={finView} onNavigate={(v) => setFinView(v as FinancialView)} navItems={finNav} area="financial" onSwitchArea={switchArea}>
+        {finView === 'fin-dashboard' && <FinancialDashboard />}
+        {finView === 'fin-bills' && <FinancialBills />}
+        {finView === 'fin-categories' && <FinancialCategories />}
+        {finView === 'fin-daily' && <FinancialDailyControl />}
+        {finView === 'fin-closing' && <FinancialCashClosing />}
+        {finView === 'fin-employees' && <FinancialEmployees />}
+      </Layout>
+    );
+  }
+
   if (isAdmin || isSupervisor) {
     const adminNav: { id: string; label: string; icon: React.ReactNode }[] = [
       { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={18} /> },
@@ -33,7 +71,7 @@ function AppContent() {
       ...(isAdmin ? [{ id: 'users', label: 'Usuários', icon: <Users size={18} /> }] : []),
     ];
     return (
-      <Layout activeView={adminView} onNavigate={(v) => setAdminView(v as AdminView)} navItems={adminNav}>
+      <Layout activeView={adminView} onNavigate={(v) => setAdminView(v as AdminView)} navItems={adminNav} area="bolao" onSwitchArea={isAdmin ? switchArea : undefined}>
         {adminView === 'dashboard' && <AdminDashboard />}
         {adminView === 'branches' && isAdmin && <AdminBranches />}
         {adminView === 'products' && <AdminProducts />}
@@ -44,6 +82,7 @@ function AppContent() {
       </Layout>
     );
   }
+
   // operator
   const operatorNav = [
     { id: 'stock', label: 'Estoque da Filial', icon: <Warehouse size={18} /> },
@@ -58,6 +97,7 @@ function AppContent() {
     </Layout>
   );
 }
+
 function App() {
   return (
     <AuthProvider>
@@ -65,4 +105,5 @@ function App() {
     </AuthProvider>
   );
 }
+
 export default App;
