@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { BookX, Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock } from 'lucide-react';
+import { BookX, Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -7,12 +7,95 @@ import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from '
 import { formatBRL } from '../lib/format';
 import type { FinCashClosing, PixExternal, Branch } from '../lib/types';
 
+interface ExtractedData {
+  closing_date: string;
+  total_sales: number;
+  total_income: number;
+  safe_amount: number;
+  cash_drawer: number;
+  rawText: string;
+}
+
+function parseBRLValue(text: string, patterns: string[]): number {
+  for (const pattern of patterns) {
+    const regex = new RegExp(pattern, 'i');
+    const match = text.match(regex);
+    if (match && match[1]) {
+      const cleaned = match[1].replace(/\./g, '').replace(',', '.').replace(/[^\d.-]/g, '');
+      const val = parseFloat(cleaned);
+      if (!isNaN(val)) return val;
+    }
+  }
+  return 0;
+}
+
+function extractDate(text: string): string {
+  const dateMatch = text.match(/(\d{2})[\/](\d{2})[\/](\d{4})/);
+  if (dateMatch) {
+    return `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
+  }
+  return new Date().toISOString().split('T')[0];
+}
+
+async function extractPdfData(file: File): Promise<ExtractedData> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdfjs = await import('pdfjs-dist');
+  const pdfjsWorker = await import('pdfjs-dist/build/pdf.worker.mjs');
+  pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker.default;
+
+  const pdf = await pdfjs.getDocument({ data: arrayBuffer }).promise;
+  let fullText = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    const pageText = content.items.map((item: unknown) => {
+      const obj = item as { str?: string };
+      return obj.str ?? '';
+    }).join(' ');
+    fullText += pageText + '\n';
+  }
+
+  const totalSales = parseBRLValue(fullText, [
+    'total\\s*(?:de\\s*)?vendas?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'vendas?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'total\\s*vendido[:\\s]*R?\\$?\\s*([\\d.,]+)',
+  ]);
+
+  const totalIncome = parseBRLValue(fullText, [
+    'total\\s*(?:de\\s*)?entrada[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'entrada[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'total\\s*(?:de\\s*)?receita[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+  ]);
+
+  const safeAmount = parseBRLValue(fullText, [
+    'cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'valor\\s*(?:do\\s*)?cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'saldo\\s*(?:do\\s*)?cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
+  ]);
+
+  const cashDrawer = parseBRLValue(fullText, [
+    'caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'valor\\s*(?:em\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'fundo\\s*(?:de\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    'dinheiro\\s*(?:em\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+  ]);
+
+  return {
+    closing_date: extractDate(fullText),
+    total_sales: totalSales,
+    total_income: totalIncome,
+    safe_amount: safeAmount,
+    cash_drawer: cashDrawer,
+    rawText: fullText,
+  };
+}
+
 const emptyForm = {
   closing_date: new Date().toISOString().split('T')[0],
-  total_sales: '',
-  total_income: '',
-  safe_amount: '',
-  cash_drawer: '',
+  total_sales: 0,
+  total_income: 0,
+  safe_amount: 0,
+  cash_drawer: 0,
   surplus: '',
   shortage: '',
   notes: '',
@@ -32,9 +115,10 @@ export function FinancialCashClosing() {
   const [pixExternals, setPixExternals] = useState<PixExternal[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [existingPdf, setExistingPdf] = useState<string | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [extracted, setExtracted] = useState(false);
   const [fMonth, setFMonth] = useState('');
 
   useEffect(() => {
@@ -67,6 +151,7 @@ export function FinancialCashClosing() {
     setPixExternals([]);
     setPdfFile(null);
     setExistingPdf(null);
+    setExtracted(false);
     setError(null);
     setModalOpen(true);
   };
@@ -75,10 +160,10 @@ export function FinancialCashClosing() {
     setEditing(c);
     setForm({
       closing_date: c.closing_date,
-      total_sales: String(c.total_sales),
-      total_income: String(c.total_income),
-      safe_amount: String(c.safe_amount),
-      cash_drawer: String(c.cash_drawer),
+      total_sales: Number(c.total_sales),
+      total_income: Number(c.total_income),
+      safe_amount: Number(c.safe_amount),
+      cash_drawer: Number(c.cash_drawer),
       surplus: String(c.surplus),
       shortage: String(c.shortage),
       notes: c.notes ?? '',
@@ -87,8 +172,32 @@ export function FinancialCashClosing() {
     setPixExternals(c.pix_externals ?? []);
     setPdfFile(null);
     setExistingPdf(c.pdf_path);
+    setExtracted(true);
     setError(null);
     setModalOpen(true);
+  };
+
+  const handlePdfSelect = async (file: File) => {
+    setPdfFile(file);
+    setExtracting(true);
+    setExtracted(false);
+    setError(null);
+    try {
+      const data = await extractPdfData(file);
+      setForm((prev) => ({
+        ...prev,
+        closing_date: data.closing_date,
+        total_sales: data.total_sales,
+        total_income: data.total_income,
+        safe_amount: data.safe_amount,
+        cash_drawer: data.cash_drawer,
+      }));
+      setExtracted(true);
+    } catch (err) {
+      setError('Não foi possível extrair dados do PDF. Verifique se o arquivo é um PDF válido.');
+      console.error('PDF extraction error:', err);
+    }
+    setExtracting(false);
   };
 
   const addPix = () => {
@@ -109,9 +218,7 @@ export function FinancialCashClosing() {
     if (!pdfFile || !selectedBranch) return existingPdf;
     const fileExt = pdfFile.name.split('.').pop();
     const fileName = `${selectedBranch}/${Date.now()}.${fileExt}`;
-    setUploading(true);
     const { error: uploadError } = await supabase.storage.from('financial-pdfs').upload(fileName, pdfFile);
-    setUploading(false);
     if (uploadError) {
       setError('Erro ao enviar PDF: ' + uploadError.message);
       return null;
@@ -128,14 +235,14 @@ export function FinancialCashClosing() {
     const payload = {
       branch_id: selectedBranch,
       closing_date: form.closing_date,
-      total_sales: parseFloat(form.total_sales.replace(',', '.')) || 0,
-      total_income: parseFloat(form.total_income.replace(',', '.')) || 0,
+      total_sales: form.total_sales,
+      total_income: form.total_income,
       pix_externals: pixExternals as unknown as Record<string, unknown>[],
       total_pix_externals: totalPix,
       surplus: parseFloat(form.surplus.replace(',', '.')) || 0,
       shortage: parseFloat(form.shortage.replace(',', '.')) || 0,
-      safe_amount: parseFloat(form.safe_amount.replace(',', '.')) || 0,
-      cash_drawer: parseFloat(form.cash_drawer.replace(',', '.')) || 0,
+      safe_amount: form.safe_amount,
+      cash_drawer: form.cash_drawer,
       pdf_path: pdfPath,
       notes: form.notes.trim() || null,
       status: form.status,
@@ -172,7 +279,7 @@ export function FinancialCashClosing() {
 
   const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const now = new Date();
-  const monthOpts = [];
+  const monthOpts: { value: string; label: string }[] = [];
   for (let y = now.getFullYear(); y >= now.getFullYear() - 1; y--) {
     for (let m = 11; m >= 0; m--) {
       monthOpts.push({ value: `${y}-${String(m + 1).padStart(2, '0')}`, label: `${monthNames[m]} ${y}` });
@@ -201,7 +308,7 @@ export function FinancialCashClosing() {
     <div>
       <PageHeader
         title="Fechamento de Caixa"
-        subtitle="Fechamento diário com PDF, pix externos, sobras e faltas"
+        subtitle="Extração automática do PDF — informe apenas pix externos, sobras e faltas"
         action={
           <div className="flex items-center gap-2">
             {isAdmin && (
@@ -233,7 +340,7 @@ export function FinancialCashClosing() {
       </div>
 
       {filtered.length === 0 ? (
-        <Card><EmptyState icon={<BookX size={48} />} title="Nenhum fechamento" description="Registre o fechamento de caixa diário da filial." /></Card>
+        <Card><EmptyState icon={<BookX size={48} />} title="Nenhum fechamento" description="Envie um PDF para criar um fechamento de caixa." /></Card>
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
@@ -288,22 +395,63 @@ export function FinancialCashClosing() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Fechamento' : 'Novo Fechamento de Caixa'} maxWidth="max-w-2xl">
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Data" type="date" value={form.closing_date} onChange={(v) => setForm({ ...form, closing_date: v })} required />
-            <Select label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as 'open' | 'closed' })} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
+          {/* PDF Upload / Extraction */}
+          <div>
+            <span className="block text-sm font-medium text-slate-700 mb-1.5">PDF do Fechamento (extração automática)</span>
+            {existingPdf && !pdfFile && (
+              <div className="flex items-center gap-2 mb-2 text-sm text-brand-600 bg-brand-50 rounded-lg p-3">
+                <FileText size={16} /> PDF já enviado
+                <button onClick={() => downloadPdf(existingPdf)} className="ml-auto text-brand-700 hover:underline flex items-center gap-1"><Download size={14} /> Ver</button>
+              </div>
+            )}
+            <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-lg py-8 cursor-pointer transition-colors ${extracting ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-400'}`}>
+              {extracting ? (
+                <>
+                  <Loader2 size={20} className="text-brand-500 animate-spin" />
+                  <span className="text-sm text-brand-600">Extraindo dados do PDF...</span>
+                </>
+              ) : extracted ? (
+                <>
+                  <CheckCircle size={20} className="text-emerald-500" />
+                  <span className="text-sm text-emerald-600">{pdfFile ? pdfFile.name : 'PDF carregado e dados extraídos'}</span>
+                </>
+              ) : (
+                <>
+                  <Upload size={20} className="text-slate-400" />
+                  <span className="text-sm text-slate-500">{pdfFile ? pdfFile.name : 'Clique para enviar um PDF'}</span>
+                </>
+              )}
+              <input
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={(e) => { if (e.target.files?.[0]) handlePdfSelect(e.target.files[0]); }}
+              />
+            </label>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Total de Vendas" type="text" value={form.total_sales} onChange={(v) => setForm({ ...form, total_sales: v })} placeholder="0,00" />
-            <Input label="Total de Entradas" type="text" value={form.total_income} onChange={(v) => setForm({ ...form, total_income: v })} placeholder="0,00" />
-          </div>
+          {/* Extracted data display (read-only) */}
+          {extracted && (
+            <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Dados extraídos do PDF</p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="flex justify-between"><span className="text-slate-600">Data</span><span className="font-medium text-slate-900">{new Date(form.closing_date).toLocaleDateString('pt-BR')}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Total de Vendas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_sales)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Total de Entradas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_income)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Cofre</span><span className="font-medium text-slate-900">R$ {formatBRL(form.safe_amount)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Caixa</span><span className="font-medium text-slate-900">R$ {formatBRL(form.cash_drawer)}</span></div>
+              </div>
+            </div>
+          )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Valor no Cofre" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
-            <Input label="Caixa (Cash Drawer)" type="text" value={form.cash_drawer} onChange={(v) => setForm({ ...form, cash_drawer: v })} placeholder="0,00" />
-          </div>
+          {!extracted && !extracting && (
+            <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+              <AlertCircle size={16} className="mt-0.5 shrink-0" />
+              <span>Envie um PDF para extrair automaticamente os valores. Você poderá revisar antes de salvar.</span>
+            </div>
+          )}
 
-          {/* Pix Externos */}
+          {/* Pix Externos (manual) */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="block text-sm font-medium text-slate-700">Pix Externos</span>
@@ -339,38 +487,20 @@ export function FinancialCashClosing() {
             )}
           </div>
 
+          {/* Sobras e Faltas (manual) */}
           <div className="grid grid-cols-2 gap-4">
             <Input label="Sobras" type="text" value={form.surplus} onChange={(v) => setForm({ ...form, surplus: v })} placeholder="0,00" />
             <Input label="Faltas" type="text" value={form.shortage} onChange={(v) => setForm({ ...form, shortage: v })} placeholder="0,00" />
           </div>
 
-          {/* PDF Upload */}
-          <div>
-            <span className="block text-sm font-medium text-slate-700 mb-1.5">PDF do Fechamento</span>
-            {existingPdf && !pdfFile && (
-              <div className="flex items-center gap-2 mb-2 text-sm text-brand-600 bg-brand-50 rounded-lg p-3">
-                <FileText size={16} /> PDF já enviado
-                <button onClick={() => downloadPdf(existingPdf)} className="ml-auto text-brand-700 hover:underline flex items-center gap-1"><Download size={14} /> Ver</button>
-              </div>
-            )}
-            <label className="flex items-center justify-center gap-2 border-2 border-dashed border-slate-300 rounded-lg py-6 cursor-pointer hover:border-brand-400 transition-colors">
-              <Upload size={20} className="text-slate-400" />
-              <span className="text-sm text-slate-500">{pdfFile ? pdfFile.name : 'Clique para enviar um PDF'}</span>
-              <input
-                type="file"
-                accept="application/pdf"
-                className="hidden"
-                onChange={(e) => { if (e.target.files?.[0]) setPdfFile(e.target.files[0]); }}
-              />
-            </label>
-          </div>
-
           <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />
+
+          <Select label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as 'open' | 'closed' })} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
 
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button onClick={save} disabled={saving || uploading}>{saving || uploading ? 'Salvando...' : 'Salvar'}</Button>
+            <Button onClick={save} disabled={saving || extracting}>{saving ? 'Salvando...' : 'Salvar'}</Button>
           </div>
         </div>
       </Modal>

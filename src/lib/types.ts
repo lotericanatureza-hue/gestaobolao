@@ -170,7 +170,7 @@ export interface FinDailyControl {
   id: string;
   branch_id: string;
   control_date: string;
-  worked: boolean;
+  worked_amount: number;
   safe_amount: number;
   balance_difference: number;
   notes: string | null;

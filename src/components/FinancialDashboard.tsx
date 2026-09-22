@@ -75,7 +75,7 @@ export function FinancialDashboard() {
   const totalSurplus = monthClosings.reduce((s, c) => s + Number(c.surplus), 0);
   const totalShortage = monthClosings.reduce((s, c) => s + Number(c.shortage), 0);
   const totalSafe = monthDaily.reduce((s, d) => s + Number(d.safe_amount), 0);
-  const workedDays = monthDaily.filter((d) => d.worked).length;
+  const totalWorked = monthDaily.reduce((s, d) => s + Number(d.worked_amount), 0);
 
   // Per-branch summary (consolidated view)
   const branchSummary = branches.map((br) => {
@@ -198,10 +198,10 @@ export function FinancialDashboard() {
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-9 h-9 rounded-lg bg-brand-50 text-brand-600 flex items-center justify-center"><Calendar size={18} /></div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Dias Trabalhados</p>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Total Trabalhado</p>
           </div>
-          <p className="text-xl font-bold text-brand-950">{workedDays}</p>
-          <p className="text-xs text-slate-400 mt-1">de {monthDaily.length} registros</p>
+          <p className="text-xl font-bold text-brand-950">R$ {formatBRL(totalWorked)}</p>
+          <p className="text-xs text-slate-400 mt-1">{monthDaily.length} registros</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">

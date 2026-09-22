@@ -1,15 +1,15 @@
 import { useEffect, useState, useCallback } from 'react';
-import { CalendarCheck, Plus, Pencil, Trash2, CheckSquare, Square, Wallet } from 'lucide-react';
+import { CalendarCheck, Plus, Pencil, Trash2, DollarSign, Wallet } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
-import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
+import { Card, Button, Input, Select, Modal, Spinner, EmptyState } from './ui';
 import { formatBRL } from '../lib/format';
 import type { FinDailyControl, Branch } from '../lib/types';
 
 const emptyForm = {
   control_date: new Date().toISOString().split('T')[0],
-  worked: true,
+  worked_amount: '',
   safe_amount: '',
   balance_difference: '',
   notes: '',
@@ -64,7 +64,7 @@ export function FinancialDailyControl() {
     setEditing(r);
     setForm({
       control_date: r.control_date,
-      worked: r.worked,
+      worked_amount: String(r.worked_amount),
       safe_amount: String(r.safe_amount),
       balance_difference: String(r.balance_difference),
       notes: r.notes ?? '',
@@ -74,6 +74,7 @@ export function FinancialDailyControl() {
   };
 
   const save = async () => {
+    const worked = parseFloat(form.worked_amount.replace(',', '.')) || 0;
     const safe = parseFloat(form.safe_amount.replace(',', '.')) || 0;
     const diff = parseFloat(form.balance_difference.replace(',', '.')) || 0;
     setSaving(true);
@@ -81,7 +82,7 @@ export function FinancialDailyControl() {
     const payload = {
       branch_id: selectedBranch,
       control_date: form.control_date,
-      worked: form.worked,
+      worked_amount: worked,
       safe_amount: safe,
       balance_difference: diff,
       notes: form.notes.trim() || null,
@@ -114,10 +115,10 @@ export function FinancialDailyControl() {
 
   const totalSafe = filtered.reduce((s, r) => s + Number(r.safe_amount), 0);
   const totalDiff = filtered.reduce((s, r) => s + Number(r.balance_difference), 0);
-  const workedDays = filtered.filter((r) => r.worked).length;
+  const totalWorked = filtered.reduce((s, r) => s + Number(r.worked_amount), 0);
 
   const now = new Date();
-  const monthOpts = [];
+  const monthOpts: { value: string; label: string }[] = [];
   for (let y = now.getFullYear(); y >= now.getFullYear() - 1; y--) {
     for (let m = 11; m >= 0; m--) {
       monthOpts.push({ value: `${y}-${String(m + 1).padStart(2, '0')}`, label: `${monthNames[m]} ${y}` });
@@ -147,11 +148,11 @@ export function FinancialDailyControl() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><CheckSquare size={22} /></div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Dias Trabalhados</p>
+            <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><DollarSign size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Total Trabalhado</p>
           </div>
-          <p className="text-2xl font-bold text-brand-950">{workedDays}</p>
-          <p className="text-sm text-slate-500 mt-1">de {filtered.length} registros</p>
+          <p className="text-2xl font-bold text-brand-950">R$ {formatBRL(totalWorked)}</p>
+          <p className="text-sm text-slate-500 mt-1">{filtered.length} registros</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
@@ -180,7 +181,7 @@ export function FinancialDailyControl() {
               <thead>
                 <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
                   <th className="px-4 py-3 font-medium">Data</th>
-                  <th className="px-4 py-3 font-medium">Trabalhou</th>
+                  <th className="px-4 py-3 font-medium text-right">Trabalhado no Dia</th>
                   <th className="px-4 py-3 font-medium text-right">Cofre</th>
                   <th className="px-4 py-3 font-medium text-right">Diferença</th>
                   <th className="px-4 py-3 font-medium">Observações</th>
@@ -191,7 +192,7 @@ export function FinancialDailyControl() {
                 {filtered.map((r) => (
                   <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 font-medium text-slate-900">{new Date(r.control_date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
-                    <td className="px-4 py-3">{r.worked ? <Badge color="green"><CheckSquare size={12} className="mr-1" /> Sim</Badge> : <Badge color="slate"><Square size={12} className="mr-1" /> Não</Badge>}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(Number(r.worked_amount))}</td>
                     <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(Number(r.safe_amount))}</td>
                     <td className={`px-4 py-3 text-right font-semibold ${Number(r.balance_difference) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.balance_difference))}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs">{r.notes ?? '—'}</td>
@@ -212,10 +213,7 @@ export function FinancialDailyControl() {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Registro' : 'Novo Registro Diário'}>
         <div className="space-y-4">
           <Input label="Data" type="date" value={form.control_date} onChange={(v) => setForm({ ...form, control_date: v })} required />
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={form.worked} onChange={(e) => setForm({ ...form, worked: e.target.checked })} className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500" />
-            <span className="text-sm text-slate-700">Trabalhado no dia</span>
-          </label>
+          <Input label="Trabalhado no Dia (R$)" type="text" value={form.worked_amount} onChange={(v) => setForm({ ...form, worked_amount: v })} placeholder="0,00" />
           <Input label="Valor no Cofre" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
           <Input label="Diferença de Saldo" type="text" value={form.balance_difference} onChange={(v) => setForm({ ...form, balance_difference: v })} placeholder="0,00" />
           <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />
