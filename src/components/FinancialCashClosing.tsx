@@ -492,6 +492,8 @@ export function FinancialCashClosing() {
             </div>
           )}
 
+          <Input label="Data do Fechamento" type="date" value={form.closing_date} onChange={(v) => setForm({ ...form, closing_date: v })} required />
+
           {/* PDF Upload / Extraction */}
           <div>
             <span className="block text-sm font-medium text-slate-700 mb-1.5">PDF do Fechamento (extração automática)</span>
@@ -518,7 +520,6 @@ export function FinancialCashClosing() {
             <div className="bg-slate-50 rounded-lg p-4 space-y-2">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Dados extraídos do PDF</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="flex justify-between"><span className="text-slate-600">Data</span><span className="font-medium text-slate-900">{new Date(form.closing_date).toLocaleDateString('pt-BR')}</span></div>
                 <div className="flex justify-between"><span className="text-slate-600">Vendas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_sales)}</span></div>
                 <div className="flex justify-between"><span className="text-slate-600">Entradas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_income)}</span></div>
                 <div className="flex justify-between"><span className="text-slate-600">Cofre</span><span className="font-medium text-slate-900">R$ {formatBRL(form.safe_amount)}</span></div>
