@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { BookX, Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
 import { formatBRL } from '../lib/format';
-import type { FinCashClosing, PixExternal, Branch } from '../lib/types';
+import type { FinCashClosing, FinEmployee, PixExternal, Branch } from '../lib/types';
 
 interface ExtractedData {
   closing_date: string;
@@ -13,7 +13,6 @@ interface ExtractedData {
   total_income: number;
   safe_amount: number;
   cash_drawer: number;
-  rawText: string;
 }
 
 function parseBRLValue(text: string, patterns: string[]): number {
@@ -31,9 +30,7 @@ function parseBRLValue(text: string, patterns: string[]): number {
 
 function extractDate(text: string): string {
   const dateMatch = text.match(/(\d{2})[\/](\d{2})[\/](\d{4})/);
-  if (dateMatch) {
-    return `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
-  }
+  if (dateMatch) return `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`;
   return new Date().toISOString().split('T')[0];
 }
 
@@ -55,43 +52,34 @@ async function extractPdfData(file: File): Promise<ExtractedData> {
     fullText += pageText + '\n';
   }
 
-  const totalSales = parseBRLValue(fullText, [
-    'total\\s*(?:de\\s*)?vendas?[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'vendas?[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'total\\s*vendido[:\\s]*R?\\$?\\s*([\\d.,]+)',
-  ]);
-
-  const totalIncome = parseBRLValue(fullText, [
-    'total\\s*(?:de\\s*)?entrada[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'entrada[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'total\\s*(?:de\\s*)?receita[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
-  ]);
-
-  const safeAmount = parseBRLValue(fullText, [
-    'cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'valor\\s*(?:do\\s*)?cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'saldo\\s*(?:do\\s*)?cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
-  ]);
-
-  const cashDrawer = parseBRLValue(fullText, [
-    'caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'valor\\s*(?:em\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'fundo\\s*(?:de\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
-    'dinheiro\\s*(?:em\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
-  ]);
-
   return {
     closing_date: extractDate(fullText),
-    total_sales: totalSales,
-    total_income: totalIncome,
-    safe_amount: safeAmount,
-    cash_drawer: cashDrawer,
-    rawText: fullText,
+    total_sales: parseBRLValue(fullText, [
+      'total\\s*(?:de\\s*)?vendas?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'vendas?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'total\\s*vendido[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    ]),
+    total_income: parseBRLValue(fullText, [
+      'total\\s*(?:de\\s*)?entrada[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'entrada[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'total\\s*(?:de\\s*)?receita[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    ]),
+    safe_amount: parseBRLValue(fullText, [
+      'cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'valor\\s*(?:do\\s*)?cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    ]),
+    cash_drawer: parseBRLValue(fullText, [
+      'caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'valor\\s*(?:em\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'fundo\\s*(?:de\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    ]),
   };
 }
 
+const todayStr = () => new Date().toISOString().split('T')[0];
+
 const emptyForm = {
-  closing_date: new Date().toISOString().split('T')[0],
+  closing_date: todayStr(),
   total_sales: 0,
   total_income: 0,
   safe_amount: 0,
@@ -107,10 +95,12 @@ export function FinancialCashClosing() {
   const isAdmin = profile?.role === 'admin';
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
+  const [employees, setEmployees] = useState<FinEmployee[]>([]);
   const [closings, setClosings] = useState<FinCashClosing[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FinCashClosing | null>(null);
+  const [modalEmployee, setModalEmployee] = useState<FinEmployee | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [pixExternals, setPixExternals] = useState<PixExternal[]>([]);
   const [saving, setSaving] = useState(false);
@@ -119,7 +109,8 @@ export function FinancialCashClosing() {
   const [existingPdf, setExistingPdf] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extracted, setExtracted] = useState(false);
-  const [fMonth, setFMonth] = useState('');
+  const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
+  const [fDate, setFDate] = useState(todayStr());
 
   useEffect(() => {
     supabase.from('branches').select('*').order('name').then(({ data }) => {
@@ -136,8 +127,12 @@ export function FinancialCashClosing() {
   const fetchData = useCallback(async () => {
     if (!selectedBranch) { setLoading(false); return; }
     setLoading(true);
-    const { data } = await supabase.from('fin_cash_closing').select('*, branch:branches(*)').eq('branch_id', selectedBranch).order('closing_date', { ascending: false });
-    setClosings((data ?? []) as FinCashClosing[]);
+    const [ccRes, empRes] = await Promise.all([
+      supabase.from('fin_cash_closing').select('*, branch:branches(*), employee:fin_employees(*)').eq('branch_id', selectedBranch).order('closing_date', { ascending: false }),
+      supabase.from('fin_employees').select('*').eq('branch_id', selectedBranch).eq('active', true).order('name'),
+    ]);
+    setClosings((ccRes.data ?? []) as FinCashClosing[]);
+    setEmployees((empRes.data ?? []) as FinEmployee[]);
     setLoading(false);
   }, [selectedBranch]);
 
@@ -145,9 +140,10 @@ export function FinancialCashClosing() {
 
   const branchOptions = branches.map((b) => ({ value: b.id, label: b.name }));
 
-  const openNew = () => {
+  const openNew = (employee: FinEmployee) => {
     setEditing(null);
-    setForm(emptyForm);
+    setModalEmployee(employee);
+    setForm({ ...emptyForm, closing_date: fDate });
     setPixExternals([]);
     setPdfFile(null);
     setExistingPdf(null);
@@ -157,7 +153,9 @@ export function FinancialCashClosing() {
   };
 
   const openEdit = (c: FinCashClosing) => {
+    const emp = employees.find((e) => e.id === c.employee_id) ?? null;
     setEditing(c);
+    setModalEmployee(emp);
     setForm({
       closing_date: c.closing_date,
       total_sales: Number(c.total_sales),
@@ -194,24 +192,17 @@ export function FinancialCashClosing() {
       }));
       setExtracted(true);
     } catch (err) {
-      setError('Não foi possível extrair dados do PDF. Verifique se o arquivo é um PDF válido.');
-      console.error('PDF extraction error:', err);
+      setError('Não foi possível extrair dados do PDF. Verifique se o arquivo é válido.');
+      console.error(err);
     }
     setExtracting(false);
   };
 
-  const addPix = () => {
-    setPixExternals([...pixExternals, { id: crypto.randomUUID(), description: '', amount: 0 }]);
-  };
-
+  const addPix = () => setPixExternals([...pixExternals, { id: crypto.randomUUID(), description: '', amount: 0 }]);
   const updatePix = (id: string, field: 'description' | 'amount', value: string) => {
     setPixExternals(pixExternals.map((p) => p.id === id ? { ...p, [field]: field === 'amount' ? parseFloat(value.replace(',', '.')) || 0 : value } : p));
   };
-
-  const removePix = (id: string) => {
-    setPixExternals(pixExternals.filter((p) => p.id !== id));
-  };
-
+  const removePix = (id: string) => setPixExternals(pixExternals.filter((p) => p.id !== id));
   const totalPix = pixExternals.reduce((s, p) => s + Number(p.amount), 0);
 
   const uploadPdf = async (): Promise<string | null> => {
@@ -219,14 +210,12 @@ export function FinancialCashClosing() {
     const fileExt = pdfFile.name.split('.').pop();
     const fileName = `${selectedBranch}/${Date.now()}.${fileExt}`;
     const { error: uploadError } = await supabase.storage.from('financial-pdfs').upload(fileName, pdfFile);
-    if (uploadError) {
-      setError('Erro ao enviar PDF: ' + uploadError.message);
-      return null;
-    }
+    if (uploadError) { setError('Erro ao enviar PDF: ' + uploadError.message); return null; }
     return fileName;
   };
 
   const save = async () => {
+    if (!modalEmployee) { setError('Funcionário não selecionado.'); return; }
     setSaving(true);
     setError(null);
     const pdfPath = await uploadPdf();
@@ -234,6 +223,7 @@ export function FinancialCashClosing() {
 
     const payload = {
       branch_id: selectedBranch,
+      employee_id: modalEmployee.id,
       closing_date: form.closing_date,
       total_sales: form.total_sales,
       total_income: form.total_income,
@@ -257,11 +247,9 @@ export function FinancialCashClosing() {
     fetchData();
   };
 
-  const remove = async (c: FinCashClosing) => {
+  const removeClosing = async (c: FinCashClosing) => {
     if (!confirm(`Excluir o fechamento de ${new Date(c.closing_date).toLocaleDateString('pt-BR')}?`)) return;
-    if (c.pdf_path) {
-      await supabase.storage.from('financial-pdfs').remove([c.pdf_path]);
-    }
+    if (c.pdf_path) await supabase.storage.from('financial-pdfs').remove([c.pdf_path]);
     await supabase.from('fin_cash_closing').delete().eq('id', c.id);
     fetchData();
   };
@@ -277,28 +265,23 @@ export function FinancialCashClosing() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank');
   };
 
-  const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-  const now = new Date();
-  const monthOpts: { value: string; label: string }[] = [];
-  for (let y = now.getFullYear(); y >= now.getFullYear() - 1; y--) {
-    for (let m = 11; m >= 0; m--) {
-      monthOpts.push({ value: `${y}-${String(m + 1).padStart(2, '0')}`, label: `${monthNames[m]} ${y}` });
-    }
-  }
+  // Filter closings by selected date
+  const dateClosings = closings.filter((c) => c.closing_date === fDate);
 
-  const filtered = closings.filter((c) => {
-    if (fMonth) {
-      const d = new Date(c.closing_date);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-      return key === fMonth;
-    }
-    return true;
+  // Per-employee data
+  const employeeData = employees.map((emp) => {
+    const empClosings = closings.filter((c) => c.employee_id === emp.id);
+    const todayClosing = empClosings.find((c) => c.closing_date === fDate);
+    const closedClosings = empClosings.filter((c) => c.status === 'closed');
+    const pendingClosings = empClosings.filter((c) => c.status === 'open');
+    return { employee: emp, todayClosing, closedClosings, pendingClosings, allClosings: empClosings };
   });
 
-  const totalSalesSum = filtered.reduce((s, c) => s + Number(c.total_sales), 0);
-  const totalPixSum = filtered.reduce((s, c) => s + Number(c.total_pix_externals), 0);
-  const totalSurplus = filtered.reduce((s, c) => s + Number(c.surplus), 0);
-  const totalShortage = filtered.reduce((s, c) => s + Number(c.shortage), 0);
+  // Totals for the day
+  const dayTotalSales = dateClosings.reduce((s, c) => s + Number(c.total_sales), 0);
+  const dayTotalPix = dateClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
+  const dayTotalSurplus = dateClosings.reduce((s, c) => s + Number(c.surplus), 0);
+  const dayTotalShortage = dateClosings.reduce((s, c) => s + Number(c.shortage), 0);
 
   if (loading && !closings.length) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
@@ -308,93 +291,207 @@ export function FinancialCashClosing() {
     <div>
       <PageHeader
         title="Fechamento de Caixa"
-        subtitle="Extração automática do PDF — informe apenas pix externos, sobras e faltas"
+        subtitle="Cada funcionário tem seu próprio fechamento — extração automática do PDF"
         action={
           <div className="flex items-center gap-2">
             {isAdmin && (
               <Select value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} placeholder="Selecionar filial" />
             )}
-            <Select value={fMonth} onChange={setFMonth} options={monthOpts} placeholder="Todos os meses" />
-            <Button onClick={openNew}><Plus size={18} /> Novo Fechamento</Button>
+            <Input type="date" value={fDate} onChange={setFDate} />
           </div>
         }
       />
 
+      {/* Day summary */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <Card className="p-5">
-          <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Total Vendas</p>
-          <p className="text-xl font-bold text-brand-950">R$ {formatBRL(totalSalesSum)}</p>
+          <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Vendas do Dia</p>
+          <p className="text-xl font-bold text-brand-950">R$ {formatBRL(dayTotalSales)}</p>
+          <p className="text-xs text-slate-400 mt-1">{dateClosings.length} fechamento(s)</p>
         </Card>
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Pix Externos</p>
-          <p className="text-xl font-bold text-brand-600">R$ {formatBRL(totalPixSum)}</p>
+          <p className="text-xl font-bold text-brand-600">R$ {formatBRL(dayTotalPix)}</p>
         </Card>
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Sobras</p>
-          <p className="text-xl font-bold text-emerald-600">R$ {formatBRL(totalSurplus)}</p>
+          <p className="text-xl font-bold text-emerald-600">R$ {formatBRL(dayTotalSurplus)}</p>
         </Card>
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Faltas</p>
-          <p className="text-xl font-bold text-red-600">R$ {formatBRL(totalShortage)}</p>
+          <p className="text-xl font-bold text-red-600">R$ {formatBRL(dayTotalShortage)}</p>
         </Card>
       </div>
 
-      {filtered.length === 0 ? (
-        <Card><EmptyState icon={<BookX size={48} />} title="Nenhum fechamento" description="Envie um PDF para criar um fechamento de caixa." /></Card>
+      {/* Employee cards */}
+      {employees.length === 0 ? (
+        <Card><EmptyState icon={<User size={48} />} title="Nenhum funcionário cadastrado" description="Cadastre funcionários na aba Funcionários para que cada um tenha seu próprio fechamento de caixa." /></Card>
       ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 font-medium">Data</th>
-                  <th className="px-4 py-3 font-medium text-right">Vendas</th>
-                  <th className="px-4 py-3 font-medium text-right">Pix Ext.</th>
-                  <th className="px-4 py-3 font-medium text-right">Sobra</th>
-                  <th className="px-4 py-3 font-medium text-right">Falta</th>
-                  <th className="px-4 py-3 font-medium text-right">Cofre</th>
-                  <th className="px-4 py-3 font-medium">PDF</th>
-                  <th className="px-4 py-3 font-medium">Status</th>
-                  <th className="px-4 py-3 font-medium text-right">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((c) => (
-                  <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-900">{new Date(c.closing_date).toLocaleDateString('pt-BR')}</td>
-                    <td className="px-4 py-3 text-right text-slate-700">R$ {formatBRL(Number(c.total_sales))}</td>
-                    <td className="px-4 py-3 text-right text-brand-600">R$ {formatBRL(Number(c.total_pix_externals))}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(Number(c.surplus))}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-red-600">R$ {formatBRL(Number(c.shortage))}</td>
-                    <td className="px-4 py-3 text-right text-slate-700">R$ {formatBRL(Number(c.safe_amount))}</td>
-                    <td className="px-4 py-3">
-                      {c.pdf_path ? (
-                        <button onClick={() => downloadPdf(c.pdf_path!)} className="text-brand-600 hover:text-brand-700 flex items-center gap-1" title="Ver PDF">
-                          <FileText size={16} /> <span className="text-xs">PDF</span>
-                        </button>
-                      ) : <span className="text-slate-300">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => toggleStatus(c)}>
-                        {c.status === 'closed' ? <Badge color="blue"><Lock size={12} className="mr-1" /> Fechado</Badge> : <Badge color="amber"><Unlock size={12} className="mr-1" /> Aberto</Badge>}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(c)}><Pencil size={14} /></Button>
-                        <Button size="sm" variant="ghost" onClick={() => remove(c)}><Trash2 size={14} /></Button>
+        <div className="space-y-4">
+          {employeeData.map(({ employee, todayClosing, closedClosings, pendingClosings }) => {
+            const isExpanded = expandedEmp === employee.id;
+            return (
+              <Card key={employee.id} className="overflow-hidden">
+                {/* Employee header */}
+                <div
+                  className="flex items-center justify-between p-5 cursor-pointer hover:bg-slate-50 transition-colors"
+                  onClick={() => setExpandedEmp(isExpanded ? null : employee.id)}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center">
+                      <User size={22} />
+                    </div>
+                    <div>
+                      <h3 className="font-semibold text-slate-900">{employee.name}</h3>
+                      <p className="text-xs text-slate-400">TFL: {employee.tfl}{employee.position ? ` • ${employee.position}` : ''}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {todayClosing ? (
+                      todayClosing.status === 'closed' ? (
+                        <Badge color="blue"><Lock size={12} className="mr-1" /> Caixa fechado</Badge>
+                      ) : (
+                        <Badge color="amber"><Unlock size={12} className="mr-1" /> Pendente</Badge>
+                      )
+                    ) : (
+                      <Badge color="slate">Sem caixa hoje</Badge>
+                    )}
+                    {isExpanded ? <ChevronDown size={20} className="text-slate-400" /> : <ChevronRight size={20} className="text-slate-400" />}
+                  </div>
+                </div>
+
+                {/* Expanded content */}
+                {isExpanded && (
+                  <div className="border-t border-slate-100 p-5 space-y-4">
+                    {/* Today's action */}
+                    <div className="bg-slate-50 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                          <Calendar size={16} /> Caixa do dia — {new Date(fDate).toLocaleDateString('pt-BR')}
+                        </h4>
+                        <Button size="sm" onClick={() => openNew(employee)}>
+                          <Plus size={14} /> Fechar Caixa
+                        </Button>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
+                      {todayClosing ? (
+                        <div className="bg-white rounded-lg p-4 border border-slate-200">
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3">
+                            <div><span className="text-slate-500">Vendas:</span> <span className="font-semibold text-slate-900">R$ {formatBRL(Number(todayClosing.total_sales))}</span></div>
+                            <div><span className="text-slate-500">Pix Ext.:</span> <span className="font-semibold text-brand-600">R$ {formatBRL(Number(todayClosing.total_pix_externals))}</span></div>
+                            <div><span className="text-slate-500">Sobra:</span> <span className="font-semibold text-emerald-600">R$ {formatBRL(Number(todayClosing.surplus))}</span></div>
+                            <div><span className="text-slate-500">Falta:</span> <span className="font-semibold text-red-600">R$ {formatBRL(Number(todayClosing.shortage))}</span></div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {todayClosing.pdf_path && (
+                              <button onClick={() => downloadPdf(todayClosing.pdf_path!)} className="text-brand-600 hover:text-brand-700 flex items-center gap-1 text-sm">
+                                <FileText size={14} /> Ver PDF
+                              </button>
+                            )}
+                            <button onClick={() => toggleStatus(todayClosing)} className="text-slate-500 hover:text-slate-700 flex items-center gap-1 text-sm">
+                              {todayClosing.status === 'closed' ? <><Unlock size={14} /> Reabrir</> : <><Lock size={14} /> Fechar</>}
+                            </button>
+                            <button onClick={() => openEdit(todayClosing)} className="text-brand-600 hover:text-brand-700 flex items-center gap-1 text-sm">
+                              <Pencil size={14} /> Editar
+                            </button>
+                            <button onClick={() => removeClosing(todayClosing)} className="text-red-500 hover:text-red-700 flex items-center gap-1 text-sm">
+                              <Trash2 size={14} /> Excluir
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-slate-400">Nenhum caixa fechado para este funcionário no dia selecionado. Clique em "Fechar Caixa" para criar.</p>
+                      )}
+                    </div>
+
+                    {/* Pending closings */}
+                    {pendingClosings.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-amber-700 mb-2 flex items-center gap-2">
+                          <AlertCircle size={16} /> Caixas Pendentes ({pendingClosings.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {pendingClosings.map((c) => (
+                            <div key={c.id} className="flex items-center justify-between bg-amber-50 rounded-lg p-3 border border-amber-200">
+                              <div className="flex items-center gap-3">
+                                <Badge color="amber"><Unlock size={12} className="mr-1" /> Pendente</Badge>
+                                <span className="text-sm text-slate-700">{new Date(c.closing_date).toLocaleDateString('pt-BR')}</span>
+                                <span className="text-sm text-slate-500">Vendas: R$ {formatBRL(Number(c.total_sales))}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {c.pdf_path && <button onClick={() => downloadPdf(c.pdf_path!)} className="text-brand-600 text-sm flex items-center gap-1"><FileText size={14} /> PDF</button>}
+                                <button onClick={() => openEdit(c)} className="text-brand-600 text-sm"><Pencil size={14} /></button>
+                                <button onClick={() => removeClosing(c)} className="text-red-500 text-sm"><Trash2 size={14} /></button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Closed closings */}
+                    {closedClosings.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-semibold text-slate-600 mb-2 flex items-center gap-2">
+                          <Lock size={16} /> Caixas Fechados ({closedClosings.length})
+                        </h4>
+                        <div className="space-y-2">
+                          {closedClosings.slice(0, 10).map((c) => (
+                            <details key={c.id} className="bg-slate-50 rounded-lg border border-slate-200">
+                              <summary className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-lg">
+                                <div className="flex items-center gap-3">
+                                  <Badge color="blue"><Lock size={12} className="mr-1" /> Fechado</Badge>
+                                  <span className="text-sm text-slate-700">{new Date(c.closing_date).toLocaleDateString('pt-BR')}</span>
+                                  <span className="text-sm text-slate-500">Vendas: R$ {formatBRL(Number(c.total_sales))}</span>
+                                </div>
+                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                  {c.pdf_path && <button onClick={() => downloadPdf(c.pdf_path!)} className="text-brand-600 text-sm flex items-center gap-1"><FileText size={14} /> PDF</button>}
+                                  <button onClick={() => toggleStatus(c)} className="text-slate-500 text-sm" title="Reabrir"><Unlock size={14} /></button>
+                                  <button onClick={() => openEdit(c)} className="text-brand-600 text-sm"><Pencil size={14} /></button>
+                                  <button onClick={() => removeClosing(c)} className="text-red-500 text-sm"><Trash2 size={14} /></button>
+                                </div>
+                              </summary>
+                              <div className="px-3 pb-3 pt-1 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                                <div><span className="text-slate-500">Entradas:</span> <span className="font-medium">R$ {formatBRL(Number(c.total_income))}</span></div>
+                                <div><span className="text-slate-500">Pix Ext.:</span> <span className="font-medium text-brand-600">R$ {formatBRL(Number(c.total_pix_externals))}</span></div>
+                                <div><span className="text-slate-500">Sobra:</span> <span className="font-medium text-emerald-600">R$ {formatBRL(Number(c.surplus))}</span></div>
+                                <div><span className="text-slate-500">Falta:</span> <span className="font-medium text-red-600">R$ {formatBRL(Number(c.shortage))}</span></div>
+                                <div><span className="text-slate-500">Cofre:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount))}</span></div>
+                                <div><span className="text-slate-500">Caixa:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
+                                {c.notes && <div className="col-span-2"><span className="text-slate-500">Obs.:</span> <span className="text-slate-600">{c.notes}</span></div>}
+                              </div>
+                            </details>
+                          ))}
+                          {closedClosings.length > 10 && (
+                            <p className="text-xs text-slate-400 text-center pt-1">Mostrando 10 de {closedClosings.length} caixas fechados</p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {todayClosing === null && pendingClosings.length === 0 && closedClosings.length === 0 && (
+                      <p className="text-sm text-slate-400 text-center py-4">Nenhum fechamento registrado para este funcionário.</p>
+                    )}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
       )}
 
+      {/* Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Fechamento' : 'Novo Fechamento de Caixa'} maxWidth="max-w-2xl">
         <div className="space-y-4">
+          {modalEmployee && (
+            <div className="flex items-center gap-3 bg-brand-50 rounded-lg p-3">
+              <div className="w-9 h-9 rounded-lg bg-brand-100 text-brand-700 flex items-center justify-center"><User size={18} /></div>
+              <div>
+                <p className="font-semibold text-brand-900">{modalEmployee.name}</p>
+                <p className="text-xs text-brand-600">TFL: {modalEmployee.tfl}</p>
+              </div>
+            </div>
+          )}
+
           {/* PDF Upload / Extraction */}
           <div>
             <span className="block text-sm font-medium text-slate-700 mb-1.5">PDF do Fechamento (extração automática)</span>
@@ -406,38 +503,24 @@ export function FinancialCashClosing() {
             )}
             <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-lg py-8 cursor-pointer transition-colors ${extracting ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-400'}`}>
               {extracting ? (
-                <>
-                  <Loader2 size={20} className="text-brand-500 animate-spin" />
-                  <span className="text-sm text-brand-600">Extraindo dados do PDF...</span>
-                </>
+                <><Loader2 size={20} className="text-brand-500 animate-spin" /><span className="text-sm text-brand-600">Extraindo dados do PDF...</span></>
               ) : extracted ? (
-                <>
-                  <CheckCircle size={20} className="text-emerald-500" />
-                  <span className="text-sm text-emerald-600">{pdfFile ? pdfFile.name : 'PDF carregado e dados extraídos'}</span>
-                </>
+                <><CheckCircle size={20} className="text-emerald-500" /><span className="text-sm text-emerald-600">{pdfFile ? pdfFile.name : 'PDF carregado e dados extraídos'}</span></>
               ) : (
-                <>
-                  <Upload size={20} className="text-slate-400" />
-                  <span className="text-sm text-slate-500">{pdfFile ? pdfFile.name : 'Clique para enviar um PDF'}</span>
-                </>
+                <><Upload size={20} className="text-slate-400" /><span className="text-sm text-slate-500">{pdfFile ? pdfFile.name : 'Clique para enviar um PDF'}</span></>
               )}
-              <input
-                type="file"
-                accept="application/pdf"
-                className="hidden"
-                onChange={(e) => { if (e.target.files?.[0]) handlePdfSelect(e.target.files[0]); }}
-              />
+              <input type="file" accept="application/pdf" className="hidden" onChange={(e) => { if (e.target.files?.[0]) handlePdfSelect(e.target.files[0]); }} />
             </label>
           </div>
 
-          {/* Extracted data display (read-only) */}
+          {/* Extracted data (read-only) */}
           {extracted && (
             <div className="bg-slate-50 rounded-lg p-4 space-y-2">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Dados extraídos do PDF</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="flex justify-between"><span className="text-slate-600">Data</span><span className="font-medium text-slate-900">{new Date(form.closing_date).toLocaleDateString('pt-BR')}</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">Total de Vendas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_sales)}</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">Total de Entradas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_income)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Vendas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_sales)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Entradas</span><span className="font-medium text-slate-900">R$ {formatBRL(form.total_income)}</span></div>
                 <div className="flex justify-between"><span className="text-slate-600">Cofre</span><span className="font-medium text-slate-900">R$ {formatBRL(form.safe_amount)}</span></div>
                 <div className="flex justify-between"><span className="text-slate-600">Caixa</span><span className="font-medium text-slate-900">R$ {formatBRL(form.cash_drawer)}</span></div>
               </div>
@@ -451,7 +534,7 @@ export function FinancialCashClosing() {
             </div>
           )}
 
-          {/* Pix Externos (manual) */}
+          {/* Pix Externos */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="block text-sm font-medium text-slate-700">Pix Externos</span>
@@ -463,38 +546,22 @@ export function FinancialCashClosing() {
               <div className="space-y-2">
                 {pixExternals.map((p) => (
                   <div key={p.id} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={p.description}
-                      onChange={(e) => updatePix(p.id, 'description', e.target.value)}
-                      placeholder="Descrição"
-                      className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none"
-                    />
-                    <input
-                      type="text"
-                      value={String(p.amount)}
-                      onChange={(e) => updatePix(p.id, 'amount', e.target.value)}
-                      placeholder="0,00"
-                      className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none"
-                    />
+                    <input type="text" value={p.description} onChange={(e) => updatePix(p.id, 'description', e.target.value)} placeholder="Descrição" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+                    <input type="text" value={String(p.amount)} onChange={(e) => updatePix(p.id, 'amount', e.target.value)} placeholder="0,00" className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
                     <button onClick={() => removePix(p.id)} className="text-slate-400 hover:text-red-500 p-2"><Trash size={16} /></button>
                   </div>
                 ))}
-                <div className="flex justify-end text-sm font-medium text-slate-700 pt-1">
-                  Total Pix: R$ {formatBRL(totalPix)}
-                </div>
+                <div className="flex justify-end text-sm font-medium text-slate-700 pt-1">Total Pix: R$ {formatBRL(totalPix)}</div>
               </div>
             )}
           </div>
 
-          {/* Sobras e Faltas (manual) */}
           <div className="grid grid-cols-2 gap-4">
             <Input label="Sobras" type="text" value={form.surplus} onChange={(v) => setForm({ ...form, surplus: v })} placeholder="0,00" />
             <Input label="Faltas" type="text" value={form.shortage} onChange={(v) => setForm({ ...form, shortage: v })} placeholder="0,00" />
           </div>
 
           <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />
-
           <Select label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as 'open' | 'closed' })} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
 
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}

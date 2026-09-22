@@ -187,6 +187,7 @@ export interface PixExternal {
 export interface FinCashClosing {
   id: string;
   branch_id: string;
+  employee_id: string | null;
   closing_date: string;
   total_sales: number;
   total_income: number;
@@ -203,6 +204,7 @@ export interface FinCashClosing {
   created_at: string;
   updated_at: string;
   branch?: Branch;
+  employee?: FinEmployee;
 }
 
 export interface FinEmployee {
