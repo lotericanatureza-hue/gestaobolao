@@ -11,8 +11,12 @@ interface ExtractedData {
   closing_date: string;
   total_sales: number;
   total_income: number;
+  total_credits: number;
+  total_debits: number;
   safe_amount: number;
   cash_drawer: number;
+  saldo_final: number;
+  total_em_caixa: number;
 }
 
 function parseBRLValue(text: string, patterns: string[]): number {
@@ -64,6 +68,14 @@ async function extractPdfData(file: File): Promise<ExtractedData> {
       'entrada[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
       'total\\s*(?:de\\s*)?receita[s]?[:\\s]*R?\\$?\\s*([\\d.,]+)',
     ]),
+    total_credits: parseBRLValue(fullText, [
+      'total\\s*(?:de\\s*)?cr[eé]ditos?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'cr[eé]ditos?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    ]),
+    total_debits: parseBRLValue(fullText, [
+      'total\\s*(?:de\\s*)?d[eé]bitos?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'd[eé]bitos?[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    ]),
     safe_amount: parseBRLValue(fullText, [
       'cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
       'valor\\s*(?:do\\s*)?cofre[:\\s]*R?\\$?\\s*([\\d.,]+)',
@@ -72,6 +84,14 @@ async function extractPdfData(file: File): Promise<ExtractedData> {
       'caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
       'valor\\s*(?:em\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
       'fundo\\s*(?:de\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    ]),
+    saldo_final: parseBRLValue(fullText, [
+      'saldo\\s*final[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'saldo[:\\s]*R?\\$?\\s*([\\d.,]+)',
+    ]),
+    total_em_caixa: parseBRLValue(fullText, [
+      'total\\s*(?:em\\s*)?caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
+      'em\\s*caixa[:\\s]*R?\\$?\\s*([\\d.,]+)',
     ]),
   };
 }
@@ -82,10 +102,13 @@ const emptyForm = {
   closing_date: todayStr(),
   total_sales: 0,
   total_income: 0,
+  total_credits: 0,
+  total_debits: 0,
   safe_amount: 0,
   cash_drawer: 0,
+  saldo_final: 0,
+  total_em_caixa: 0,
   deposit_amount: '',
-  sangria_amount: '',
   surplus: '',
   shortage: '',
   notes: '',
@@ -162,10 +185,13 @@ export function FinancialCashClosing() {
       closing_date: c.closing_date,
       total_sales: Number(c.total_sales),
       total_income: Number(c.total_income),
+      total_credits: 0,
+      total_debits: 0,
       safe_amount: Number(c.safe_amount),
       cash_drawer: Number(c.cash_drawer),
+      saldo_final: 0,
+      total_em_caixa: 0,
       deposit_amount: String(c.deposit_amount ?? 0),
-      sangria_amount: String(c.sangria_amount ?? 0),
       surplus: String(c.surplus),
       shortage: String(c.shortage),
       notes: c.notes ?? '',
@@ -191,8 +217,12 @@ export function FinancialCashClosing() {
         closing_date: data.closing_date,
         total_sales: data.total_sales,
         total_income: data.total_income,
+        total_credits: data.total_credits,
+        total_debits: data.total_debits,
         safe_amount: data.safe_amount,
         cash_drawer: data.cash_drawer,
+        saldo_final: data.saldo_final,
+        total_em_caixa: data.total_em_caixa,
       }));
       setExtracted(true);
     } catch (err) {
@@ -238,7 +268,6 @@ export function FinancialCashClosing() {
       safe_amount: form.safe_amount,
       cash_drawer: form.cash_drawer,
       deposit_amount: parseFloat(form.deposit_amount.replace(',', '.')) || 0,
-      sangria_amount: parseFloat(form.sangria_amount.replace(',', '.')) || 0,
       pdf_path: pdfPath,
       notes: form.notes.trim() || null,
       status: form.status,
@@ -464,7 +493,6 @@ export function FinancialCashClosing() {
                                 <div><span className="text-slate-500">Cofre:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount))}</span></div>
                                 <div><span className="text-slate-500">Caixa:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
                                 <div><span className="text-slate-500">Depósitos:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
-                                <div><span className="text-slate-500">Sangria:</span> <span className="font-medium">R$ {formatBRL(Number(c.sangria_amount ?? 0))}</span></div>
                                 {c.notes && <div className="col-span-2"><span className="text-slate-500">Obs.:</span> <span className="text-slate-600">{c.notes}</span></div>}
                               </div>
                             </details>
@@ -547,7 +575,23 @@ export function FinancialCashClosing() {
                     <Banknote size={14} />
                     <span className="text-[10px] font-bold uppercase">Saldo Final</span>
                   </div>
-                  <p className="text-lg font-black tabular-nums text-brand-700">R$ {formatBRL(form.total_sales - form.total_income)}</p>
+                  <p className="text-lg font-black tabular-nums text-brand-700">R$ {formatBRL(form.saldo_final || (form.total_sales - form.total_income))}</p>
+                </div>
+              </div>
+
+              {/* Credit/Debit summary */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/50">
+                  <span className="text-[10px] font-bold uppercase text-emerald-600">Créditos</span>
+                  <p className="text-base font-bold tabular-nums text-emerald-700">R$ {formatBRL(form.total_credits)}</p>
+                </div>
+                <div className="p-3 rounded-xl border border-red-200 bg-red-50/50">
+                  <span className="text-[10px] font-bold uppercase text-red-600">Débitos</span>
+                  <p className="text-base font-bold tabular-nums text-red-700">R$ {formatBRL(form.total_debits)}</p>
+                </div>
+                <div className="p-3 rounded-xl border border-brand-200 bg-brand-50/50">
+                  <span className="text-[10px] font-bold uppercase text-brand-600">Total em Caixa</span>
+                  <p className="text-base font-bold tabular-nums text-brand-700">R$ {formatBRL(form.total_em_caixa)}</p>
                 </div>
               </div>
 
@@ -616,7 +660,6 @@ export function FinancialCashClosing() {
 
           <div className="grid grid-cols-2 gap-4">
             <Input label="Depósitos" type="text" value={form.deposit_amount} onChange={(v) => setForm({ ...form, deposit_amount: v })} placeholder="0,00" />
-            <Input label="Sangria" type="text" value={form.sangria_amount} onChange={(v) => setForm({ ...form, sangria_amount: v })} placeholder="0,00" />
           </div>
 
           <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />

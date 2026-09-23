@@ -10,6 +10,7 @@ import type { FinDailyControl, Branch } from '../lib/types';
 const emptyForm = {
   control_date: new Date().toISOString().split('T')[0],
   worked_amount: '',
+  valor_003: '',
   safe_amount: '',
   notes: '',
 };
@@ -64,6 +65,7 @@ export function FinancialDailyControl() {
     setForm({
       control_date: r.control_date,
       worked_amount: String(r.worked_amount),
+      valor_003: String(r.valor_003 ?? 0),
       safe_amount: String(r.safe_amount),
       notes: r.notes ?? '',
     });
@@ -73,14 +75,16 @@ export function FinancialDailyControl() {
 
   const save = async () => {
     const worked = parseFloat(form.worked_amount.replace(',', '.')) || 0;
+    const valor003 = parseFloat(form.valor_003.replace(',', '.')) || 0;
     const safe = parseFloat(form.safe_amount.replace(',', '.')) || 0;
-    const diff = worked - safe;
+    const diff = worked + valor003 - safe;
     setSaving(true);
     setError(null);
     const payload = {
       branch_id: selectedBranch,
       control_date: form.control_date,
       worked_amount: worked,
+      valor_003: valor003,
       safe_amount: safe,
       balance_difference: diff,
       notes: form.notes.trim() || null,
@@ -114,6 +118,7 @@ export function FinancialDailyControl() {
   const totalSafe = filtered.reduce((s, r) => s + Number(r.safe_amount), 0);
   const totalDiff = filtered.reduce((s, r) => s + Number(r.balance_difference), 0);
   const totalWorked = filtered.reduce((s, r) => s + Number(r.worked_amount), 0);
+  const totalValor003 = filtered.reduce((s, r) => s + Number(r.valor_003 ?? 0), 0);
 
   const now = new Date();
   const monthOpts: { value: string; label: string }[] = [];
@@ -143,7 +148,7 @@ export function FinancialDailyControl() {
         }
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><DollarSign size={22} /></div>
@@ -151,6 +156,13 @@ export function FinancialDailyControl() {
           </div>
           <p className="text-2xl font-bold text-brand-950">R$ {formatBRL(totalWorked)}</p>
           <p className="text-sm text-slate-500 mt-1">{filtered.length} registros</p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-accent-50 text-accent-600 flex items-center justify-center"><DollarSign size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Total Valor 003</p>
+          </div>
+          <p className="text-2xl font-bold text-accent-600">R$ {formatBRL(totalValor003)}</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
@@ -180,6 +192,7 @@ export function FinancialDailyControl() {
                 <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
                   <th className="px-4 py-3 font-medium">Data</th>
                   <th className="px-4 py-3 font-medium text-right">Trabalhado no Dia</th>
+                  <th className="px-4 py-3 font-medium text-right">Valor 003</th>
                   <th className="px-4 py-3 font-medium text-right">Cofre</th>
                   <th className="px-4 py-3 font-medium text-right">Diferença</th>
                   <th className="px-4 py-3 font-medium">Observações</th>
@@ -191,6 +204,7 @@ export function FinancialDailyControl() {
                   <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                     <td className="px-4 py-3 font-medium text-slate-900">{new Date(r.control_date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
                     <td className="px-4 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(Number(r.worked_amount))}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-accent-600">R$ {formatBRL(Number(r.valor_003 ?? 0))}</td>
                     <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(Number(r.safe_amount))}</td>
                     <td className={`px-4 py-3 text-right font-semibold ${Number(r.balance_difference) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.balance_difference))}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs">{r.notes ?? '—'}</td>
@@ -212,11 +226,12 @@ export function FinancialDailyControl() {
         <div className="space-y-4">
           <Input label="Data" type="date" value={form.control_date} onChange={(v) => setForm({ ...form, control_date: v })} required />
           <Input label="Trabalhado no Dia (R$)" type="text" value={form.worked_amount} onChange={(v) => setForm({ ...form, worked_amount: v })} placeholder="0,00" />
+          <Input label="Valor 003" type="text" value={form.valor_003} onChange={(v) => setForm({ ...form, valor_003: v })} placeholder="0,00" />
           <Input label="Valor no Cofre" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
           <div className="bg-slate-50 rounded-lg p-4 flex items-center justify-between">
             <span className="text-sm font-medium text-slate-600">Diferença de Saldo (automático)</span>
-            <span className={`text-lg font-bold ${(parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-              R$ {formatBRL((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0))}
+            <span className={`text-lg font-bold ${((parseFloat(form.worked_amount.replace(',', '.')) || 0) + (parseFloat(form.valor_003.replace(',', '.')) || 0)) - (parseFloat(form.safe_amount.replace(',', '.')) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              R$ {formatBRL(((parseFloat(form.worked_amount.replace(',', '.')) || 0) + (parseFloat(form.valor_003.replace(',', '.')) || 0)) - (parseFloat(form.safe_amount.replace(',', '.')) || 0))}
             </span>
           </div>
           <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />

@@ -1,20 +1,83 @@
 import { ReactNode, useState, useEffect } from 'react';
-import { LogOut, Menu, X, Store, ArrowLeftRight } from 'lucide-react';
+import { LogOut, Menu, X, Store, ArrowLeftRight, ChevronDown, ChevronRight } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { supabase } from '../lib/supabase';
 import { Badge } from './ui';
 
 export type AdminView = 'dashboard' | 'branches' | 'products' | 'allocations' | 'create-bolao' | 'bolao-allocations' | 'users';
 export type OperatorView = 'stock' | 'sales' | 'manage';
-export type FinancialView = 'fin-dashboard' | 'fin-bills' | 'fin-categories' | 'fin-daily' | 'fin-closing' | 'fin-employees';
+export type FinancialView = 'fin-dashboard' | 'fin-bills' | 'fin-categories' | 'fin-daily' | 'fin-closing' | 'fin-employees' | 'fin-loans';
+
+export interface NavItem {
+  id: string;
+  label: string;
+  icon: ReactNode;
+  children?: { id: string; label: string; icon: ReactNode }[];
+}
 
 interface LayoutProps {
   children: ReactNode;
   activeView: string;
   onNavigate: (view: string) => void;
-  navItems: { id: string; label: string; icon: ReactNode }[];
+  navItems: NavItem[];
   area?: 'bolao' | 'financial';
   onSwitchArea?: () => void;
+}
+
+function NavEntry({ item, activeView, onNavigate }: { item: NavItem; activeView: string; onNavigate: (v: string) => void }) {
+  const hasChildren = item.children && item.children.length > 0;
+  const isChildActive = hasChildren && item.children!.some((c) => c.id === activeView);
+  const [expanded, setExpanded] = useState(false);
+  const isOpen = expanded || isChildActive;
+
+  if (hasChildren) {
+    return (
+      <div>
+        <button
+          onClick={() => setExpanded(!isOpen)}
+          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            isChildActive ? 'bg-accent-500/10 text-accent-400' : 'text-slate-400 hover:text-white hover:bg-brand-900'
+          }`}
+        >
+          {item.icon}
+          <span className="flex-1 text-left">{item.label}</span>
+          {isOpen ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        </button>
+        {isOpen && (
+          <div className="ml-4 mt-1 space-y-1 border-l border-brand-800 pl-3">
+            {item.children!.map((child) => (
+              <button
+                key={child.id}
+                onClick={() => onNavigate(child.id)}
+                className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${
+                  activeView === child.id
+                    ? 'bg-accent-500 text-white'
+                    : 'text-slate-400 hover:text-white hover:bg-brand-900'
+                }`}
+              >
+                {child.icon}
+                <span>{child.label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => onNavigate(item.id)}
+      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+        activeView === item.id
+          ? 'bg-accent-500 text-white shadow-lg shadow-accent-900/30'
+          : 'text-slate-400 hover:text-white hover:bg-brand-900'
+      }`}
+    >
+      {item.icon}
+      <span>{item.label}</span>
+    </button>
+  );
 }
 
 export function Layout({ children, activeView, onNavigate, navItems, area = 'bolao', onSwitchArea }: LayoutProps) {
@@ -48,18 +111,12 @@ export function Layout({ children, activeView, onNavigate, navItems, area = 'bol
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
           {navItems.map((item) => (
-            <button
+            <NavEntry
               key={item.id}
-              onClick={() => { onNavigate(item.id); setSidebarOpen(false); }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                activeView === item.id
-                  ? 'bg-accent-500 text-white shadow-lg shadow-accent-900/30'
-                  : 'text-slate-400 hover:text-white hover:bg-brand-900'
-              }`}
-            >
-              {item.icon}
-              <span>{item.label}</span>
-            </button>
+              item={item}
+              activeView={activeView}
+              onNavigate={(v) => { onNavigate(v); setSidebarOpen(false); }}
+            />
           ))}
         </nav>
 
