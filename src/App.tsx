@@ -43,7 +43,8 @@ function AppContent() {
   if (area === 'financial' && isAdmin) {
     const finNav: NavItem[] = [
       { id: 'fin-dashboard', label: 'Dashboard', icon: <Wallet size={18} /> },
-      { id: 'fin-bills', label: 'Contas a Pagar', icon: <Receipt size={18} />, children: [
+      { id: 'fin-bills-group', label: 'Pagamentos', icon: <Receipt size={18} />, children: [
+        { id: 'fin-bills', label: 'Contas a Pagar', icon: <Receipt size={16} /> },
         { id: 'fin-categories', label: 'Categorias', icon: <Tag size={16} /> },
       ]},
       { id: 'fin-daily', label: 'Controle Diário', icon: <CalendarCheck size={18} /> },

@@ -160,7 +160,7 @@ export function FinancialDailyControl() {
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-accent-50 text-accent-600 flex items-center justify-center"><DollarSign size={22} /></div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Total Valor 003</p>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Total Retiradas</p>
           </div>
           <p className="text-2xl font-bold text-accent-600">R$ {formatBRL(totalValor003)}</p>
         </Card>
@@ -192,7 +192,7 @@ export function FinancialDailyControl() {
                 <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
                   <th className="px-4 py-3 font-medium">Data</th>
                   <th className="px-4 py-3 font-medium text-right">Trabalhado no Dia</th>
-                  <th className="px-4 py-3 font-medium text-right">Valor 003</th>
+                  <th className="px-4 py-3 font-medium text-right">Retiradas</th>
                   <th className="px-4 py-3 font-medium text-right">Cofre</th>
                   <th className="px-4 py-3 font-medium text-right">Diferença</th>
                   <th className="px-4 py-3 font-medium">Observações</th>
@@ -226,7 +226,7 @@ export function FinancialDailyControl() {
         <div className="space-y-4">
           <Input label="Data" type="date" value={form.control_date} onChange={(v) => setForm({ ...form, control_date: v })} required />
           <Input label="Trabalhado no Dia (R$)" type="text" value={form.worked_amount} onChange={(v) => setForm({ ...form, worked_amount: v })} placeholder="0,00" />
-          <Input label="Valor 003" type="text" value={form.valor_003} onChange={(v) => setForm({ ...form, valor_003: v })} placeholder="0,00" />
+          <Input label="Retiradas" type="text" value={form.valor_003} onChange={(v) => setForm({ ...form, valor_003: v })} placeholder="0,00" />
           <Input label="Valor no Cofre" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
           <div className="bg-slate-50 rounded-lg p-4 flex items-center justify-between">
             <span className="text-sm font-medium text-slate-600">Diferença de Saldo (automático)</span>
