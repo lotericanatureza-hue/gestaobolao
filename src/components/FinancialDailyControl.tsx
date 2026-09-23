@@ -5,7 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Spinner, EmptyState } from './ui';
 import { formatBRL, formatDateBR } from '../lib/format';
-import type { FinDailyControl, Branch } from '../lib/types';
+import type { FinDailyControl, DailyWithdrawal, Branch } from '../lib/types';
 
 const emptyForm = {
   control_date: new Date().toISOString().split('T')[0],
@@ -79,6 +79,7 @@ export function FinancialDailyControl() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FinDailyControl | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [withdrawals, setWithdrawals] = useState<DailyWithdrawal[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fMonth, setFMonth] = useState('');
@@ -111,6 +112,7 @@ export function FinancialDailyControl() {
   const openNew = () => {
     setEditing(null);
     setForm(emptyForm);
+    setWithdrawals([]);
     setError(null);
     setModalOpen(true);
   };
@@ -125,13 +127,21 @@ export function FinancialDailyControl() {
       safe_amount: String(r.safe_amount),
       notes: r.notes ?? '',
     });
+    setWithdrawals(r.withdrawals ?? []);
     setError(null);
     setModalOpen(true);
   };
 
+  const addWithdrawal = () => setWithdrawals([...withdrawals, { id: crypto.randomUUID(), description: '', amount: 0 }]);
+  const updateWithdrawal = (id: string, field: 'description' | 'amount', value: string) => {
+    setWithdrawals(withdrawals.map((w) => w.id === id ? { ...w, [field]: field === 'amount' ? parseFloat(value.replace(',', '.')) || 0 : value } : w));
+  };
+  const removeWithdrawal = (id: string) => setWithdrawals(withdrawals.filter((w) => w.id !== id));
+  const totalWithdrawals = withdrawals.reduce((s, w) => s + Number(w.amount), 0);
+
   const save = async () => {
     const worked = parseFloat(form.worked_amount.replace(',', '.')) || 0;
-    const valor003 = parseFloat(form.valor_003.replace(',', '.')) || 0;
+    const valor003 = totalWithdrawals;
     const valor043 = parseFloat(form.valor_043.replace(',', '.')) || 0;
     const safe = parseFloat(form.safe_amount.replace(',', '.')) || 0;
     const diff = worked - valor043;
@@ -145,6 +155,7 @@ export function FinancialDailyControl() {
       valor_043: valor043,
       safe_amount: safe,
       balance_difference: diff,
+      withdrawals: withdrawals as unknown as Record<string, unknown>[],
       notes: form.notes.trim() || null,
     };
     if (editing) {
@@ -176,9 +187,9 @@ export function FinancialDailyControl() {
   const groups = groupByPeriod(filtered);
   const totalSafe = filtered.reduce((s, r) => s + Number(r.safe_amount), 0);
   const totalDiff = filtered.reduce((s, r) => s + (Number(r.worked_amount) - Number(r.valor_043 ?? 0)), 0);
-  const totalSaldoGeral = filtered.reduce((s, r) => s + ((Number(r.safe_amount) - Number(r.worked_amount)) - (Number(r.worked_amount) - Number(r.valor_043 ?? 0))), 0);
+  const totalSaldoGeral = filtered.reduce((s, r) => s + ((Number(r.worked_amount) - Number(r.valor_043 ?? 0)) + (Number(r.safe_amount) - Number(r.worked_amount))), 0);
   const totalWorked = filtered.reduce((s, r) => s + Number(r.worked_amount), 0);
-  const totalValor003 = filtered.reduce((s, r) => s + Number(r.valor_003 ?? 0), 0);
+  const totalValor003 = filtered.reduce((s, r) => s + (r.withdrawals?.reduce((ws, w) => ws + Number(w.amount), 0) ?? Number(r.valor_003 ?? 0)), 0);
   const totalValor043 = filtered.reduce((s, r) => s + Number(r.valor_043 ?? 0), 0);
 
   const now = new Date();
@@ -281,11 +292,11 @@ export function FinancialDailyControl() {
               <tbody>
                 {groups.map((g) => {
                   const sumWorked = g.records.reduce((s, r) => s + Number(r.worked_amount), 0);
-                  const sumValor003 = g.records.reduce((s, r) => s + Number(r.valor_003 ?? 0), 0);
+                  const sumValor003 = g.records.reduce((s, r) => s + (r.withdrawals?.reduce((ws, w) => ws + Number(w.amount), 0) ?? Number(r.valor_003 ?? 0)), 0);
                   const sumSafe = g.records.reduce((s, r) => s + Number(r.safe_amount), 0);
                   const sumValor043 = g.records.reduce((s, r) => s + Number(r.valor_043 ?? 0), 0);
                   const sumDiff = g.records.reduce((s, r) => s + (Number(r.worked_amount) - Number(r.valor_043 ?? 0)), 0);
-                  const sumSaldoGeral = g.records.reduce((s, r) => s + ((Number(r.safe_amount) - Number(r.worked_amount)) - (Number(r.worked_amount) - Number(r.valor_043 ?? 0))), 0);
+                  const sumSaldoGeral = g.records.reduce((s, r) => s + ((Number(r.worked_amount) - Number(r.valor_043 ?? 0)) + (Number(r.safe_amount) - Number(r.worked_amount))), 0);
                   const notes = g.records.map((r) => r.notes).filter(Boolean).join('; ') || '—';
                   const expanded = expandedPeriod === g.key;
                   return (
@@ -321,11 +332,11 @@ export function FinancialDailyControl() {
                         <tr key={r.id} className="border-b border-slate-50 bg-slate-50/50">
                           <td className="px-4 py-2 pl-8 text-sm text-slate-600">{formatDateBR(r.control_date, { weekday: 'short' })}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.worked_amount))}</td>
-                          <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.valor_003 ?? 0))}</td>
+                          <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(r.withdrawals?.reduce((ws, w) => ws + Number(w.amount), 0) ?? Number(r.valor_003 ?? 0))}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.safe_amount))}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.valor_043 ?? 0))}</td>
                           <td className={`px-4 py-2 text-right ${(Number(r.worked_amount) - Number(r.valor_043 ?? 0)) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.worked_amount) - Number(r.valor_043 ?? 0))}</td>
-                          <td className={`px-4 py-2 text-right ${((Number(r.safe_amount) - Number(r.worked_amount)) - (Number(r.worked_amount) - Number(r.valor_043 ?? 0))) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL((Number(r.safe_amount) - Number(r.worked_amount)) - (Number(r.worked_amount) - Number(r.valor_043 ?? 0)))}</td>
+                          <td className={`px-4 py-2 text-right ${((Number(r.worked_amount) - Number(r.valor_043 ?? 0)) + (Number(r.safe_amount) - Number(r.worked_amount))) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL((Number(r.worked_amount) - Number(r.valor_043 ?? 0)) + (Number(r.safe_amount) - Number(r.worked_amount)))}</td>
                           <td className="px-4 py-2 text-slate-400 text-xs">{r.notes ?? '—'}</td>
                           <td className="px-4 py-2 text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -348,7 +359,32 @@ export function FinancialDailyControl() {
         <div className="space-y-4">
           <Input label="Data" type="date" value={form.control_date} onChange={(v) => setForm({ ...form, control_date: v })} required />
           <Input label="Trabalhado no Dia (R$)" type="text" value={form.worked_amount} onChange={(v) => setForm({ ...form, worked_amount: v })} placeholder="0,00" />
-          <Input label="Retiradas" type="text" value={form.valor_003} onChange={(v) => setForm({ ...form, valor_003: v })} placeholder="0,00" />
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-sm font-medium text-slate-700">Retiradas</label>
+              <Button size="sm" variant="secondary" onClick={addWithdrawal}><Plus size={14} /> Adicionar</Button>
+            </div>
+            {withdrawals.length === 0 && (
+              <p className="text-sm text-slate-400">Nenhuma retirada adicionada.</p>
+            )}
+            {withdrawals.map((w) => (
+              <div key={w.id} className="flex items-start gap-2">
+                <div className="flex-1">
+                  <Input type="text" value={String(w.amount || '')} onChange={(v) => updateWithdrawal(w.id, 'amount', v)} placeholder="Valor" />
+                </div>
+                <div className="flex-1">
+                  <Input type="text" value={w.description} onChange={(v) => updateWithdrawal(w.id, 'description', v)} placeholder="Observação" />
+                </div>
+                <Button size="sm" variant="ghost" onClick={() => removeWithdrawal(w.id)}><Trash2 size={14} /></Button>
+              </div>
+            ))}
+            {withdrawals.length > 0 && (
+              <div className="flex items-center justify-between bg-slate-50 rounded-lg px-3 py-2">
+                <span className="text-sm font-medium text-slate-600">Total Retiradas</span>
+                <span className="text-sm font-bold text-accent-600">R$ {formatBRL(totalWithdrawals)}</span>
+              </div>
+            )}
+          </div>
           <Input label="Valor no Cofre" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
           <Input label="Debitado em Conta (043)" type="text" value={form.valor_043} onChange={(v) => setForm({ ...form, valor_043: v })} placeholder="0,00" />
           <div className="bg-slate-50 rounded-lg p-4 space-y-2">
@@ -366,8 +402,8 @@ export function FinancialDailyControl() {
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-slate-600">Saldo Geral</span>
-              <span className={`text-lg font-bold ${((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0) - ((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0))) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                R$ {formatBRL((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0) - ((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0)))}
+              <span className={`text-lg font-bold ${(((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0)) + ((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0))) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                R$ {formatBRL(((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0)) + ((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0)))}
               </span>
             </div>
           </div>
