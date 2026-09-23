@@ -134,8 +134,7 @@ export function FinancialDailyControl() {
     const valor003 = parseFloat(form.valor_003.replace(',', '.')) || 0;
     const valor043 = parseFloat(form.valor_043.replace(',', '.')) || 0;
     const safe = parseFloat(form.safe_amount.replace(',', '.')) || 0;
-    const saldo = worked - safe;
-    const diff = valor043 - saldo;
+    const diff = worked - valor043;
     setSaving(true);
     setError(null);
     const payload = {
@@ -176,7 +175,8 @@ export function FinancialDailyControl() {
 
   const groups = groupByPeriod(filtered);
   const totalSafe = filtered.reduce((s, r) => s + Number(r.safe_amount), 0);
-  const totalDiff = filtered.reduce((s, r) => s + (Number(r.valor_043 ?? 0) - (Number(r.worked_amount) - Number(r.safe_amount))), 0);
+  const totalDiff = filtered.reduce((s, r) => s + (Number(r.worked_amount) - Number(r.valor_043 ?? 0)), 0);
+  const totalSaldoGeral = filtered.reduce((s, r) => s + ((Number(r.worked_amount) - Number(r.safe_amount)) - (Number(r.worked_amount) - Number(r.valor_043 ?? 0))), 0);
   const totalWorked = filtered.reduce((s, r) => s + Number(r.worked_amount), 0);
   const totalValor003 = filtered.reduce((s, r) => s + Number(r.valor_003 ?? 0), 0);
   const totalValor043 = filtered.reduce((s, r) => s + Number(r.valor_043 ?? 0), 0);
@@ -209,7 +209,7 @@ export function FinancialDailyControl() {
         }
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-6 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><DollarSign size={22} /></div>
@@ -248,6 +248,15 @@ export function FinancialDailyControl() {
           </div>
           <p className={`text-2xl font-bold ${totalDiff >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(totalDiff)}</p>
         </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${totalSaldoGeral >= 0 ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
+              <Wallet size={22} />
+            </div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Saldo Geral</p>
+          </div>
+          <p className={`text-2xl font-bold ${totalSaldoGeral >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL(totalSaldoGeral)}</p>
+        </Card>
       </div>
 
       {filtered.length === 0 ? (
@@ -264,6 +273,7 @@ export function FinancialDailyControl() {
                   <th className="px-4 py-3 font-medium text-right">Cofre</th>
                   <th className="px-4 py-3 font-medium text-right">Debitado Conta (043)</th>
                   <th className="px-4 py-3 font-medium text-right">Diferença</th>
+                  <th className="px-4 py-3 font-medium text-right">Saldo Geral</th>
                   <th className="px-4 py-3 font-medium">Observações</th>
                   <th className="px-4 py-3 font-medium text-right">Ações</th>
                 </tr>
@@ -274,7 +284,8 @@ export function FinancialDailyControl() {
                   const sumValor003 = g.records.reduce((s, r) => s + Number(r.valor_003 ?? 0), 0);
                   const sumSafe = g.records.reduce((s, r) => s + Number(r.safe_amount), 0);
                   const sumValor043 = g.records.reduce((s, r) => s + Number(r.valor_043 ?? 0), 0);
-                  const sumDiff = g.records.reduce((s, r) => s + (Number(r.valor_043 ?? 0) - (Number(r.worked_amount) - Number(r.safe_amount))), 0);
+                  const sumDiff = g.records.reduce((s, r) => s + (Number(r.worked_amount) - Number(r.valor_043 ?? 0)), 0);
+                  const sumSaldoGeral = g.records.reduce((s, r) => s + ((Number(r.worked_amount) - Number(r.safe_amount)) - (Number(r.worked_amount) - Number(r.valor_043 ?? 0))), 0);
                   const notes = g.records.map((r) => r.notes).filter(Boolean).join('; ') || '—';
                   const expanded = expandedPeriod === g.key;
                   return (
@@ -295,6 +306,7 @@ export function FinancialDailyControl() {
                         <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(sumSafe)}</td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-700">R$ {formatBRL(sumValor043)}</td>
                         <td className={`px-4 py-3 text-right font-semibold ${sumDiff >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(sumDiff)}</td>
+                        <td className={`px-4 py-3 text-right font-semibold ${sumSaldoGeral >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL(sumSaldoGeral)}</td>
                         <td className="px-4 py-3 text-slate-500 text-xs">{notes}</td>
                         <td className="px-4 py-3 text-right">
                           {g.records.length === 1 && (
@@ -312,7 +324,8 @@ export function FinancialDailyControl() {
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.valor_003 ?? 0))}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.safe_amount))}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.valor_043 ?? 0))}</td>
-                          <td className={`px-4 py-2 text-right ${(Number(r.valor_043 ?? 0) - (Number(r.worked_amount) - Number(r.safe_amount))) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.valor_043 ?? 0) - (Number(r.worked_amount) - Number(r.safe_amount)))}</td>
+                          <td className={`px-4 py-2 text-right ${(Number(r.worked_amount) - Number(r.valor_043 ?? 0)) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.worked_amount) - Number(r.valor_043 ?? 0))}</td>
+                          <td className={`px-4 py-2 text-right ${((Number(r.worked_amount) - Number(r.safe_amount)) - (Number(r.worked_amount) - Number(r.valor_043 ?? 0))) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL((Number(r.worked_amount) - Number(r.safe_amount)) - (Number(r.worked_amount) - Number(r.valor_043 ?? 0)))}</td>
                           <td className="px-4 py-2 text-slate-400 text-xs">{r.notes ?? '—'}</td>
                           <td className="px-4 py-2 text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -346,9 +359,15 @@ export function FinancialDailyControl() {
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-600">Diferença de Saldo (Debitado - Saldo)</span>
-              <span className={`text-lg font-bold ${((parseFloat(form.valor_043.replace(',', '.')) || 0) - ((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0))) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                R$ {formatBRL((parseFloat(form.valor_043.replace(',', '.')) || 0) - ((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0)))}
+              <span className="text-sm font-medium text-slate-600">Diferença de Saldo (Trabalhado - Debitado 043)</span>
+              <span className={`text-lg font-bold ${((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0)) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                R$ {formatBRL((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0))}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-slate-600">Saldo Geral (Saldo - Diferença)</span>
+              <span className={`text-lg font-bold ${((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0) - ((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0))) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                R$ {formatBRL((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0) - ((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0)))}
               </span>
             </div>
           </div>
