@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { CalendarCheck, Plus, Pencil, Trash2, DollarSign, Wallet } from 'lucide-react';
+import { Fragment, useEffect, useState, useCallback } from 'react';
+import { CalendarCheck, Plus, Pencil, Trash2, DollarSign, Wallet, ChevronDown, ChevronRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -15,6 +15,59 @@ const emptyForm = {
   notes: '',
 };
 
+const weekdaysShort = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+function getWeekendSaturday(dateStr: string): string | null {
+  const datePart = dateStr.includes('T') ? dateStr.split('T')[0] : dateStr;
+  const [y, m, d] = datePart.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  const dow = date.getDay();
+  if (dow === 6) return datePart;
+  if (dow === 0) return formatYmd(new Date(y, m - 1, d - 1));
+  if (dow === 1) return formatYmd(new Date(y, m - 1, d - 2));
+  return null;
+}
+
+function formatYmd(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+interface PeriodGroup {
+  key: string;
+  records: FinDailyControl[];
+  label: string;
+}
+
+function groupByPeriod(records: FinDailyControl[]): PeriodGroup[] {
+  const map = new Map<string, FinDailyControl[]>();
+  for (const r of records) {
+    const sat = getWeekendSaturday(r.control_date);
+    const key = sat ?? r.control_date;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key)!.push(r);
+  }
+  return Array.from(map.entries()).map(([key, recs]) => {
+    const sorted = [...recs].sort((a, b) => a.control_date.localeCompare(b.control_date));
+    let label: string;
+    if (sorted.length === 1) {
+      label = formatDateBR(sorted[0].control_date, { weekday: 'short' });
+    } else {
+      const first = sorted[0];
+      const last = sorted[sorted.length - 1];
+      const [fy, fm, fd] = first.control_date.split('-');
+      const [ly, lm, ld] = last.control_date.split('-');
+      const firstDate = new Date(Number(fy), Number(fm) - 1, Number(fd));
+      const lastDate = new Date(Number(ly), Number(lm) - 1, Number(ld));
+      const firstWd = weekdaysShort[firstDate.getDay()];
+      const lastWd = weekdaysShort[lastDate.getDay()];
+      label = fm === lm
+        ? `${fd}-${ld} ${firstWd}-${lastWd}`
+        : `${fd}/${fm}-${ld}/${lm} ${firstWd}-${lastWd}`;
+    }
+    return { key, records: sorted, label };
+  }).sort((a, b) => b.key.localeCompare(a.key));
+}
+
 export function FinancialDailyControl() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
@@ -28,6 +81,7 @@ export function FinancialDailyControl() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fMonth, setFMonth] = useState('');
+  const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
 
   useEffect(() => {
     supabase.from('branches').select('*').order('name').then(({ data }) => {
@@ -115,6 +169,7 @@ export function FinancialDailyControl() {
     return true;
   });
 
+  const groups = groupByPeriod(filtered);
   const totalSafe = filtered.reduce((s, r) => s + Number(r.safe_amount), 0);
   const totalDiff = filtered.reduce((s, r) => s + Number(r.balance_difference), 0);
   const totalWorked = filtered.reduce((s, r) => s + Number(r.worked_amount), 0);
@@ -190,7 +245,7 @@ export function FinancialDailyControl() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-slate-500 border-b border-slate-100 bg-slate-50">
-                  <th className="px-4 py-3 font-medium">Data</th>
+                  <th className="px-4 py-3 font-medium">Período</th>
                   <th className="px-4 py-3 font-medium text-right">Trabalhado no Dia</th>
                   <th className="px-4 py-3 font-medium text-right">Retiradas</th>
                   <th className="px-4 py-3 font-medium text-right">Cofre</th>
@@ -200,22 +255,59 @@ export function FinancialDailyControl() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-900">{formatDateBR(r.control_date, { weekday: 'short' })}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(Number(r.worked_amount))}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-accent-600">R$ {formatBRL(Number(r.valor_003 ?? 0))}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(Number(r.safe_amount))}</td>
-                    <td className={`px-4 py-3 text-right font-semibold ${Number(r.balance_difference) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.balance_difference))}</td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">{r.notes ?? '—'}</td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil size={14} /></Button>
-                        <Button size="sm" variant="ghost" onClick={() => remove(r)}><Trash2 size={14} /></Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {groups.map((g) => {
+                  const sumWorked = g.records.reduce((s, r) => s + Number(r.worked_amount), 0);
+                  const sumValor003 = g.records.reduce((s, r) => s + Number(r.valor_003 ?? 0), 0);
+                  const sumSafe = g.records.reduce((s, r) => s + Number(r.safe_amount), 0);
+                  const sumDiff = g.records.reduce((s, r) => s + Number(r.balance_difference), 0);
+                  const notes = g.records.map((r) => r.notes).filter(Boolean).join('; ') || '—';
+                  const expanded = expandedPeriod === g.key;
+                  return (
+                    <Fragment key={g.key}>
+                      <tr className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                        <td className="px-4 py-3 font-medium text-slate-900">
+                          {g.records.length > 1 ? (
+                            <button onClick={() => setExpandedPeriod(expanded ? null : g.key)} className="flex items-center gap-1 hover:text-brand-600 transition-colors">
+                              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                              {g.label}
+                            </button>
+                          ) : (
+                            g.label
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(sumWorked)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-accent-600">R$ {formatBRL(sumValor003)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(sumSafe)}</td>
+                        <td className={`px-4 py-3 text-right font-semibold ${sumDiff >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(sumDiff)}</td>
+                        <td className="px-4 py-3 text-slate-500 text-xs">{notes}</td>
+                        <td className="px-4 py-3 text-right">
+                          {g.records.length === 1 && (
+                            <div className="flex items-center justify-end gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => openEdit(g.records[0])}><Pencil size={14} /></Button>
+                              <Button size="sm" variant="ghost" onClick={() => remove(g.records[0])}><Trash2 size={14} /></Button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                      {expanded && g.records.map((r) => (
+                        <tr key={r.id} className="border-b border-slate-50 bg-slate-50/50">
+                          <td className="px-4 py-2 pl-8 text-sm text-slate-600">{formatDateBR(r.control_date, { weekday: 'short' })}</td>
+                          <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.worked_amount))}</td>
+                          <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.valor_003 ?? 0))}</td>
+                          <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.safe_amount))}</td>
+                          <td className={`px-4 py-2 text-right ${Number(r.balance_difference) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.balance_difference))}</td>
+                          <td className="px-4 py-2 text-slate-400 text-xs">{r.notes ?? '—'}</td>
+                          <td className="px-4 py-2 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <Button size="sm" variant="ghost" onClick={() => openEdit(r)}><Pencil size={14} /></Button>
+                              <Button size="sm" variant="ghost" onClick={() => remove(r)}><Trash2 size={14} /></Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           </div>
