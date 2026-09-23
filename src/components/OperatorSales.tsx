@@ -6,7 +6,7 @@ import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Spinner, EmptyState, Badge, Modal } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { computeAllocationKpis, getStatusLabel, pluralize } from '../lib/bolaoKpis';
-import { formatBRL } from '../lib/format';
+import { formatBRL, formatDateBR } from '../lib/format';
 import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS } from '../lib/commission';
 import type { BolaoOperatorAllocation, Profile } from '../lib/types';
 
@@ -298,7 +298,7 @@ export function OperatorSales() {
                             <span className="flex items-center gap-1"><Info size={12} className="text-slate-400" /> Valor unitário: <strong className="text-slate-700">R$ {formatBRL(perShare)}</strong></span>
                             <span>Sua fatia: {a.shares_allocated} cota(s) · R$ {formatBRL(totalAllocatedValue)}</span>
                             <span>Vendida(s): {a.shares_sold}</span>
-                            <span className="flex items-center gap-1"><Clock size={11} /> {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
+                            <span className="flex items-center gap-1"><Clock size={11} /> {formatDateBR(b.draw_date)} às {b.draw_time?.slice(0, 5)}</span>
                           </div>
                           {availableShares > 0 && <div className="text-xs text-emerald-600 mt-0.5">{availableShares} cota(s) disponível(is) para venda</div>}
                         </div>
@@ -412,7 +412,7 @@ export function OperatorSales() {
                 <div>
                   <p className="font-semibold text-brand-950">{b.product?.name}</p>
                   <p className="text-xs text-slate-400">Concurso {b.contest_number} · {b.jogos} jogo(s) de {b.dezenas} dezenas</p>
-                  <p className="text-xs text-slate-400">Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</p>
+                  <p className="text-xs text-slate-400">Sorteio: {formatDateBR(b.draw_date)} às {b.draw_time?.slice(0, 5)}</p>
                 </div>
               </div>
 

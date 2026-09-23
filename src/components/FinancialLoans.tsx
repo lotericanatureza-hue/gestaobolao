@@ -3,7 +3,7 @@ import { HandCoins, Plus, ArrowRightLeft, ArrowLeftRight, Trash2, Pencil, Trendi
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
-import { formatBRL } from '../lib/format';
+import { formatBRL, formatDateBR } from '../lib/format';
 import type { FinLoan, FinLoanReturn, Branch } from '../lib/types';
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -220,7 +220,7 @@ export function FinancialLoans() {
       {Object.keys(pairSummary).length > 0 && (
         <Card className="p-5 mb-6">
           <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-            <Calendar size={16} /> Resumo do dia — {new Date(fDate).toLocaleDateString('pt-BR')}
+            <Calendar size={16} /> Resumo do dia — {formatDateBR(fDate)}
           </h3>
           <div className="space-y-2">
             {Object.entries(pairSummary).map(([pair, vals]) => (
@@ -260,7 +260,7 @@ export function FinancialLoans() {
                   const remaining = Number(l.amount) - Number(l.returned_amount);
                   return (
                     <tr key={l.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                      <td className="px-4 py-3 font-medium text-slate-900">{new Date(l.loan_date).toLocaleDateString('pt-BR')}</td>
+                      <td className="px-4 py-3 font-medium text-slate-900">{formatDateBR(l.loan_date)}</td>
                       <td className="px-4 py-3 text-slate-700">{branchName(l.from_branch_id)}</td>
                       <td className="px-4 py-3 text-slate-700">{branchName(l.to_branch_id)}</td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(Number(l.amount))}</td>
@@ -296,7 +296,7 @@ export function FinancialLoans() {
       {dayReturns.length > 0 && (
         <Card className="overflow-hidden mb-6">
           <h3 className="text-sm font-semibold text-slate-700 px-5 pt-4 pb-2 flex items-center gap-2">
-            <ArrowLeftRight size={16} /> Devoluções do dia — {new Date(fDate).toLocaleDateString('pt-BR')}
+            <ArrowLeftRight size={16} /> Devoluções do dia — {formatDateBR(fDate)}
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -311,7 +311,7 @@ export function FinancialLoans() {
               <tbody>
                 {dayReturns.map((r) => (
                   <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-900">{new Date(r.return_date).toLocaleDateString('pt-BR')}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{formatDateBR(r.return_date)}</td>
                     <td className="px-4 py-3 text-slate-700">{branchName(r.loan.from_branch_id)} → {branchName(r.loan.to_branch_id)}</td>
                     <td className="px-4 py-3 text-right font-semibold text-emerald-600">R$ {formatBRL(Number(r.amount))}</td>
                     <td className="px-4 py-3 text-right">

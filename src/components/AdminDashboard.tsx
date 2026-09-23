@@ -7,7 +7,7 @@ import { Card, Spinner, EmptyState, Badge, Button } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import type { Bolao, Branch, Profile, BolaoOperatorAllocation, BolaoBranchAllocation, MonthlyGoal } from '../lib/types';
 import { computeBolaoKpis, computeAllocationKpis, pluralize, getStatusLabel, type BolaoKpis } from '../lib/bolaoKpis';
-import { formatBRL } from '../lib/format';
+import { formatBRL, formatDateBR } from '../lib/format';
 import { calculateTieredCommission, getCommissionRate, GROUP_MONTHLY_GOAL as DEFAULT_GOAL } from '../lib/commission';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -604,7 +604,7 @@ export function AdminDashboard() {
                                           <span className="text-xs text-slate-400">Concurso {b.contest_number}</span>
                                           <Badge color={statusInfo.color}>{statusInfo.label}</Badge>
                                         </div>
-                                        <p className="text-xs text-slate-400">Sorteio {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</p>
+                                        <p className="text-xs text-slate-400">Sorteio {formatDateBR(b.draw_date)} às {b.draw_time?.slice(0, 5)}</p>
                                       </div>
                                       <div className="text-xs text-right">
                                         <p className="text-emerald-600 font-semibold">{a.shares_sold} vendida(s) · R$ {formatBRL(perShare * a.shares_sold)}</p>

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
-import { formatBRL } from '../lib/format';
+import { formatBRL, formatDateBR } from '../lib/format';
 import type { FinCashClosing, FinEmployee, PixExternal, Branch } from '../lib/types';
 
 interface ExtractedData {
@@ -283,7 +283,7 @@ export function FinancialCashClosing() {
   };
 
   const removeClosing = async (c: FinCashClosing) => {
-    if (!confirm(`Excluir o fechamento de ${new Date(c.closing_date).toLocaleDateString('pt-BR')}?`)) return;
+    if (!confirm(`Excluir o fechamento de ${formatDateBR(c.closing_date)}?`)) return;
     if (c.pdf_path) await supabase.storage.from('financial-pdfs').remove([c.pdf_path]);
     await supabase.from('fin_cash_closing').delete().eq('id', c.id);
     fetchData();
@@ -402,7 +402,7 @@ export function FinancialCashClosing() {
                     <div className="bg-slate-50 rounded-lg p-4">
                       <div className="flex items-center justify-between mb-3">
                         <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                          <Calendar size={16} /> Caixa do dia — {new Date(fDate).toLocaleDateString('pt-BR')}
+                          <Calendar size={16} /> Caixa do dia — {formatDateBR(fDate)}
                         </h4>
                         <Button size="sm" onClick={() => openNew(employee)}>
                           <Plus size={14} /> Fechar Caixa
@@ -449,7 +449,7 @@ export function FinancialCashClosing() {
                             <div key={c.id} className="flex items-center justify-between bg-amber-50 rounded-lg p-3 border border-amber-200">
                               <div className="flex items-center gap-3">
                                 <Badge color="amber"><Unlock size={12} className="mr-1" /> Pendente</Badge>
-                                <span className="text-sm text-slate-700">{new Date(c.closing_date).toLocaleDateString('pt-BR')}</span>
+                                <span className="text-sm text-slate-700">{formatDateBR(c.closing_date)}</span>
                                 <span className="text-sm text-slate-500">Vendas: R$ {formatBRL(Number(c.total_sales))}</span>
                               </div>
                               <div className="flex items-center gap-2">
@@ -475,7 +475,7 @@ export function FinancialCashClosing() {
                               <summary className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-lg">
                                 <div className="flex items-center gap-3">
                                   <Badge color="blue"><Lock size={12} className="mr-1" /> Fechado</Badge>
-                                  <span className="text-sm text-slate-700">{new Date(c.closing_date).toLocaleDateString('pt-BR')}</span>
+                                  <span className="text-sm text-slate-700">{formatDateBR(c.closing_date)}</span>
                                   <span className="text-sm text-slate-500">Vendas: R$ {formatBRL(Number(c.total_sales))}</span>
                                 </div>
                                 <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>

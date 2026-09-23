@@ -6,7 +6,7 @@ import { PageHeader } from './Layout';
 import { Card, Input, Select, Spinner, EmptyState, Badge } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { computeAllocationKpis, getStatusLabel, pluralize, type BolaoKpis } from '../lib/bolaoKpis';
-import { formatBRL } from '../lib/format';
+import { formatBRL, formatDateBR } from '../lib/format';
 import { calculateTieredCommission, getCommissionRate, getCurrentTierIndex, getProgressToNextTier, getRemainingToNextTier, COMMISSION_TIERS } from '../lib/commission';
 import type { BolaoOperatorAllocation, BolaoStatus } from '../lib/types';
 
@@ -244,7 +244,7 @@ export function OperatorManage() {
                       <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-400 mt-1">
                         <span>Concurso: {b.contest_number}</span>
                         <span>{b.jogos} jogo(s) de {b.dezenas} dezenas</span>
-                        <span>Sorteio: {new Date(b.draw_date).toLocaleDateString('pt-BR')} às {b.draw_time?.slice(0, 5)}</span>
+                        <span>Sorteio: {formatDateBR(b.draw_date)} às {b.draw_time?.slice(0, 5)}</span>
                       </div>
                     </div>
                   </div>

@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
-import { formatBRL } from '../lib/format';
+import { formatBRL, formatDateBR } from '../lib/format';
 import type { FinBill, FinCategory, FinSubcategory, FinPaymentSource, Branch } from '../lib/types';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -303,7 +303,7 @@ export function FinancialBills() {
                     <td className="px-4 py-3 text-slate-600">{b.category?.name ?? '—'}</td>
                     <td className="px-4 py-3 text-slate-600">{b.payment_source?.name ?? '—'}</td>
                     <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(Number(b.amount))}</td>
-                    <td className="px-4 py-3 text-slate-600">{b.due_date ? new Date(b.due_date).toLocaleDateString('pt-BR') : '—'}</td>
+                    <td className="px-4 py-3 text-slate-600">{b.due_date ? formatDateBR(b.due_date) : '—'}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs">{monthNames[b.month_ref - 1]}/{b.year_ref}</td>
                     <td className="px-4 py-3">
                       <button onClick={() => togglePaid(b)} className="inline-flex items-center gap-1">

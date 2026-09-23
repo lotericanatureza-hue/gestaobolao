@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Spinner, EmptyState } from './ui';
-import { formatBRL } from '../lib/format';
+import { formatBRL, formatDateBR } from '../lib/format';
 import type { FinDailyControl, Branch } from '../lib/types';
 
 const emptyForm = {
@@ -100,7 +100,7 @@ export function FinancialDailyControl() {
   };
 
   const remove = async (r: FinDailyControl) => {
-    if (!confirm(`Excluir o registro de ${new Date(r.control_date).toLocaleDateString('pt-BR')}?`)) return;
+    if (!confirm(`Excluir o registro de ${formatDateBR(r.control_date)}?`)) return;
     await supabase.from('fin_daily_control').delete().eq('id', r.id);
     fetchData();
   };
@@ -202,7 +202,7 @@ export function FinancialDailyControl() {
               <tbody>
                 {filtered.map((r) => (
                   <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-3 font-medium text-slate-900">{new Date(r.control_date).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+                    <td className="px-4 py-3 font-medium text-slate-900">{formatDateBR(r.control_date, { weekday: 'short' })}</td>
                     <td className="px-4 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(Number(r.worked_amount))}</td>
                     <td className="px-4 py-3 text-right font-semibold text-accent-600">R$ {formatBRL(Number(r.valor_003 ?? 0))}</td>
                     <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(Number(r.safe_amount))}</td>
