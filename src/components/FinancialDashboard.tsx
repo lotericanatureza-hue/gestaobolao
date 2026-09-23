@@ -215,7 +215,7 @@ export function FinancialDashboard() {
             <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center"><Clock size={18} /></div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Diferença Total</p>
           </div>
-          <p className={`text-xl font-bold ${monthDaily.reduce((s, d) => s + Number(d.balance_difference), 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(monthDaily.reduce((s, d) => s + Number(d.balance_difference), 0))}</p>
+          <p className={`text-xl font-bold ${monthDaily.reduce((s, d) => s + (Number(d.valor_043 ?? 0) - (Number(d.worked_amount) - Number(d.safe_amount))), 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(monthDaily.reduce((s, d) => s + (Number(d.valor_043 ?? 0) - (Number(d.worked_amount) - Number(d.safe_amount))), 0))}</p>
         </Card>
       </div>
 

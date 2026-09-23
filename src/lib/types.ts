@@ -172,6 +172,7 @@ export interface FinDailyControl {
   control_date: string;
   worked_amount: number;
   valor_003: number;
+  valor_043: number;
   safe_amount: number;
   balance_difference: number;
   notes: string | null;
