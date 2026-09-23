@@ -131,7 +131,7 @@ export function FinancialDailyControl() {
     const worked = parseFloat(form.worked_amount.replace(',', '.')) || 0;
     const valor003 = parseFloat(form.valor_003.replace(',', '.')) || 0;
     const safe = parseFloat(form.safe_amount.replace(',', '.')) || 0;
-    const diff = worked + valor003 - safe;
+    const diff = safe - worked;
     setSaving(true);
     setError(null);
     const payload = {
@@ -171,7 +171,7 @@ export function FinancialDailyControl() {
 
   const groups = groupByPeriod(filtered);
   const totalSafe = filtered.reduce((s, r) => s + Number(r.safe_amount), 0);
-  const totalDiff = filtered.reduce((s, r) => s + Number(r.balance_difference), 0);
+  const totalDiff = filtered.reduce((s, r) => s + (Number(r.safe_amount) - Number(r.worked_amount)), 0);
   const totalWorked = filtered.reduce((s, r) => s + Number(r.worked_amount), 0);
   const totalValor003 = filtered.reduce((s, r) => s + Number(r.valor_003 ?? 0), 0);
 
@@ -259,7 +259,7 @@ export function FinancialDailyControl() {
                   const sumWorked = g.records.reduce((s, r) => s + Number(r.worked_amount), 0);
                   const sumValor003 = g.records.reduce((s, r) => s + Number(r.valor_003 ?? 0), 0);
                   const sumSafe = g.records.reduce((s, r) => s + Number(r.safe_amount), 0);
-                  const sumDiff = g.records.reduce((s, r) => s + Number(r.balance_difference), 0);
+                  const sumDiff = g.records.reduce((s, r) => s + (Number(r.safe_amount) - Number(r.worked_amount)), 0);
                   const notes = g.records.map((r) => r.notes).filter(Boolean).join('; ') || '—';
                   const expanded = expandedPeriod === g.key;
                   return (
@@ -295,7 +295,7 @@ export function FinancialDailyControl() {
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.worked_amount))}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.valor_003 ?? 0))}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.safe_amount))}</td>
-                          <td className={`px-4 py-2 text-right ${Number(r.balance_difference) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.balance_difference))}</td>
+                          <td className={`px-4 py-2 text-right ${(Number(r.safe_amount) - Number(r.worked_amount)) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.safe_amount) - Number(r.worked_amount))}</td>
                           <td className="px-4 py-2 text-slate-400 text-xs">{r.notes ?? '—'}</td>
                           <td className="px-4 py-2 text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -322,8 +322,8 @@ export function FinancialDailyControl() {
           <Input label="Valor no Cofre" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
           <div className="bg-slate-50 rounded-lg p-4 flex items-center justify-between">
             <span className="text-sm font-medium text-slate-600">Diferença de Saldo (automático)</span>
-            <span className={`text-lg font-bold ${((parseFloat(form.worked_amount.replace(',', '.')) || 0) + (parseFloat(form.valor_003.replace(',', '.')) || 0)) - (parseFloat(form.safe_amount.replace(',', '.')) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-              R$ {formatBRL(((parseFloat(form.worked_amount.replace(',', '.')) || 0) + (parseFloat(form.valor_003.replace(',', '.')) || 0)) - (parseFloat(form.safe_amount.replace(',', '.')) || 0))}
+            <span className={`text-lg font-bold ${(parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+              R$ {formatBRL((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0))}
             </span>
           </div>
           <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />
