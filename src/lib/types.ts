@@ -174,6 +174,7 @@ export interface FinDailyControl {
   valor_003: number;
   valor_043: number;
   safe_amount: number;
+  current_safe_amount: number;
   balance_difference: number;
   withdrawals: DailyWithdrawal[];
   notes: string | null;

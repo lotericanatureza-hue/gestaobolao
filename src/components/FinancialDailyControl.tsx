@@ -11,8 +11,8 @@ const emptyForm = {
   control_date: new Date().toISOString().split('T')[0],
   worked_amount: '',
   valor_003: '',
-  valor_043: '',
   safe_amount: '',
+  current_safe_amount: '',
   notes: '',
 };
 
@@ -123,8 +123,8 @@ export function FinancialDailyControl() {
       control_date: r.control_date,
       worked_amount: String(r.worked_amount),
       valor_003: String(r.valor_003 ?? 0),
-      valor_043: String(r.valor_043 ?? 0),
       safe_amount: String(r.safe_amount),
+      current_safe_amount: String(r.current_safe_amount ?? 0),
       notes: r.notes ?? '',
     });
     setWithdrawals(r.withdrawals ?? []);
@@ -142,9 +142,9 @@ export function FinancialDailyControl() {
   const save = async () => {
     const worked = parseFloat(form.worked_amount.replace(',', '.')) || 0;
     const valor003 = totalWithdrawals;
-    const valor043 = parseFloat(form.valor_043.replace(',', '.')) || 0;
     const safe = parseFloat(form.safe_amount.replace(',', '.')) || 0;
-    const diff = worked - valor043;
+    const currentSafe = parseFloat(form.current_safe_amount.replace(',', '.')) || 0;
+    const diff = currentSafe - safe;
     setSaving(true);
     setError(null);
     const payload = {
@@ -152,8 +152,9 @@ export function FinancialDailyControl() {
       control_date: form.control_date,
       worked_amount: worked,
       valor_003: valor003,
-      valor_043: valor043,
+      valor_043: 0,
       safe_amount: safe,
+      current_safe_amount: currentSafe,
       balance_difference: diff,
       withdrawals: withdrawals as unknown as Record<string, unknown>[],
       notes: form.notes.trim() || null,
@@ -186,11 +187,10 @@ export function FinancialDailyControl() {
 
   const groups = groupByPeriod(filtered);
   const totalSafe = filtered.reduce((s, r) => s + Number(r.safe_amount), 0);
-  const totalDiff = filtered.reduce((s, r) => s + (Number(r.worked_amount) - Number(r.valor_043 ?? 0)), 0);
-  const totalSaldoGeral = filtered.reduce((s, r) => s + ((Number(r.worked_amount) - Number(r.valor_043 ?? 0)) + (Number(r.safe_amount) - Number(r.worked_amount))), 0);
+  const totalCurrentSafe = filtered.reduce((s, r) => s + Number(r.current_safe_amount ?? 0), 0);
+  const totalSaldoGeral = filtered.reduce((s, r) => s + (Number(r.current_safe_amount ?? 0) - Number(r.safe_amount)), 0);
   const totalWorked = filtered.reduce((s, r) => s + Number(r.worked_amount), 0);
   const totalValor003 = filtered.reduce((s, r) => s + (r.withdrawals?.reduce((ws, w) => ws + Number(w.amount), 0) ?? Number(r.valor_003 ?? 0)), 0);
-  const totalValor043 = filtered.reduce((s, r) => s + Number(r.valor_043 ?? 0), 0);
 
   const now = new Date();
   const monthOpts: { value: string; label: string }[] = [];
@@ -208,7 +208,7 @@ export function FinancialDailyControl() {
     <div>
       <PageHeader
         title="Controle Diário"
-        subtitle="Registro diário de trabalho, cofre e diferença de saldo"
+        subtitle="Registro diário de trabalho, carro forte e cofre"
         action={
           <div className="flex items-center gap-2">
             {isAdmin && (
@@ -220,7 +220,7 @@ export function FinancialDailyControl() {
         }
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><DollarSign size={22} /></div>
@@ -239,30 +239,21 @@ export function FinancialDailyControl() {
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><Wallet size={22} /></div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Total no Cofre</p>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Total Carro Forte</p>
           </div>
           <p className="text-2xl font-bold text-emerald-600">R$ {formatBRL(totalSafe)}</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><DollarSign size={22} /></div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Debitado Conta (043)</p>
+            <div className="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center"><Wallet size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Valor atual no Cofre</p>
           </div>
-          <p className="text-2xl font-bold text-amber-600">R$ {formatBRL(totalValor043)}</p>
-        </Card>
-        <Card className="p-5">
-          <div className="flex items-center gap-3 mb-2">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${totalDiff >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
-              <CalendarCheck size={22} />
-            </div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Diferença Fluxo de Caixa</p>
-          </div>
-          <p className={`text-2xl font-bold ${totalDiff >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(totalDiff)}</p>
+          <p className="text-2xl font-bold text-amber-600">R$ {formatBRL(totalCurrentSafe)}</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${totalSaldoGeral >= 0 ? 'bg-blue-50 text-blue-600' : 'bg-red-50 text-red-600'}`}>
-              <Wallet size={22} />
+              <CalendarCheck size={22} />
             </div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Saldo Geral</p>
           </div>
@@ -281,9 +272,8 @@ export function FinancialDailyControl() {
                   <th className="px-4 py-3 font-medium">Período</th>
                   <th className="px-4 py-3 font-medium text-right">Trabalhado no Dia</th>
                   <th className="px-4 py-3 font-medium text-right">Retiradas</th>
-                  <th className="px-4 py-3 font-medium text-right">Cofre</th>
-                  <th className="px-4 py-3 font-medium text-right">Debitado Conta (043)</th>
-                  <th className="px-4 py-3 font-medium text-right">Dif. Fluxo de Caixa</th>
+                  <th className="px-4 py-3 font-medium text-right">Carro Forte</th>
+                  <th className="px-4 py-3 font-medium text-right">Valor atual no Cofre</th>
                   <th className="px-4 py-3 font-medium text-right">Saldo Geral</th>
                   <th className="px-4 py-3 font-medium">Observações</th>
                   <th className="px-4 py-3 font-medium text-right">Ações</th>
@@ -294,9 +284,8 @@ export function FinancialDailyControl() {
                   const sumWorked = g.records.reduce((s, r) => s + Number(r.worked_amount), 0);
                   const sumValor003 = g.records.reduce((s, r) => s + (r.withdrawals?.reduce((ws, w) => ws + Number(w.amount), 0) ?? Number(r.valor_003 ?? 0)), 0);
                   const sumSafe = g.records.reduce((s, r) => s + Number(r.safe_amount), 0);
-                  const sumValor043 = g.records.reduce((s, r) => s + Number(r.valor_043 ?? 0), 0);
-                  const sumDiff = g.records.reduce((s, r) => s + (Number(r.worked_amount) - Number(r.valor_043 ?? 0)), 0);
-                  const sumSaldoGeral = g.records.reduce((s, r) => s + ((Number(r.worked_amount) - Number(r.valor_043 ?? 0)) + (Number(r.safe_amount) - Number(r.worked_amount))), 0);
+                  const sumCurrentSafe = g.records.reduce((s, r) => s + Number(r.current_safe_amount ?? 0), 0);
+                  const sumSaldoGeral = g.records.reduce((s, r) => s + (Number(r.current_safe_amount ?? 0) - Number(r.safe_amount)), 0);
                   const notes = g.records.map((r) => r.notes).filter(Boolean).join('; ') || '—';
                   const expanded = expandedPeriod === g.key;
                   return (
@@ -315,8 +304,7 @@ export function FinancialDailyControl() {
                         <td className="px-4 py-3 text-right font-semibold text-brand-700">R$ {formatBRL(sumWorked)}</td>
                         <td className="px-4 py-3 text-right font-semibold text-accent-600">R$ {formatBRL(sumValor003)}</td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-900">R$ {formatBRL(sumSafe)}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-slate-700">R$ {formatBRL(sumValor043)}</td>
-                        <td className={`px-4 py-3 text-right font-semibold ${sumDiff >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(sumDiff)}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-amber-600">R$ {formatBRL(sumCurrentSafe)}</td>
                         <td className={`px-4 py-3 text-right font-semibold ${sumSaldoGeral >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL(sumSaldoGeral)}</td>
                         <td className="px-4 py-3 text-slate-500 text-xs">{notes}</td>
                         <td className="px-4 py-3 text-right">
@@ -334,9 +322,8 @@ export function FinancialDailyControl() {
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.worked_amount))}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(r.withdrawals?.reduce((ws, w) => ws + Number(w.amount), 0) ?? Number(r.valor_003 ?? 0))}</td>
                           <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.safe_amount))}</td>
-                          <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.valor_043 ?? 0))}</td>
-                          <td className={`px-4 py-2 text-right ${(Number(r.worked_amount) - Number(r.valor_043 ?? 0)) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.worked_amount) - Number(r.valor_043 ?? 0))}</td>
-                          <td className={`px-4 py-2 text-right ${((Number(r.worked_amount) - Number(r.valor_043 ?? 0)) + (Number(r.safe_amount) - Number(r.worked_amount))) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL((Number(r.worked_amount) - Number(r.valor_043 ?? 0)) + (Number(r.safe_amount) - Number(r.worked_amount)))}</td>
+                          <td className="px-4 py-2 text-right text-slate-600">R$ {formatBRL(Number(r.current_safe_amount ?? 0))}</td>
+                          <td className={`px-4 py-2 text-right ${(Number(r.current_safe_amount ?? 0) - Number(r.safe_amount)) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL(Number(r.current_safe_amount ?? 0) - Number(r.safe_amount))}</td>
                           <td className="px-4 py-2 text-slate-400 text-xs">{r.notes ?? '—'}</td>
                           <td className="px-4 py-2 text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -385,25 +372,19 @@ export function FinancialDailyControl() {
               </div>
             )}
           </div>
-          <Input label="Valor no Cofre" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
-          <Input label="Debitado em Conta (043)" type="text" value={form.valor_043} onChange={(v) => setForm({ ...form, valor_043: v })} placeholder="0,00" />
+          <Input label="Carro Forte" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
+          <Input label="Valor atual no Cofre" type="text" value={form.current_safe_amount} onChange={(v) => setForm({ ...form, current_safe_amount: v })} placeholder="0,00" />
           <div className="bg-slate-50 rounded-lg p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-600">Saldo (Cofre - Trabalhado)</span>
+              <span className="text-sm font-medium text-slate-600">Saldo (Carro Forte - Trabalhado)</span>
               <span className="text-lg font-bold text-slate-700">
                 R$ {formatBRL((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0))}
               </span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-slate-600">Diferença Fluxo de Caixa</span>
-              <span className={`text-lg font-bold ${((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0)) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                R$ {formatBRL((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0))}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-slate-600">Saldo Geral</span>
-              <span className={`text-lg font-bold ${(((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0)) + ((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0))) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                R$ {formatBRL(((parseFloat(form.worked_amount.replace(',', '.')) || 0) - (parseFloat(form.valor_043.replace(',', '.')) || 0)) + ((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0)))}
+              <span className={`text-lg font-bold ${((parseFloat(form.current_safe_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0)) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                R$ {formatBRL((parseFloat(form.current_safe_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0))}
               </span>
             </div>
           </div>
