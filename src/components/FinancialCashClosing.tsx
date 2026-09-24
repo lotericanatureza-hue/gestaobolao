@@ -703,29 +703,27 @@ export function FinancialCashClosing() {
             )}
           </div>
 
-          {/* Retiradas — only in manual/retroactive mode */}
-          {manualMode && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <span className="block text-sm font-medium text-slate-700">Retiradas</span>
-                <Button size="sm" variant="secondary" onClick={addWithdrawal}><PlusCircle size={14} /> Adicionar</Button>
-              </div>
-              {withdrawals.length === 0 ? (
-                <p className="text-xs text-slate-400 py-2">Nenhuma retirada adicionada.</p>
-              ) : (
-                <div className="space-y-2">
-                  {withdrawals.map((w) => (
-                    <div key={w.id} className="flex items-center gap-2">
-                      <input type="text" value={w.description} onChange={(e) => updateWithdrawal(w.id, 'description', e.target.value)} placeholder="Descrição" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
-                      <input type="text" inputMode="numeric" value={w.amount ? maskBRL(String(Math.round(w.amount * 100))) : ''} onChange={(e) => updateWithdrawal(w.id, 'amount', e.target.value)} placeholder="R$ 0,00" className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
-                      <button onClick={() => removeWithdrawal(w.id)} className="text-slate-400 hover:text-red-500 p-2"><Trash size={16} /></button>
-                    </div>
-                  ))}
-                  <div className="flex justify-end text-sm font-medium text-slate-700 pt-1">Total Retiradas: R$ {formatBRL(totalWithdrawals)}</div>
-                </div>
-              )}
+          {/* Retiradas */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="block text-sm font-medium text-slate-700">Retiradas</span>
+              <Button size="sm" variant="secondary" onClick={addWithdrawal}><PlusCircle size={14} /> Adicionar</Button>
             </div>
-          )}
+            {withdrawals.length === 0 ? (
+              <p className="text-xs text-slate-400 py-2">Nenhuma retirada adicionada.</p>
+            ) : (
+              <div className="space-y-2">
+                {withdrawals.map((w) => (
+                  <div key={w.id} className="flex items-center gap-2">
+                    <input type="text" value={w.description} onChange={(e) => updateWithdrawal(w.id, 'description', e.target.value)} placeholder="Descrição" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+                    <input type="text" inputMode="numeric" value={w.amount ? maskBRL(String(Math.round(w.amount * 100))) : ''} onChange={(e) => updateWithdrawal(w.id, 'amount', e.target.value)} placeholder="R$ 0,00" className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+                    <button onClick={() => removeWithdrawal(w.id)} className="text-slate-400 hover:text-red-500 p-2"><Trash size={16} /></button>
+                  </div>
+                ))}
+                <div className="flex justify-end text-sm font-medium text-slate-700 pt-1">Total Retiradas: R$ {formatBRL(totalWithdrawals)}</div>
+              </div>
+            )}
+          </div>
 
           {manualMode ? (
             (() => {
