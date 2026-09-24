@@ -208,6 +208,8 @@ export interface FinCashClosing {
   safe_amount: number;
   cash_drawer: number;
   deposit_amount: number;
+  withdrawals: DailyWithdrawal[];
+  total_withdrawals: number;
   pdf_path: string | null;
   notes: string | null;
   status: 'open' | 'closed';

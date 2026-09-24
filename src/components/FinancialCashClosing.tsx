@@ -5,7 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
 import { formatBRL, formatDateBR } from '../lib/format';
-import type { FinCashClosing, FinEmployee, PixExternal, Branch } from '../lib/types';
+import type { FinCashClosing, FinEmployee, PixExternal, DailyWithdrawal, Branch } from '../lib/types';
 
 interface ExtractedData {
   closing_date: string;
@@ -128,6 +128,7 @@ export function FinancialCashClosing() {
   const [modalEmployee, setModalEmployee] = useState<FinEmployee | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [pixExternals, setPixExternals] = useState<PixExternal[]>([]);
+  const [withdrawals, setWithdrawals] = useState<DailyWithdrawal[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -171,6 +172,7 @@ export function FinancialCashClosing() {
     setModalEmployee(employee);
     setForm({ ...emptyForm, closing_date: fDate });
     setPixExternals([]);
+    setWithdrawals([]);
     setPdfFile(null);
     setExistingPdf(null);
     setExtracted(false);
@@ -184,6 +186,7 @@ export function FinancialCashClosing() {
     setModalEmployee(employee);
     setForm({ ...emptyForm, closing_date: fDate });
     setPixExternals([]);
+    setWithdrawals([]);
     setPdfFile(null);
     setExistingPdf(null);
     setExtracted(false);
@@ -213,6 +216,7 @@ export function FinancialCashClosing() {
       status: c.status,
     });
     setPixExternals(c.pix_externals ?? []);
+    setWithdrawals(c.withdrawals ?? []);
     setPdfFile(null);
     setExistingPdf(c.pdf_path);
     setExtracted(true);
@@ -255,6 +259,13 @@ export function FinancialCashClosing() {
   const removePix = (id: string) => setPixExternals(pixExternals.filter((p) => p.id !== id));
   const totalPix = pixExternals.reduce((s, p) => s + Number(p.amount), 0);
 
+  const addWithdrawal = () => setWithdrawals([...withdrawals, { id: crypto.randomUUID(), description: '', amount: 0 }]);
+  const updateWithdrawal = (id: string, field: 'description' | 'amount', value: string) => {
+    setWithdrawals(withdrawals.map((w) => w.id === id ? { ...w, [field]: field === 'amount' ? parseFloat(value.replace(',', '.')) || 0 : value } : w));
+  };
+  const removeWithdrawal = (id: string) => setWithdrawals(withdrawals.filter((w) => w.id !== id));
+  const totalWithdrawals = withdrawals.reduce((s, w) => s + Number(w.amount), 0);
+
   const uploadPdf = async (): Promise<string | null> => {
     if (!pdfFile || !selectedBranch) return existingPdf;
     const fileExt = pdfFile.name.split('.').pop();
@@ -271,6 +282,12 @@ export function FinancialCashClosing() {
     const pdfPath = await uploadPdf();
     if (pdfFile && !pdfPath) { setSaving(false); return; }
 
+    const manualSaldoFinal = form.total_sales - form.total_income;
+    const manualSaldoGeral = form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals;
+    const manualDiff = manualSaldoFinal - manualSaldoGeral;
+    const manualSurplus = manualMode && manualDiff > 0 ? manualDiff : (parseFloat(form.surplus.replace(',', '.')) || 0);
+    const manualShortage = manualMode && manualDiff < 0 ? Math.abs(manualDiff) : (parseFloat(form.shortage.replace(',', '.')) || 0);
+
     const payload = {
       branch_id: selectedBranch,
       employee_id: modalEmployee.id,
@@ -279,8 +296,10 @@ export function FinancialCashClosing() {
       total_income: form.total_income,
       pix_externals: pixExternals as unknown as Record<string, unknown>[],
       total_pix_externals: totalPix,
-      surplus: parseFloat(form.surplus.replace(',', '.')) || 0,
-      shortage: parseFloat(form.shortage.replace(',', '.')) || 0,
+      withdrawals: withdrawals as unknown as Record<string, unknown>[],
+      total_withdrawals: totalWithdrawals,
+      surplus: manualSurplus,
+      shortage: manualShortage,
       safe_amount: form.safe_amount,
       cash_drawer: form.cash_drawer,
       deposit_amount: parseFloat(form.deposit_amount.replace(',', '.')) || 0,
@@ -589,7 +608,7 @@ export function FinancialCashClosing() {
               <div className="grid grid-cols-3 gap-3">
                 {manualMode ? (
                   <div className="p-4 rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-500">Total Vendas</span>
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Créditos</span>
                     <input type="text" inputMode="decimal" value={String(form.total_sales || '')} onChange={(e) => setForm({ ...form, total_sales: parseFloat(e.target.value.replace(',', '.')) || 0 })} placeholder="0,00" className="w-full mt-1 text-lg font-bold tabular-nums text-emerald-700 bg-transparent border-b border-slate-200 focus:border-emerald-500 focus:outline-none" />
                   </div>
                 ) : (
@@ -603,7 +622,7 @@ export function FinancialCashClosing() {
                 )}
                 {manualMode ? (
                   <div className="p-4 rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-500">Total Entradas</span>
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Débitos</span>
                     <input type="text" inputMode="decimal" value={String(form.total_income || '')} onChange={(e) => setForm({ ...form, total_income: parseFloat(e.target.value.replace(',', '.')) || 0 })} placeholder="0,00" className="w-full mt-1 text-lg font-bold tabular-nums text-red-700 bg-transparent border-b border-slate-200 focus:border-red-500 focus:outline-none" />
                   </div>
                 ) : (
@@ -618,7 +637,7 @@ export function FinancialCashClosing() {
                 <div className={`p-4 rounded-xl ${manualMode ? 'border border-slate-200' : 'border border-brand-200 bg-brand-50'}`}>
                   <span className="text-[10px] font-bold uppercase text-brand-600">Saldo Final</span>
                   {manualMode ? (
-                    <input type="text" inputMode="decimal" value={String(form.saldo_final || '')} onChange={(e) => setForm({ ...form, saldo_final: parseFloat(e.target.value.replace(',', '.')) || 0 })} placeholder="0,00" className="w-full mt-1 text-lg font-bold tabular-nums text-brand-700 bg-transparent border-b border-slate-200 focus:border-brand-500 focus:outline-none" />
+                    <p className="text-lg font-black tabular-nums text-brand-700 mt-1">R$ {formatBRL(form.total_sales - form.total_income)}</p>
                   ) : (
                     <p className="text-lg font-black tabular-nums text-brand-700">R$ {formatBRL(form.saldo_final || (form.total_sales - form.total_income))}</p>
                   )}
@@ -686,9 +705,9 @@ export function FinancialCashClosing() {
               )}
 
               {manualMode && (
-                <div className="bg-slate-50 rounded-lg p-4 flex justify-between py-1 font-bold border-t-2 border-slate-300 pt-2">
-                  <span className="text-slate-700">Saldo (Vendas - Entradas)</span>
-                  <span className={`tabular-nums ${form.total_sales - form.total_income >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>R$ {formatBRL(form.total_sales - form.total_income)}</span>
+                <div className="bg-slate-50 rounded-lg p-4 flex justify-between items-center font-bold border-t-2 border-slate-300">
+                  <span className="text-slate-700">Saldo Geral (Cofre + Caixa + Pix + Retiradas)</span>
+                  <span className={`tabular-nums text-lg ${(form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals) >= 0 ? 'text-blue-700' : 'text-red-700'}`}>R$ {formatBRL(form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals)}</span>
                 </div>
               )}
             </div>
@@ -721,16 +740,58 @@ export function FinancialCashClosing() {
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Sobras" type="text" value={form.surplus} onChange={(v) => setForm({ ...form, surplus: v })} placeholder="0,00" />
-            <Input label="Faltas" type="text" value={form.shortage} onChange={(v) => setForm({ ...form, shortage: v })} placeholder="0,00" />
-          </div>
+          {/* Retiradas — only in manual/retroactive mode */}
+          {manualMode && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="block text-sm font-medium text-slate-700">Retiradas</span>
+                <Button size="sm" variant="secondary" onClick={addWithdrawal}><PlusCircle size={14} /> Adicionar</Button>
+              </div>
+              {withdrawals.length === 0 ? (
+                <p className="text-xs text-slate-400 py-2">Nenhuma retirada adicionada.</p>
+              ) : (
+                <div className="space-y-2">
+                  {withdrawals.map((w) => (
+                    <div key={w.id} className="flex items-center gap-2">
+                      <input type="text" value={w.description} onChange={(e) => updateWithdrawal(w.id, 'description', e.target.value)} placeholder="Descrição" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+                      <input type="text" value={String(w.amount)} onChange={(e) => updateWithdrawal(w.id, 'amount', e.target.value)} placeholder="0,00" className="w-28 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+                      <button onClick={() => removeWithdrawal(w.id)} className="text-slate-400 hover:text-red-500 p-2"><Trash size={16} /></button>
+                    </div>
+                  ))}
+                  <div className="flex justify-end text-sm font-medium text-slate-700 pt-1">Total Retiradas: R$ {formatBRL(totalWithdrawals)}</div>
+                </div>
+              )}
+            </div>
+          )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <Input label="Depósitos" type="text" value={form.deposit_amount} onChange={(v) => setForm({ ...form, deposit_amount: v })} placeholder="0,00" />
-          </div>
+          {manualMode ? (
+            (() => {
+              const manualSaldoFinal = form.total_sales - form.total_income;
+              const manualSaldoGeral = form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals;
+              const manualDiff = manualSaldoFinal - manualSaldoGeral;
+              const surplusVal = manualDiff > 0 ? manualDiff : 0;
+              const shortageVal = manualDiff < 0 ? Math.abs(manualDiff) : 0;
+              return (
+                <div className="grid grid-cols-2 gap-4">
+                  <Input label="Sobras" type="text" value={String(surplusVal)} onChange={() => {}} disabled placeholder="0,00" />
+                  <Input label="Faltas" type="text" value={String(shortageVal)} onChange={() => {}} disabled placeholder="0,00" />
+                </div>
+              );
+            })()
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Sobras" type="text" value={form.surplus} onChange={(v) => setForm({ ...form, surplus: v })} placeholder="0,00" />
+              <Input label="Faltas" type="text" value={form.shortage} onChange={(v) => setForm({ ...form, shortage: v })} placeholder="0,00" />
+            </div>
+          )}
 
-          <Input label="Observações" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />
+          {!manualMode && (
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Depósitos" type="text" value={form.deposit_amount} onChange={(v) => setForm({ ...form, deposit_amount: v })} placeholder="0,00" />
+            </div>
+          )}
+
+          <Input label="Justificativa" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Justificativa do fechamento" />
           <Select label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as 'open' | 'closed' })} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
 
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
