@@ -115,6 +115,77 @@ const emptyForm = {
   status: 'open' as 'open' | 'closed',
 };
 
+/**
+ * Componente de input monetário com digitação natural:
+ * - Aceita apenas dígitos (e backspace)
+ * - Trata o valor como centavos: digitar "1234" → R$ 12,34
+ * - Backspace remove o último dígito
+ * - Não há necessidade de digitar vírgula, ponto ou R$
+ * - Sempre exibe formatado em pt-BR
+ */
+function MoneyField({
+  value,
+  onChange,
+  placeholder = 'R$ 0,00',
+  className = '',
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  placeholder?: string;
+  className?: string;
+}) {
+  // Guarda os dígitos crus (sem formatação) como string para controlar a digitação
+  const [digits, setDigits] = useState<string>(() =>
+    value > 0 ? String(Math.round(value * 100)) : ''
+  );
+
+  // Sincroniza quando o valor externo muda (ex.: carregar do PDF ou editar)
+  useEffect(() => {
+    const currentFromDigits = digits ? Number(digits) / 100 : 0;
+    if (Math.abs(currentFromDigits - value) > 0.001) {
+      setDigits(value > 0 ? String(Math.round(value * 100)) : '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Remove tudo que não for dígito
+    const onlyDigits = e.target.value.replace(/\D/g, '').slice(0, 12); // limite ~ 9.999.999.999,99
+    setDigits(onlyDigits);
+    const numeric = onlyDigits ? Number(onlyDigits) / 100 : 0;
+    onChange(numeric);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Permite apenas dígitos, backspace, delete, tab, setas e atalhos de clipboard
+    const allowed =
+      e.key === 'Backspace' ||
+      e.key === 'Delete' ||
+      e.key === 'Tab' ||
+      e.key === 'ArrowLeft' ||
+      e.key === 'ArrowRight' ||
+      e.key === 'Home' ||
+      e.key === 'End' ||
+      /^\d$/.test(e.key) ||
+      ((e.ctrlKey || e.metaKey) && ['a', 'c', 'v', 'x'].includes(e.key.toLowerCase()));
+    if (!allowed) e.preventDefault();
+  };
+
+  const display = digits ? `R$ ${maskBRL(digits)}` : '';
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={display}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown}
+      placeholder={placeholder}
+      className={className}
+    />
+  );
+}
+
 export function FinancialCashClosing() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
@@ -256,15 +327,15 @@ export function FinancialCashClosing() {
   const updatePix = (id: string, field: 'description' | 'amount' | 'checked', value: string | boolean) => {
     setPixExternals(pixExternals.map((p) => p.id === id ? {
       ...p,
-      [field]: field === 'amount' ? parseBRL(value as string) : field === 'checked' ? value : value,
+      [field]: field === 'amount' ? value : field === 'checked' ? value : value,
     } : p));
   };
   const removePix = (id: string) => setPixExternals(pixExternals.filter((p) => p.id !== id));
   const totalPix = pixExternals.reduce((s, p) => s + Number(p.amount), 0);
 
   const addWithdrawal = () => setWithdrawals([...withdrawals, { id: crypto.randomUUID(), description: '', amount: 0 }]);
-  const updateWithdrawal = (id: string, field: 'description' | 'amount', value: string) => {
-    setWithdrawals(withdrawals.map((w) => w.id === id ? { ...w, [field]: field === 'amount' ? parseBRL(value) : value } : w));
+  const updateWithdrawal = (id: string, field: 'description' | 'amount', value: string | number) => {
+    setWithdrawals(withdrawals.map((w) => w.id === id ? { ...w, [field]: value } : w));
   };
   const removeWithdrawal = (id: string) => setWithdrawals(withdrawals.filter((w) => w.id !== id));
   const totalWithdrawals = withdrawals.reduce((s, w) => s + Number(w.amount), 0);
@@ -272,13 +343,16 @@ export function FinancialCashClosing() {
   const uploadPdf = async (): Promise<string | null> => {
     if (!pdfFile || !selectedBranch) return existingPdf;
     const fileExt = pdfFile.name.split('.').pop();
-    const fileName = `${selectedBranch}/${Date.now()}.${fileExt}`;
-    const { error: uploadError } = await supabase.storage.from('financial-pdfs').upload(fileName, pdfFile);
+    const fileName = `${selectedBranch}/${crypto.randomUUID()}.${fileExt}`;
+    const { error: uploadError } = await supabase.storage
+      .from('financial-pdfs')
+      .upload(fileName, pdfFile, { upsert: true });
     if (uploadError) { setError('Erro ao enviar PDF: ' + uploadError.message); return null; }
     return fileName;
   };
 
   const save = async () => {
+    if (saving) return;
     if (!modalEmployee) { setError('Funcionário não selecionado.'); return; }
     setSaving(true);
     setError(null);
@@ -492,9 +566,9 @@ export function FinancialCashClosing() {
                               <div><span className="text-slate-500">Saldo Final:</span> <span className="font-medium">R$ {formatBRL(Number(c.total_sales) - Number(c.total_income))}</span></div>
                               <div><span className="text-slate-500">Pix Ext.:</span> <span className="font-medium text-brand-600">R$ {formatBRL(Number(c.total_pix_externals))}</span></div>
                               <div><span className="text-slate-500">Cofre:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount))}</span></div>
-                              <div><span className="text-slate-500">Caixa:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
+                              <div><span className="text-slate-500">Separado/Recolhido:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
                               <div><span className="text-slate-500">Retiradas:</span> <span className="font-medium">R$ {formatBRL(Number(c.total_withdrawals ?? 0))}</span></div>
-                              <div><span className="text-slate-500">Depósitos:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
+                              <div><span className="text-slate-500">Envelopes:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
                               <div><span className="text-slate-500">Saldo Geral:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount) + Number(c.cash_drawer) + Number(c.total_pix_externals) + Number(c.total_withdrawals ?? 0) - Number(c.deposit_amount ?? 0))}</span></div>
                               <div><span className="text-slate-500">Sobra:</span> <span className="font-medium text-emerald-600">R$ {formatBRL(Number(c.surplus))}</span></div>
                               <div><span className="text-slate-500">Falta:</span> <span className="font-medium text-red-600">R$ {formatBRL(Number(c.shortage))}</span></div>
@@ -569,7 +643,11 @@ export function FinancialCashClosing() {
                 {manualMode ? (
                   <div className="p-4 rounded-xl border border-slate-200">
                     <span className="text-[10px] font-bold uppercase text-slate-500">Créditos</span>
-                    <input type="text" inputMode="numeric" value={form.total_sales ? maskBRL(String(Math.round(form.total_sales * 100))) : ''} onChange={(e) => setForm({ ...form, total_sales: parseBRL(e.target.value) })} placeholder="R$ 0,00" className="w-full mt-1 text-lg font-bold tabular-nums text-emerald-700 bg-transparent border-b border-slate-200 focus:border-emerald-500 focus:outline-none" />
+                    <MoneyField
+                      value={form.total_sales}
+                      onChange={(v) => setForm({ ...form, total_sales: v })}
+                      className="w-full mt-1 text-lg font-bold tabular-nums text-emerald-700 bg-transparent border-b border-slate-200 focus:border-emerald-500 focus:outline-none"
+                    />
                   </div>
                 ) : (
                   <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
@@ -583,7 +661,11 @@ export function FinancialCashClosing() {
                 {manualMode ? (
                   <div className="p-4 rounded-xl border border-slate-200">
                     <span className="text-[10px] font-bold uppercase text-slate-500">Débitos</span>
-                    <input type="text" inputMode="numeric" value={form.total_income ? maskBRL(String(Math.round(form.total_income * 100))) : ''} onChange={(e) => setForm({ ...form, total_income: parseBRL(e.target.value) })} placeholder="R$ 0,00" className="w-full mt-1 text-lg font-bold tabular-nums text-red-700 bg-transparent border-b border-slate-200 focus:border-red-500 focus:outline-none" />
+                    <MoneyField
+                      value={form.total_income}
+                      onChange={(v) => setForm({ ...form, total_income: v })}
+                      className="w-full mt-1 text-lg font-bold tabular-nums text-red-700 bg-transparent border-b border-slate-200 focus:border-red-500 focus:outline-none"
+                    />
                   </div>
                 ) : (
                   <div className="p-4 rounded-xl border border-red-200 bg-red-50">
@@ -608,11 +690,19 @@ export function FinancialCashClosing() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="p-3 rounded-xl border border-slate-200">
                     <span className="text-[10px] font-bold uppercase text-slate-500">Cofre</span>
-                    <input type="text" inputMode="numeric" value={form.safe_amount ? maskBRL(String(Math.round(form.safe_amount * 100))) : ''} onChange={(e) => setForm({ ...form, safe_amount: parseBRL(e.target.value) })} placeholder="R$ 0,00" className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none" />
+                    <MoneyField
+                      value={form.safe_amount}
+                      onChange={(v) => setForm({ ...form, safe_amount: v })}
+                      className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
+                    />
                   </div>
                   <div className="p-3 rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-500">Caixa (Gaveta)</span>
-                    <input type="text" inputMode="numeric" value={form.cash_drawer ? maskBRL(String(Math.round(form.cash_drawer * 100))) : ''} onChange={(e) => setForm({ ...form, cash_drawer: parseBRL(e.target.value) })} placeholder="R$ 0,00" className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none" />
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Separado/Recolhido</span>
+                    <MoneyField
+                      value={form.cash_drawer}
+                      onChange={(v) => setForm({ ...form, cash_drawer: v })}
+                      className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
+                    />
                   </div>
                 </div>
               )}
@@ -653,7 +743,7 @@ export function FinancialCashClosing() {
                       <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.safe_amount)}</span>
                     </div>
                     <div className="flex justify-between py-1 border-b border-slate-200/60">
-                      <span className="text-slate-600">Caixa (Gaveta)</span>
+                      <span className="text-slate-600">Separado/Recolhido</span>
                       <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.cash_drawer)}</span>
                     </div>
                     <div className="flex justify-between py-1 font-bold border-t-2 border-slate-300 pt-2">
@@ -667,7 +757,7 @@ export function FinancialCashClosing() {
               {manualMode && (
                 <div className="bg-slate-50 rounded-lg p-4 flex justify-between items-center font-bold border-t-2 border-slate-300">
                   <span className="text-slate-700">
-                    Saldo Geral (Cofre + Caixa + Pix + Retiradas − Depósitos)
+                    Saldo Geral (Cofre + Separado/Recolhido + Pix + Retiradas − Envelopes)
                   </span>
                   <span
                     className={`tabular-nums text-lg ${
@@ -704,7 +794,11 @@ export function FinancialCashClosing() {
                 {pixExternals.map((p) => (
                   <div key={p.id} className="flex items-center gap-2">
                     <input type="text" value={p.description} onChange={(e) => updatePix(p.id, 'description', e.target.value)} placeholder="Descrição" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
-                    <input type="text" inputMode="numeric" value={p.amount ? maskBRL(String(Math.round(p.amount * 100))) : ''} onChange={(e) => updatePix(p.id, 'amount', e.target.value)} placeholder="R$ 0,00" className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+                    <MoneyField
+                      value={Number(p.amount)}
+                      onChange={(v) => updatePix(p.id, 'amount', String(v))}
+                      className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none"
+                    />
                     <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-slate-300 cursor-pointer hover:bg-slate-50 transition-colors">
                       <input type="checkbox" checked={!!p.checked} onChange={(e) => updatePix(p.id, 'checked', e.target.checked)} className="w-4 h-4 accent-brand-600" />
                       <span className="text-xs font-medium text-slate-600">Conferido</span>
@@ -730,7 +824,11 @@ export function FinancialCashClosing() {
                 {withdrawals.map((w) => (
                   <div key={w.id} className="flex items-center gap-2">
                     <input type="text" value={w.description} onChange={(e) => updateWithdrawal(w.id, 'description', e.target.value)} placeholder="Descrição" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
-                    <input type="text" inputMode="numeric" value={w.amount ? maskBRL(String(Math.round(w.amount * 100))) : ''} onChange={(e) => updateWithdrawal(w.id, 'amount', e.target.value)} placeholder="R$ 0,00" className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+                    <MoneyField
+                      value={Number(w.amount)}
+                      onChange={(v) => updateWithdrawal(w.id, 'amount', v)}
+                      className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none"
+                    />
                     <button onClick={() => removeWithdrawal(w.id)} className="text-slate-400 hover:text-red-500 p-2"><Trash size={16} /></button>
                   </div>
                 ))}
@@ -761,23 +859,20 @@ export function FinancialCashClosing() {
             </div>
           )}
 
-          {/* Depósito — visível em ambos os modos */}
+          {/* Envelopes (antes "Depósitos") — visível em ambos os modos */}
           <div className="grid grid-cols-2 gap-4">
             {manualMode ? (
               <div className="p-3 rounded-xl border border-slate-200">
-                <span className="text-[10px] font-bold uppercase text-slate-500">Depósito</span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={form.deposit_amount ? maskBRL(String(Math.round(parseBRL(form.deposit_amount) * 100))) : ''}
-                  onChange={(e) => setForm({ ...form, deposit_amount: e.target.value })}
-                  placeholder="R$ 0,00"
+                <span className="text-[10px] font-bold uppercase text-slate-500">Envelopes</span>
+                <MoneyField
+                  value={parseBRL(form.deposit_amount)}
+                  onChange={(v) => setForm({ ...form, deposit_amount: String(v) })}
                   className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
                 />
               </div>
             ) : (
               <MoneyInput
-                label="Depósitos"
+                label="Envelopes"
                 value={form.deposit_amount}
                 onChange={(v) => setForm({ ...form, deposit_amount: v })}
               />
