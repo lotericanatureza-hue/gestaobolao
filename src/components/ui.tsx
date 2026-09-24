@@ -1,5 +1,6 @@
 import { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
+import { maskBRL } from '../lib/format';
 
 export function Spinner({ className = '' }: { className?: string }) {
   return <Loader2 className={`animate-spin ${className}`} size={20} />;
@@ -103,6 +104,40 @@ export function Input({
         min={min}
         max={max}
         step={step}
+        disabled={disabled}
+        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all disabled:bg-slate-50 disabled:text-slate-400"
+      />
+    </label>
+  );
+}
+
+export function MoneyInput({
+  label,
+  value,
+  onChange,
+  placeholder,
+  required = false,
+  disabled = false,
+}: {
+  label?: string;
+  value: string | number;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+}) {
+  const displayValue = typeof value === 'number' ? (value !== 0 ? maskBRL(String(Math.round(value * 100))) : '') : value;
+  return (
+    <label className="block">
+      {label && <span className="block text-sm font-medium text-slate-700 mb-1.5">{label}</span>}
+      <input
+        type="text"
+        inputMode="numeric"
+        value={displayValue}
+        onChange={(e) => onChange(maskBRL(e.target.value))}
+        onBlur={() => onChange(displayValue)}
+        placeholder={placeholder ?? 'R$ 0,00'}
+        required={required}
         disabled={disabled}
         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all disabled:bg-slate-50 disabled:text-slate-400"
       />

@@ -2,8 +2,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { HandCoins, Plus, ArrowRightLeft, ArrowLeftRight, Trash2, Pencil, TrendingUp, TrendingDown, Calendar, DollarSign } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { PageHeader } from './Layout';
-import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
-import { formatBRL, formatDateBR } from '../lib/format';
+import { Card, Button, Input, MoneyInput, Select, Modal, Badge, Spinner, EmptyState } from './ui';
+import { formatBRL, formatDateBR, parseBRL } from '../lib/format';
 import type { FinLoan, FinLoanReturn, Branch } from '../lib/types';
 
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -82,7 +82,7 @@ export function FinancialLoans() {
 
   const save = async () => {
     if (form.from_branch_id === form.to_branch_id) { setError('A filial de origem e destino devem ser diferentes.'); return; }
-    const amount = parseFloat(form.amount.replace(',', '.'));
+    const amount = parseBRL(form.amount);
     if (isNaN(amount) || amount <= 0) { setError('Informe um valor válido.'); return; }
     setSaving(true);
     setError(null);
@@ -118,7 +118,7 @@ export function FinancialLoans() {
 
   const saveReturn = async () => {
     if (!returnLoan) return;
-    const amount = parseFloat(returnForm.amount.replace(',', '.'));
+    const amount = parseBRL(returnForm.amount);
     if (isNaN(amount) || amount <= 0) { setReturnError('Informe um valor válido.'); return; }
     const remaining = Number(returnLoan.amount) - Number(returnLoan.returned_amount);
     if (amount > remaining) { setReturnError(`O valor máximo de devolução é R$ ${formatBRL(remaining)}.`); return; }
@@ -332,7 +332,7 @@ export function FinancialLoans() {
           <Select label="Filial de Destino (quem recebe)" value={form.to_branch_id} onChange={(v) => setForm({ ...form, to_branch_id: v })} options={branchOptions} placeholder="Selecionar filial" required />
           <div className="grid grid-cols-2 gap-4">
             <Input label="Data do Empréstimo" type="date" value={form.loan_date} onChange={(v) => setForm({ ...form, loan_date: v })} required />
-            <Input label="Valor (R$)" type="text" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} placeholder="0,00" required />
+            <MoneyInput label="Valor (R$)" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} required />
           </div>
           <Input label="Descrição" value={form.description} onChange={(v) => setForm({ ...form, description: v })} placeholder="Observações (opcional)" />
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
@@ -368,7 +368,7 @@ export function FinancialLoans() {
           )}
           <div className="grid grid-cols-2 gap-4">
             <Input label="Data da Devolução" type="date" value={returnForm.return_date} onChange={(v) => setReturnForm({ ...returnForm, return_date: v })} required />
-            <Input label="Valor (R$)" type="text" value={returnForm.amount} onChange={(v) => setReturnForm({ ...returnForm, amount: v })} placeholder="0,00" required />
+            <MoneyInput label="Valor (R$)" value={returnForm.amount} onChange={(v) => setReturnForm({ ...returnForm, amount: v })} required />
           </div>
           {returnLoan && (
             <Button variant="secondary" size="sm" className="w-full" onClick={() => setReturnForm({ ...returnForm, amount: String(Number(returnLoan.amount) - Number(returnLoan.returned_amount)) })}>

@@ -3,8 +3,8 @@ import { CalendarCheck, Plus, Pencil, Trash2, DollarSign, Wallet, ChevronDown, C
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
-import { Card, Button, Input, Select, Modal, Spinner, EmptyState } from './ui';
-import { formatBRL, formatDateBR } from '../lib/format';
+import { Card, Button, Input, MoneyInput, Select, Modal, Spinner, EmptyState } from './ui';
+import { formatBRL, formatDateBR, parseBRL, maskBRL } from '../lib/format';
 import type { FinDailyControl, DailyWithdrawal, Branch } from '../lib/types';
 
 const emptyForm = {
@@ -134,16 +134,16 @@ export function FinancialDailyControl() {
 
   const addWithdrawal = () => setWithdrawals([...withdrawals, { id: crypto.randomUUID(), description: '', amount: 0 }]);
   const updateWithdrawal = (id: string, field: 'description' | 'amount', value: string) => {
-    setWithdrawals(withdrawals.map((w) => w.id === id ? { ...w, [field]: field === 'amount' ? parseFloat(value.replace(',', '.')) || 0 : value } : w));
+    setWithdrawals(withdrawals.map((w) => w.id === id ? { ...w, [field]: field === 'amount' ? parseBRL(value) : value } : w));
   };
   const removeWithdrawal = (id: string) => setWithdrawals(withdrawals.filter((w) => w.id !== id));
   const totalWithdrawals = withdrawals.reduce((s, w) => s + Number(w.amount), 0);
 
   const save = async () => {
-    const worked = parseFloat(form.worked_amount.replace(',', '.')) || 0;
+    const worked = parseBRL(form.worked_amount);
     const valor003 = totalWithdrawals;
-    const safe = parseFloat(form.safe_amount.replace(',', '.')) || 0;
-    const currentSafe = parseFloat(form.current_safe_amount.replace(',', '.')) || 0;
+    const safe = parseBRL(form.safe_amount);
+    const currentSafe = parseBRL(form.current_safe_amount);
     const diff = currentSafe - safe;
     setSaving(true);
     setError(null);
@@ -345,7 +345,7 @@ export function FinancialDailyControl() {
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Registro' : 'Novo Registro Diário'}>
         <div className="space-y-4">
           <Input label="Data" type="date" value={form.control_date} onChange={(v) => setForm({ ...form, control_date: v })} required />
-          <Input label="Trabalhado no Dia (R$)" type="text" value={form.worked_amount} onChange={(v) => setForm({ ...form, worked_amount: v })} placeholder="0,00" />
+          <MoneyInput label="Trabalhado no Dia (R$)" value={form.worked_amount} onChange={(v) => setForm({ ...form, worked_amount: v })} />
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-sm font-medium text-slate-700">Retiradas</label>
@@ -357,7 +357,7 @@ export function FinancialDailyControl() {
             {withdrawals.map((w) => (
               <div key={w.id} className="flex items-start gap-2">
                 <div className="flex-1">
-                  <Input type="text" value={String(w.amount || '')} onChange={(v) => updateWithdrawal(w.id, 'amount', v)} placeholder="Valor" />
+                  <MoneyInput value={maskBRL(String(Math.round(w.amount * 100)))} onChange={(v) => updateWithdrawal(w.id, 'amount', v)} placeholder="Valor" />
                 </div>
                 <div className="flex-1">
                   <Input type="text" value={w.description} onChange={(v) => updateWithdrawal(w.id, 'description', v)} placeholder="Observação" />
@@ -372,19 +372,19 @@ export function FinancialDailyControl() {
               </div>
             )}
           </div>
-          <Input label="Carro Forte" type="text" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} placeholder="0,00" />
-          <Input label="Valor atual no Cofre" type="text" value={form.current_safe_amount} onChange={(v) => setForm({ ...form, current_safe_amount: v })} placeholder="0,00" />
+          <MoneyInput label="Carro Forte" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} />
+          <MoneyInput label="Valor atual no Cofre" value={form.current_safe_amount} onChange={(v) => setForm({ ...form, current_safe_amount: v })} />
           <div className="bg-slate-50 rounded-lg p-4 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-slate-600">Saldo (Carro Forte - Trabalhado)</span>
               <span className="text-lg font-bold text-slate-700">
-                R$ {formatBRL((parseFloat(form.safe_amount.replace(',', '.')) || 0) - (parseFloat(form.worked_amount.replace(',', '.')) || 0))}
+                R$ {formatBRL(parseBRL(form.safe_amount) - parseBRL(form.worked_amount))}
               </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-slate-600">Saldo Geral</span>
-              <span className={`text-lg font-bold ${((parseFloat(form.current_safe_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0)) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                R$ {formatBRL((parseFloat(form.current_safe_amount.replace(',', '.')) || 0) - (parseFloat(form.safe_amount.replace(',', '.')) || 0))}
+              <span className={`text-lg font-bold ${(parseBRL(form.current_safe_amount) - parseBRL(form.safe_amount)) >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                R$ {formatBRL(parseBRL(form.current_safe_amount) - parseBRL(form.safe_amount))}
               </span>
             </div>
           </div>

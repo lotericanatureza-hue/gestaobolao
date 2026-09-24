@@ -3,8 +3,8 @@ import { Receipt, Plus, Pencil, Trash2, Search, Copy, CheckCircle, Clock, ArrowD
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
-import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
-import { formatBRL, formatDateBR } from '../lib/format';
+import { Card, Button, Input, MoneyInput, Select, Modal, Badge, Spinner, EmptyState } from './ui';
+import { formatBRL, formatDateBR, parseBRL } from '../lib/format';
 import type { FinBill, FinCategory, FinSubcategory, FinPaymentSource, Branch } from '../lib/types';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -116,7 +116,7 @@ export function FinancialBills() {
 
   const save = async () => {
     if (!form.description.trim()) { setError('Descrição é obrigatória.'); return; }
-    const amount = parseFloat(form.amount.replace(',', '.'));
+    const amount = parseBRL(form.amount);
     if (isNaN(amount)) { setError('Valor inválido.'); return; }
     setSaving(true);
     setError(null);
@@ -336,7 +336,7 @@ export function FinancialBills() {
             <Select label="Subcategoria" value={form.subcategory_id} onChange={(v) => setForm({ ...form, subcategory_id: v })} options={filteredSubs.map((s) => ({ value: s.id, label: s.name }))} placeholder="Sem subcategoria" disabled={!form.category_id} />
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <Input label="Valor *" type="text" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} placeholder="0,00" required />
+            <MoneyInput label="Valor *" value={form.amount} onChange={(v) => setForm({ ...form, amount: v })} required />
             <Select label="Fonte Pagadora" value={form.payment_source_id} onChange={(v) => setForm({ ...form, payment_source_id: v })} options={paymentSources.map((p) => ({ value: p.id, label: p.name }))} placeholder="Sem fonte" />
           </div>
           <div className="grid grid-cols-2 gap-4">
