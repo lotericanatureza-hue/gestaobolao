@@ -192,6 +192,7 @@ export interface PixExternal {
   id: string;
   description: string;
   amount: number;
+  checked?: boolean;
 }
 
 export interface FinCashClosing {

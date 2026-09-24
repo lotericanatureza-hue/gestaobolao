@@ -253,8 +253,11 @@ export function FinancialCashClosing() {
   };
 
   const addPix = () => setPixExternals([...pixExternals, { id: crypto.randomUUID(), description: '', amount: 0 }]);
-  const updatePix = (id: string, field: 'description' | 'amount', value: string) => {
-    setPixExternals(pixExternals.map((p) => p.id === id ? { ...p, [field]: field === 'amount' ? parseBRL(value) : value } : p));
+  const updatePix = (id: string, field: 'description' | 'amount' | 'checked', value: string | boolean) => {
+    setPixExternals(pixExternals.map((p) => p.id === id ? {
+      ...p,
+      [field]: field === 'amount' ? parseBRL(value as string) : field === 'checked' ? value : value,
+    } : p));
   };
   const removePix = (id: string) => setPixExternals(pixExternals.filter((p) => p.id !== id));
   const totalPix = pixExternals.reduce((s, p) => s + Number(p.amount), 0);
@@ -412,7 +415,18 @@ export function FinancialCashClosing() {
                     <div>
                       <h3 className="font-semibold text-slate-900">{employee.name}</h3>
                       <p className="text-xs text-slate-400">TFL: {employee.tfl}{employee.position ? ` • ${employee.position}` : ''}</p>
-                    </div>
+                      {(() => {
+                        const totalSurplus = allClosings.reduce((s, c) => s + Number(c.surplus), 0);
+                        const totalShortage = allClosings.reduce((s, c) => s + Number(c.shortage), 0);
+                        const result = totalSurplus - totalShortage;
+                        return (
+                          <p className="text-xs mt-1 flex items-center gap-3">
+                            <span className="text-emerald-600">Sobras: R$ {formatBRL(totalSurplus)}</span>
+                            <span className="text-red-600">Faltas: R$ {formatBRL(totalShortage)}</span>
+                            <span className={result >= 0 ? 'text-slate-700 font-semibold' : 'text-red-700 font-semibold'}>Resultado: R$ {formatBRL(result)}</span>
+                          </p>
+                        );
+                      })()}
                   </div>
                   <div className="flex items-center gap-3">
                     {todayClosing ? (
@@ -426,6 +440,7 @@ export function FinancialCashClosing() {
                     )}
                     {isExpanded ? <ChevronDown size={20} className="text-slate-400" /> : <ChevronRight size={20} className="text-slate-400" />}
                   </div>
+                </div>
                 </div>
 
                 {/* Expanded content */}
@@ -676,6 +691,10 @@ export function FinancialCashClosing() {
                   <div key={p.id} className="flex items-center gap-2">
                     <input type="text" value={p.description} onChange={(e) => updatePix(p.id, 'description', e.target.value)} placeholder="Descrição" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
                     <input type="text" inputMode="numeric" value={p.amount ? maskBRL(String(Math.round(p.amount * 100))) : ''} onChange={(e) => updatePix(p.id, 'amount', e.target.value)} placeholder="R$ 0,00" className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+                    <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-slate-300 cursor-pointer hover:bg-slate-50 transition-colors">
+                      <input type="checkbox" checked={!!p.checked} onChange={(e) => updatePix(p.id, 'checked', e.target.checked)} className="w-4 h-4 accent-brand-600" />
+                      <span className="text-xs font-medium text-slate-600">Conferido</span>
+                    </label>
                     <button onClick={() => removePix(p.id)} className="text-slate-400 hover:text-red-500 p-2"><Trash size={16} /></button>
                   </div>
                 ))}
