@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar, TrendingUp, TrendingDown, Banknote } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar, TrendingUp, TrendingDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -134,6 +134,7 @@ export function FinancialCashClosing() {
   const [existingPdf, setExistingPdf] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extracted, setExtracted] = useState(false);
+  const [manualMode, setManualMode] = useState(false);
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [fDate, setFDate] = useState(todayStr());
 
@@ -165,6 +166,19 @@ export function FinancialCashClosing() {
 
   const branchOptions = branches.map((b) => ({ value: b.id, label: b.name }));
 
+  const openRetroactive = (employee: FinEmployee) => {
+    setEditing(null);
+    setModalEmployee(employee);
+    setForm({ ...emptyForm, closing_date: fDate });
+    setPixExternals([]);
+    setPdfFile(null);
+    setExistingPdf(null);
+    setExtracted(false);
+    setManualMode(true);
+    setError(null);
+    setModalOpen(true);
+  };
+
   const openNew = (employee: FinEmployee) => {
     setEditing(null);
     setModalEmployee(employee);
@@ -173,6 +187,7 @@ export function FinancialCashClosing() {
     setPdfFile(null);
     setExistingPdf(null);
     setExtracted(false);
+    setManualMode(false);
     setError(null);
     setModalOpen(true);
   };
@@ -201,6 +216,7 @@ export function FinancialCashClosing() {
     setPdfFile(null);
     setExistingPdf(c.pdf_path);
     setExtracted(true);
+    setManualMode(false);
     setError(null);
     setModalOpen(true);
   };
@@ -404,9 +420,14 @@ export function FinancialCashClosing() {
                         <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
                           <Calendar size={16} /> Caixa do dia — {formatDateBR(fDate)}
                         </h4>
-                        <Button size="sm" onClick={() => openNew(employee)}>
-                          <Plus size={14} /> Fechar Caixa
-                        </Button>
+                        <div className="flex items-center gap-2">
+                          <Button size="sm" onClick={() => openNew(employee)}>
+                            <Plus size={14} /> Fechar Caixa
+                          </Button>
+                          <Button size="sm" variant="secondary" onClick={() => openRetroactive(employee)}>
+                            <Calendar size={14} /> Fechar Retroativo
+                          </Button>
+                        </div>
                       </div>
                       {todayClosing ? (
                         <div className="bg-white rounded-lg p-4 border border-slate-200">
@@ -530,101 +551,148 @@ export function FinancialCashClosing() {
 
           <Input label="Data do Fechamento" type="date" value={form.closing_date} onChange={(v) => setForm({ ...form, closing_date: v })} required />
 
-          {/* PDF Upload / Extraction */}
-          <div>
-            <span className="block text-sm font-medium text-slate-700 mb-1.5">PDF do Fechamento (extração automática)</span>
-            {existingPdf && !pdfFile && (
-              <div className="flex items-center gap-2 mb-2 text-sm text-brand-600 bg-brand-50 rounded-lg p-3">
-                <FileText size={16} /> PDF já enviado
-                <button onClick={() => downloadPdf(existingPdf)} className="ml-auto text-brand-700 hover:underline flex items-center gap-1"><Download size={14} /> Ver</button>
-              </div>
-            )}
-            <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-lg py-8 cursor-pointer transition-colors ${extracting ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-400'}`}>
-              {extracting ? (
-                <><Loader2 size={20} className="text-brand-500 animate-spin" /><span className="text-sm text-brand-600">Extraindo dados do PDF...</span></>
-              ) : extracted ? (
-                <><CheckCircle size={20} className="text-emerald-500" /><span className="text-sm text-emerald-600">{pdfFile ? pdfFile.name : 'PDF carregado e dados extraídos'}</span></>
-              ) : (
-                <><Upload size={20} className="text-slate-400" /><span className="text-sm text-slate-500">{pdfFile ? pdfFile.name : 'Clique para enviar um PDF'}</span></>
+          {manualMode ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
+              <AlertCircle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+              <span className="text-sm text-amber-700">Modo retroativo: insira manualmente os valores que viriam do PDF.</span>
+            </div>
+          ) : (
+            <div>
+              <span className="block text-sm font-medium text-slate-700 mb-1.5">PDF do Fechamento (extração automática)</span>
+              {existingPdf && !pdfFile && (
+                <div className="flex items-center gap-2 mb-2 text-sm text-brand-600 bg-brand-50 rounded-lg p-3">
+                  <FileText size={16} /> PDF já enviado
+                  <button onClick={() => downloadPdf(existingPdf)} className="ml-auto text-brand-700 hover:underline flex items-center gap-1"><Download size={14} /> Ver</button>
+                </div>
               )}
-              <input type="file" accept="application/pdf" className="hidden" onChange={(e) => { if (e.target.files?.[0]) handlePdfSelect(e.target.files[0]); }} />
-            </label>
-          </div>
-
-          {/* Extracted data — detailed */}
-          {extracted && (
-            <div className="space-y-3">
-              {/* KPI cards */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
-                  <div className="flex items-center gap-1.5 mb-1 text-emerald-700">
-                    <TrendingUp size={14} />
-                    <span className="text-[10px] font-bold uppercase">Total Vendas</span>
-                  </div>
-                  <p className="text-lg font-black tabular-nums text-emerald-700">R$ {formatBRL(form.total_sales)}</p>
-                </div>
-                <div className="p-4 rounded-xl border border-red-200 bg-red-50">
-                  <div className="flex items-center gap-1.5 mb-1 text-red-700">
-                    <TrendingDown size={14} />
-                    <span className="text-[10px] font-bold uppercase">Total Entradas</span>
-                  </div>
-                  <p className="text-lg font-black tabular-nums text-red-700">R$ {formatBRL(form.total_income)}</p>
-                </div>
-                <div className="p-4 rounded-xl border border-brand-200 bg-brand-50">
-                  <div className="flex items-center gap-1.5 mb-1 text-brand-700">
-                    <Banknote size={14} />
-                    <span className="text-[10px] font-bold uppercase">Saldo Final</span>
-                  </div>
-                  <p className="text-lg font-black tabular-nums text-brand-700">R$ {formatBRL(form.saldo_final || (form.total_sales - form.total_income))}</p>
-                </div>
-              </div>
-
-              {/* Credit/Debit summary */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/50">
-                  <span className="text-[10px] font-bold uppercase text-emerald-600">Créditos</span>
-                  <p className="text-base font-bold tabular-nums text-emerald-700">R$ {formatBRL(form.total_credits)}</p>
-                </div>
-                <div className="p-3 rounded-xl border border-red-200 bg-red-50/50">
-                  <span className="text-[10px] font-bold uppercase text-red-600">Débitos</span>
-                  <p className="text-base font-bold tabular-nums text-red-700">R$ {formatBRL(form.total_debits)}</p>
-                </div>
-                <div className="p-3 rounded-xl border border-brand-200 bg-brand-50/50">
-                  <span className="text-[10px] font-bold uppercase text-brand-600">Total em Caixa</span>
-                  <p className="text-base font-bold tabular-nums text-brand-700">R$ {formatBRL(form.total_em_caixa)}</p>
-                </div>
-              </div>
-
-              {/* Detailed breakdown */}
-              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Detalhes extraídos do PDF</p>
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-600">Vendas</span>
-                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_sales)}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-600">Entradas / Receitas</span>
-                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_income)}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-600">Cofre</span>
-                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.safe_amount)}</span>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-200/60">
-                    <span className="text-slate-600">Caixa (Gaveta)</span>
-                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.cash_drawer)}</span>
-                  </div>
-                  <div className="flex justify-between py-1 font-bold border-t-2 border-slate-300 pt-2">
-                    <span className="text-slate-700">Saldo (Vendas - Entradas)</span>
-                    <span className={`tabular-nums ${form.total_sales - form.total_income >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>R$ {formatBRL(form.total_sales - form.total_income)}</span>
-                  </div>
-                </div>
-              </div>
+              <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-lg py-8 cursor-pointer transition-colors ${extracting ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-400'}`}>
+                {extracting ? (
+                  <><Loader2 size={20} className="text-brand-500 animate-spin" /><span className="text-sm text-brand-600">Extraindo dados do PDF...</span></>
+                ) : extracted ? (
+                  <><CheckCircle size={20} className="text-emerald-500" /><span className="text-sm text-emerald-600">{pdfFile ? pdfFile.name : 'PDF carregado e dados extraídos'}</span></>
+                ) : (
+                  <><Upload size={20} className="text-slate-400" /><span className="text-sm text-slate-500">{pdfFile ? pdfFile.name : 'Clique para enviar um PDF'}</span></>
+                )}
+                <input type="file" accept="application/pdf" className="hidden" onChange={(e) => { if (e.target.files?.[0]) handlePdfSelect(e.target.files[0]); }} />
+              </label>
             </div>
           )}
 
-          {!extracted && !extracting && (
+          {/* Data fields — editable in manual mode, read-only display when extracted from PDF */}
+          {(extracted || manualMode) ? (
+            <div className="space-y-3">
+              {manualMode && (
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Preencha os valores manualmente</p>
+              )}
+
+              {/* KPI cards */}
+              <div className="grid grid-cols-3 gap-3">
+                {manualMode ? (
+                  <div className="p-4 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Total Vendas</span>
+                    <input type="text" inputMode="decimal" value={String(form.total_sales || '')} onChange={(e) => setForm({ ...form, total_sales: parseFloat(e.target.value.replace(',', '.')) || 0 })} placeholder="0,00" className="w-full mt-1 text-lg font-bold tabular-nums text-emerald-700 bg-transparent border-b border-slate-200 focus:border-emerald-500 focus:outline-none" />
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
+                    <div className="flex items-center gap-1.5 mb-1 text-emerald-700">
+                      <TrendingUp size={14} />
+                      <span className="text-[10px] font-bold uppercase">Total Vendas</span>
+                    </div>
+                    <p className="text-lg font-black tabular-nums text-emerald-700">R$ {formatBRL(form.total_sales)}</p>
+                  </div>
+                )}
+                {manualMode ? (
+                  <div className="p-4 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Total Entradas</span>
+                    <input type="text" inputMode="decimal" value={String(form.total_income || '')} onChange={(e) => setForm({ ...form, total_income: parseFloat(e.target.value.replace(',', '.')) || 0 })} placeholder="0,00" className="w-full mt-1 text-lg font-bold tabular-nums text-red-700 bg-transparent border-b border-slate-200 focus:border-red-500 focus:outline-none" />
+                  </div>
+                ) : (
+                  <div className="p-4 rounded-xl border border-red-200 bg-red-50">
+                    <div className="flex items-center gap-1.5 mb-1 text-red-700">
+                      <TrendingDown size={14} />
+                      <span className="text-[10px] font-bold uppercase">Total Entradas</span>
+                    </div>
+                    <p className="text-lg font-black tabular-nums text-red-700">R$ {formatBRL(form.total_income)}</p>
+                  </div>
+                )}
+                <div className={`p-4 rounded-xl ${manualMode ? 'border border-slate-200' : 'border border-brand-200 bg-brand-50'}`}>
+                  <span className="text-[10px] font-bold uppercase text-brand-600">Saldo Final</span>
+                  {manualMode ? (
+                    <input type="text" inputMode="decimal" value={String(form.saldo_final || '')} onChange={(e) => setForm({ ...form, saldo_final: parseFloat(e.target.value.replace(',', '.')) || 0 })} placeholder="0,00" className="w-full mt-1 text-lg font-bold tabular-nums text-brand-700 bg-transparent border-b border-slate-200 focus:border-brand-500 focus:outline-none" />
+                  ) : (
+                    <p className="text-lg font-black tabular-nums text-brand-700">R$ {formatBRL(form.saldo_final || (form.total_sales - form.total_income))}</p>
+                  )}
+                </div>
+              </div>
+
+              {manualMode && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-3 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Cofre</span>
+                    <input type="text" inputMode="decimal" value={String(form.safe_amount || '')} onChange={(e) => setForm({ ...form, safe_amount: parseFloat(e.target.value.replace(',', '.')) || 0 })} placeholder="0,00" className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none" />
+                  </div>
+                  <div className="p-3 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Caixa (Gaveta)</span>
+                    <input type="text" inputMode="decimal" value={String(form.cash_drawer || '')} onChange={(e) => setForm({ ...form, cash_drawer: parseFloat(e.target.value.replace(',', '.')) || 0 })} placeholder="0,00" className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none" />
+                  </div>
+                </div>
+              )}
+
+              {/* Credit/Debit summary — only show in PDF mode */}
+              {!manualMode && (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/50">
+                    <span className="text-[10px] font-bold uppercase text-emerald-600">Créditos</span>
+                    <p className="text-base font-bold tabular-nums text-emerald-700">R$ {formatBRL(form.total_credits)}</p>
+                  </div>
+                  <div className="p-3 rounded-xl border border-red-200 bg-red-50/50">
+                    <span className="text-[10px] font-bold uppercase text-red-600">Débitos</span>
+                    <p className="text-base font-bold tabular-nums text-red-700">R$ {formatBRL(form.total_debits)}</p>
+                  </div>
+                  <div className="p-3 rounded-xl border border-brand-200 bg-brand-50/50">
+                    <span className="text-[10px] font-bold uppercase text-brand-600">Total em Caixa</span>
+                    <p className="text-base font-bold tabular-nums text-brand-700">R$ {formatBRL(form.total_em_caixa)}</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Detailed breakdown — only in PDF mode */}
+              {!manualMode && (
+                <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Detalhes extraídos do PDF</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-600">Vendas</span>
+                      <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_sales)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-600">Entradas / Receitas</span>
+                      <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_income)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-600">Cofre</span>
+                      <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.safe_amount)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200/60">
+                      <span className="text-slate-600">Caixa (Gaveta)</span>
+                      <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.cash_drawer)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 font-bold border-t-2 border-slate-300 pt-2">
+                      <span className="text-slate-700">Saldo (Vendas - Entradas)</span>
+                      <span className={`tabular-nums ${form.total_sales - form.total_income >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>R$ {formatBRL(form.total_sales - form.total_income)}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {manualMode && (
+                <div className="bg-slate-50 rounded-lg p-4 flex justify-between py-1 font-bold border-t-2 border-slate-300 pt-2">
+                  <span className="text-slate-700">Saldo (Vendas - Entradas)</span>
+                  <span className={`tabular-nums ${form.total_sales - form.total_income >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>R$ {formatBRL(form.total_sales - form.total_income)}</span>
+                </div>
+              )}
+            </div>
+          ) : (
             <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
               <AlertCircle size={16} className="mt-0.5 shrink-0" />
               <span>Envie um PDF para extrair automaticamente os valores. Você poderá revisar antes de salvar.</span>
@@ -668,7 +736,7 @@ export function FinancialCashClosing() {
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button onClick={save} disabled={saving || extracting}>{saving ? 'Salvando...' : 'Salvar'}</Button>
+            <Button onClick={save} disabled={saving || (!manualMode && extracting)}>{saving ? 'Salvando...' : 'Salvar'}</Button>
           </div>
         </div>
       </Modal>
