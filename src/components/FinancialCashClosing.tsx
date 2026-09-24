@@ -286,10 +286,11 @@ export function FinancialCashClosing() {
     if (pdfFile && !pdfPath) { setSaving(false); return; }
 
     const manualSaldoFinal = form.total_sales - form.total_income;
-    const manualSaldoGeral = form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals;
+    const manualSaldoGeral =
+      form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals - parseBRL(form.deposit_amount);
     const manualDiff = manualSaldoGeral - manualSaldoFinal;
-    const manualSurplus = manualMode && manualDiff > 0 ? manualDiff : (parseBRL(form.surplus));
-    const manualShortage = manualMode && manualDiff < 0 ? Math.abs(manualDiff) : (parseBRL(form.shortage));
+    const manualSurplus  = manualMode && manualDiff > 0 ?  manualDiff : parseBRL(form.surplus);
+    const manualShortage = manualMode && manualDiff < 0 ? Math.abs(manualDiff) : parseBRL(form.shortage);
 
     const payload = {
       branch_id: selectedBranch,
@@ -427,6 +428,7 @@ export function FinancialCashClosing() {
                           </p>
                         );
                       })()}
+                    </div>
                   </div>
                   <div className="flex items-center gap-3">
                     {todayClosing ? (
@@ -440,7 +442,6 @@ export function FinancialCashClosing() {
                     )}
                     {isExpanded ? <ChevronDown size={20} className="text-slate-400" /> : <ChevronRight size={20} className="text-slate-400" />}
                   </div>
-                </div>
                 </div>
 
                 {/* Expanded content */}
@@ -493,10 +494,10 @@ export function FinancialCashClosing() {
                               <div><span className="text-slate-500">Cofre:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount))}</span></div>
                               <div><span className="text-slate-500">Caixa:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
                               <div><span className="text-slate-500">Retiradas:</span> <span className="font-medium">R$ {formatBRL(Number(c.total_withdrawals ?? 0))}</span></div>
-                              <div><span className="text-slate-500">Saldo Geral:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount) + Number(c.cash_drawer) + Number(c.total_pix_externals) + Number(c.total_withdrawals ?? 0))}</span></div>
+                              <div><span className="text-slate-500">Depósitos:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
+                              <div><span className="text-slate-500">Saldo Geral:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount) + Number(c.cash_drawer) + Number(c.total_pix_externals) + Number(c.total_withdrawals ?? 0) - Number(c.deposit_amount ?? 0))}</span></div>
                               <div><span className="text-slate-500">Sobra:</span> <span className="font-medium text-emerald-600">R$ {formatBRL(Number(c.surplus))}</span></div>
                               <div><span className="text-slate-500">Falta:</span> <span className="font-medium text-red-600">R$ {formatBRL(Number(c.shortage))}</span></div>
-                              <div><span className="text-slate-500">Depósitos:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
                               <div><span className="text-slate-500">Status:</span> <span className="font-medium">{c.status === 'closed' ? 'Fechado' : 'Pendente'}</span></div>
                               {c.notes && <div className="col-span-2 sm:col-span-4"><span className="text-slate-500">Justificativa:</span> <span className="text-slate-600">{c.notes}</span></div>}
                             </div>
@@ -665,8 +666,21 @@ export function FinancialCashClosing() {
 
               {manualMode && (
                 <div className="bg-slate-50 rounded-lg p-4 flex justify-between items-center font-bold border-t-2 border-slate-300">
-                  <span className="text-slate-700">Saldo Geral (Cofre + Caixa + Pix + Retiradas)</span>
-                  <span className={`tabular-nums text-lg ${(form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals) >= 0 ? 'text-blue-700' : 'text-red-700'}`}>R$ {formatBRL(form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals)}</span>
+                  <span className="text-slate-700">
+                    Saldo Geral (Cofre + Caixa + Pix + Retiradas − Depósitos)
+                  </span>
+                  <span
+                    className={`tabular-nums text-lg ${
+                      (form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals - parseBRL(form.deposit_amount)) >= 0
+                        ? 'text-blue-700'
+                        : 'text-red-700'
+                    }`}
+                  >
+                    R${' '}
+                    {formatBRL(
+                      form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals - parseBRL(form.deposit_amount),
+                    )}
+                  </span>
                 </div>
               )}
             </div>
@@ -728,7 +742,8 @@ export function FinancialCashClosing() {
           {manualMode ? (
             (() => {
               const manualSaldoFinal = form.total_sales - form.total_income;
-              const manualSaldoGeral = form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals;
+              const manualSaldoGeral =
+                form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals - parseBRL(form.deposit_amount);
               const manualDiff = manualSaldoGeral - manualSaldoFinal;
               const surplusVal = manualDiff > 0 ? manualDiff : 0;
               const shortageVal = manualDiff < 0 ? Math.abs(manualDiff) : 0;
@@ -746,11 +761,28 @@ export function FinancialCashClosing() {
             </div>
           )}
 
-          {!manualMode && (
-            <div className="grid grid-cols-2 gap-4">
-              <MoneyInput label="Depósitos" value={form.deposit_amount} onChange={(v) => setForm({ ...form, deposit_amount: v })} />
-            </div>
-          )}
+          {/* Depósito — visível em ambos os modos */}
+          <div className="grid grid-cols-2 gap-4">
+            {manualMode ? (
+              <div className="p-3 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold uppercase text-slate-500">Depósito</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={form.deposit_amount ? maskBRL(String(Math.round(parseBRL(form.deposit_amount) * 100))) : ''}
+                  onChange={(e) => setForm({ ...form, deposit_amount: e.target.value })}
+                  placeholder="R$ 0,00"
+                  className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
+                />
+              </div>
+            ) : (
+              <MoneyInput
+                label="Depósitos"
+                value={form.deposit_amount}
+                onChange={(v) => setForm({ ...form, deposit_amount: v })}
+              />
+            )}
+          </div>
 
           <Input label="Justificativa" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Justificativa do fechamento" />
           <Select label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as 'open' | 'closed' })} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
