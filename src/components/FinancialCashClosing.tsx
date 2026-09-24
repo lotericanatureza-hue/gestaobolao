@@ -284,7 +284,7 @@ export function FinancialCashClosing() {
 
     const manualSaldoFinal = form.total_sales - form.total_income;
     const manualSaldoGeral = form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals;
-    const manualDiff = manualSaldoFinal - manualSaldoGeral;
+    const manualDiff = manualSaldoGeral - manualSaldoFinal;
     const manualSurplus = manualMode && manualDiff > 0 ? manualDiff : (parseBRL(form.surplus));
     const manualShortage = manualMode && manualDiff < 0 ? Math.abs(manualDiff) : (parseBRL(form.shortage));
 
@@ -341,10 +341,7 @@ export function FinancialCashClosing() {
   // Per-employee data
   const employeeData = employees.map((emp) => {
     const empClosings = closings.filter((c) => c.employee_id === emp.id);
-    const todayClosing = empClosings.find((c) => c.closing_date === fDate);
-    const closedClosings = empClosings.filter((c) => c.status === 'closed');
-    const pendingClosings = empClosings.filter((c) => c.status === 'open');
-    return { employee: emp, todayClosing, closedClosings, pendingClosings, allClosings: empClosings };
+    return { employee: emp, allClosings: [...empClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) };
   });
 
   // Totals for the day
@@ -398,8 +395,9 @@ export function FinancialCashClosing() {
         <Card><EmptyState icon={<User size={48} />} title="Nenhum funcionário cadastrado" description="Cadastre funcionários na aba Funcionários para que cada um tenha seu próprio fechamento de caixa." /></Card>
       ) : (
         <div className="space-y-4">
-          {employeeData.map(({ employee, todayClosing, closedClosings, pendingClosings }) => {
+          {employeeData.map(({ employee, allClosings }) => {
             const isExpanded = expandedEmp === employee.id;
+            const todayClosing = allClosings.find((c) => c.closing_date === fDate);
             return (
               <Card key={employee.id} className="overflow-hidden">
                 {/* Employee header */}
@@ -433,118 +431,64 @@ export function FinancialCashClosing() {
                 {/* Expanded content */}
                 {isExpanded && (
                   <div className="border-t border-slate-100 p-5 space-y-4">
-                    {/* Today's action */}
-                    <div className="bg-slate-50 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h4 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
-                          <Calendar size={16} /> Caixa do dia — {formatDateBR(fDate)}
-                        </h4>
-                        <div className="flex items-center gap-2">
-                          <Button size="sm" onClick={() => openNew(employee)}>
-                            <Plus size={14} /> Fechar Caixa
-                          </Button>
-                          <Button size="sm" variant="secondary" onClick={() => openRetroactive(employee)}>
-                            <Calendar size={14} /> Fechar Retroativo
-                          </Button>
-                        </div>
-                      </div>
-                      {todayClosing ? (
-                        <div className="bg-white rounded-lg p-4 border border-slate-200">
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm mb-3">
-                            <div><span className="text-slate-500">Vendas:</span> <span className="font-semibold text-slate-900">R$ {formatBRL(Number(todayClosing.total_sales))}</span></div>
-                            <div><span className="text-slate-500">Pix Ext.:</span> <span className="font-semibold text-brand-600">R$ {formatBRL(Number(todayClosing.total_pix_externals))}</span></div>
-                            <div><span className="text-slate-500">Sobra:</span> <span className="font-semibold text-emerald-600">R$ {formatBRL(Number(todayClosing.surplus))}</span></div>
-                            <div><span className="text-slate-500">Falta:</span> <span className="font-semibold text-red-600">R$ {formatBRL(Number(todayClosing.shortage))}</span></div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {todayClosing.pdf_path && (
-                              <button onClick={() => downloadPdf(todayClosing.pdf_path!)} className="text-brand-600 hover:text-brand-700 flex items-center gap-1 text-sm">
-                                <FileText size={14} /> Ver PDF
-                              </button>
-                            )}
-                            <button onClick={() => toggleStatus(todayClosing)} className="text-slate-500 hover:text-slate-700 flex items-center gap-1 text-sm">
-                              {todayClosing.status === 'closed' ? <><Unlock size={14} /> Reabrir</> : <><Lock size={14} /> Fechar</>}
-                            </button>
-                            <button onClick={() => openEdit(todayClosing)} className="text-brand-600 hover:text-brand-700 flex items-center gap-1 text-sm">
-                              <Pencil size={14} /> Editar
-                            </button>
-                            <button onClick={() => removeClosing(todayClosing)} className="text-red-500 hover:text-red-700 flex items-center gap-1 text-sm">
-                              <Trash2 size={14} /> Excluir
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-sm text-slate-400">Nenhum caixa fechado para este funcionário no dia selecionado. Clique em "Fechar Caixa" para criar.</p>
-                      )}
+                    {/* Action buttons */}
+                    <div className="flex items-center justify-end gap-2">
+                      <Button size="sm" onClick={() => openNew(employee)}>
+                        <Plus size={14} /> Fechar Caixa
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => openRetroactive(employee)}>
+                        <Calendar size={14} /> Fechar Retroativo
+                      </Button>
                     </div>
 
-                    {/* Pending closings */}
-                    {pendingClosings.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-amber-700 mb-2 flex items-center gap-2">
-                          <AlertCircle size={16} /> Caixas Pendentes ({pendingClosings.length})
+                    {/* All closings as collapsible list */}
+                    {allClosings.length > 0 ? (
+                      <div className="space-y-2">
+                        <h4 className="text-sm font-semibold text-slate-600 flex items-center gap-2">
+                          <FileText size={16} /> Histórico de Fechamentos ({allClosings.length})
                         </h4>
-                        <div className="space-y-2">
-                          {pendingClosings.map((c) => (
-                            <div key={c.id} className="flex items-center justify-between bg-amber-50 rounded-lg p-3 border border-amber-200">
+                        {allClosings.map((c) => (
+                          <details key={c.id} className={`rounded-lg border transition-colors ${c.status === 'closed' ? 'bg-slate-50 border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
+                            <summary className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-lg">
                               <div className="flex items-center gap-3">
-                                <Badge color="amber"><Unlock size={12} className="mr-1" /> Pendente</Badge>
-                                <span className="text-sm text-slate-700">{formatDateBR(c.closing_date)}</span>
+                                {c.status === 'closed' ? (
+                                  <Badge color="blue"><Lock size={12} className="mr-1" /> Fechado</Badge>
+                                ) : (
+                                  <Badge color="amber"><Unlock size={12} className="mr-1" /> Pendente</Badge>
+                                )}
+                                <span className="text-sm font-medium text-slate-700">{formatDateBR(c.closing_date)}</span>
                                 <span className="text-sm text-slate-500">Vendas: R$ {formatBRL(Number(c.total_sales))}</span>
+                                {Number(c.surplus) > 0 && <span className="text-sm font-medium text-emerald-600">Sobra: R$ {formatBRL(Number(c.surplus))}</span>}
+                                {Number(c.shortage) > 0 && <span className="text-sm font-medium text-red-600">Falta: R$ {formatBRL(Number(c.shortage))}</span>}
                               </div>
-                              <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                                 {c.pdf_path && <button onClick={() => downloadPdf(c.pdf_path!)} className="text-brand-600 text-sm flex items-center gap-1"><FileText size={14} /> PDF</button>}
+                                <button onClick={() => toggleStatus(c)} className="text-slate-500 text-sm" title={c.status === 'closed' ? 'Reabrir' : 'Fechar'}>
+                                  {c.status === 'closed' ? <Unlock size={14} /> : <Lock size={14} />}
+                                </button>
                                 <button onClick={() => openEdit(c)} className="text-brand-600 text-sm"><Pencil size={14} /></button>
                                 <button onClick={() => removeClosing(c)} className="text-red-500 text-sm"><Trash2 size={14} /></button>
                               </div>
+                            </summary>
+                            <div className="px-3 pb-3 pt-1 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+                              <div><span className="text-slate-500">Créditos:</span> <span className="font-medium text-emerald-700">R$ {formatBRL(Number(c.total_sales))}</span></div>
+                              <div><span className="text-slate-500">Débitos:</span> <span className="font-medium text-red-700">R$ {formatBRL(Number(c.total_income))}</span></div>
+                              <div><span className="text-slate-500">Saldo Final:</span> <span className="font-medium">R$ {formatBRL(Number(c.total_sales) - Number(c.total_income))}</span></div>
+                              <div><span className="text-slate-500">Pix Ext.:</span> <span className="font-medium text-brand-600">R$ {formatBRL(Number(c.total_pix_externals))}</span></div>
+                              <div><span className="text-slate-500">Cofre:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount))}</span></div>
+                              <div><span className="text-slate-500">Caixa:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
+                              <div><span className="text-slate-500">Retiradas:</span> <span className="font-medium">R$ {formatBRL(Number(c.total_withdrawals ?? 0))}</span></div>
+                              <div><span className="text-slate-500">Saldo Geral:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount) + Number(c.cash_drawer) + Number(c.total_pix_externals) + Number(c.total_withdrawals ?? 0))}</span></div>
+                              <div><span className="text-slate-500">Sobra:</span> <span className="font-medium text-emerald-600">R$ {formatBRL(Number(c.surplus))}</span></div>
+                              <div><span className="text-slate-500">Falta:</span> <span className="font-medium text-red-600">R$ {formatBRL(Number(c.shortage))}</span></div>
+                              <div><span className="text-slate-500">Depósitos:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
+                              <div><span className="text-slate-500">Status:</span> <span className="font-medium">{c.status === 'closed' ? 'Fechado' : 'Pendente'}</span></div>
+                              {c.notes && <div className="col-span-2 sm:col-span-4"><span className="text-slate-500">Justificativa:</span> <span className="text-slate-600">{c.notes}</span></div>}
                             </div>
-                          ))}
-                        </div>
+                          </details>
+                        ))}
                       </div>
-                    )}
-
-                    {/* Closed closings */}
-                    {closedClosings.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-semibold text-slate-600 mb-2 flex items-center gap-2">
-                          <Lock size={16} /> Caixas Fechados ({closedClosings.length})
-                        </h4>
-                        <div className="space-y-2">
-                          {closedClosings.slice(0, 10).map((c) => (
-                            <details key={c.id} className="bg-slate-50 rounded-lg border border-slate-200">
-                              <summary className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-lg">
-                                <div className="flex items-center gap-3">
-                                  <Badge color="blue"><Lock size={12} className="mr-1" /> Fechado</Badge>
-                                  <span className="text-sm text-slate-700">{formatDateBR(c.closing_date)}</span>
-                                  <span className="text-sm text-slate-500">Vendas: R$ {formatBRL(Number(c.total_sales))}</span>
-                                </div>
-                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                                  {c.pdf_path && <button onClick={() => downloadPdf(c.pdf_path!)} className="text-brand-600 text-sm flex items-center gap-1"><FileText size={14} /> PDF</button>}
-                                  <button onClick={() => toggleStatus(c)} className="text-slate-500 text-sm" title="Reabrir"><Unlock size={14} /></button>
-                                  <button onClick={() => openEdit(c)} className="text-brand-600 text-sm"><Pencil size={14} /></button>
-                                  <button onClick={() => removeClosing(c)} className="text-red-500 text-sm"><Trash2 size={14} /></button>
-                                </div>
-                              </summary>
-                              <div className="px-3 pb-3 pt-1 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-                                <div><span className="text-slate-500">Entradas:</span> <span className="font-medium">R$ {formatBRL(Number(c.total_income))}</span></div>
-                                <div><span className="text-slate-500">Pix Ext.:</span> <span className="font-medium text-brand-600">R$ {formatBRL(Number(c.total_pix_externals))}</span></div>
-                                <div><span className="text-slate-500">Sobra:</span> <span className="font-medium text-emerald-600">R$ {formatBRL(Number(c.surplus))}</span></div>
-                                <div><span className="text-slate-500">Falta:</span> <span className="font-medium text-red-600">R$ {formatBRL(Number(c.shortage))}</span></div>
-                                <div><span className="text-slate-500">Cofre:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount))}</span></div>
-                                <div><span className="text-slate-500">Caixa:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
-                                <div><span className="text-slate-500">Depósitos:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
-                                {c.notes && <div className="col-span-2"><span className="text-slate-500">Obs.:</span> <span className="text-slate-600">{c.notes}</span></div>}
-                              </div>
-                            </details>
-                          ))}
-                          {closedClosings.length > 10 && (
-                            <p className="text-xs text-slate-400 text-center pt-1">Mostrando 10 de {closedClosings.length} caixas fechados</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {todayClosing === null && pendingClosings.length === 0 && closedClosings.length === 0 && (
+                    ) : (
                       <p className="text-sm text-slate-400 text-center py-4">Nenhum fechamento registrado para este funcionário.</p>
                     )}
                   </div>
@@ -768,7 +712,7 @@ export function FinancialCashClosing() {
             (() => {
               const manualSaldoFinal = form.total_sales - form.total_income;
               const manualSaldoGeral = form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals;
-              const manualDiff = manualSaldoFinal - manualSaldoGeral;
+              const manualDiff = manualSaldoGeral - manualSaldoFinal;
               const surplusVal = manualDiff > 0 ? manualDiff : 0;
               const shortageVal = manualDiff < 0 ? Math.abs(manualDiff) : 0;
               return (
