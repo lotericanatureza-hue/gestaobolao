@@ -184,6 +184,7 @@ export function FinancialCashClosing() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
   const [branches, setBranches] = useState<Branch[]>([]);
+  // selectedBranch = '' significa "Todas as filiais" (apenas para admin)
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [employees, setEmployees] = useState<FinEmployee[]>([]);
   const [closings, setClosings] = useState<FinCashClosing[]>([]);
@@ -204,29 +205,51 @@ export function FinancialCashClosing() {
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [fDate, setFDate] = useState(todayStr());
 
+  // Carrega filiais — admin começa em "Todas" (''), operador na sua filial
   useEffect(() => {
     supabase.from('branches').select('*').order('name').then(({ data }) => {
       const list = (data ?? []) as Branch[];
       setBranches(list);
-      if (isAdmin) {
-        setSelectedBranch(list[0]?.id ?? '');
-      } else {
+      if (!isAdmin) {
         setSelectedBranch(profile?.branch_id ?? '');
       }
+      // Admin: selectedBranch permanece '' = "Todas as filiais"
     });
   }, [profile, isAdmin]);
 
   const fetchData = useCallback(async () => {
-    if (!selectedBranch) { setLoading(false); return; }
+    // Operador precisa de branch; admin pode estar sem (ver tudo)
+    const effectiveBranch = isAdmin ? selectedBranch : (profile?.branch_id ?? '');
+    if (!isAdmin && !effectiveBranch) { setLoading(false); return; }
+
     setLoading(true);
-    const [ccRes, empRes] = await Promise.all([
-      supabase.from('fin_cash_closing').select('*, branch:branches(*), employee:fin_employees(*)').eq('branch_id', selectedBranch).order('closing_date', { ascending: false }),
-      supabase.from('fin_employees').select('*').eq('branch_id', selectedBranch).eq('active', true).order('name'),
-    ]);
+
+    let ccQuery = supabase
+      .from('fin_cash_closing')
+      .select('*, branch:branches(*), employee:fin_employees(*)')
+      .order('closing_date', { ascending: false });
+
+    let empQuery = supabase
+      .from('fin_employees')
+      .select('*')
+      .eq('active', true)
+      .order('name');
+
+    // Filtra apenas se uma filial específica estiver selecionada
+    if (effectiveBranch) {
+      ccQuery = ccQuery.eq('branch_id', effectiveBranch);
+      empQuery = empQuery.eq('branch_id', effectiveBranch);
+    }
+
+    const [ccRes, empRes] = await Promise.all([ccQuery, empQuery]);
+
+    if (ccRes.error) console.error('[fetchData] fin_cash_closing:', ccRes.error);
+    if (empRes.error) console.error('[fetchData] fin_employees:', empRes.error);
+
     setClosings((ccRes.data ?? []) as FinCashClosing[]);
     setEmployees((empRes.data ?? []) as FinEmployee[]);
     setLoading(false);
-  }, [selectedBranch]);
+  }, [selectedBranch, isAdmin, profile?.branch_id]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -261,7 +284,8 @@ export function FinancialCashClosing() {
   };
 
   const openEdit = (c: FinCashClosing) => {
-    const emp = employees.find((e) => e.id === c.employee_id) ?? null;
+    // Usa o funcionário do próprio registro (vem do JOIN) — evita depender do estado local
+    const emp = c.employee ?? employees.find((e) => e.id === c.employee_id) ?? null;
     setEditing(c);
     setModalEmployee(emp);
     setForm({
@@ -332,9 +356,15 @@ export function FinancialCashClosing() {
   const totalWithdrawals = withdrawals.reduce((s, w) => s + Number(w.amount), 0);
 
   const uploadPdf = async (): Promise<string | null> => {
-    if (!pdfFile || !selectedBranch) return existingPdf;
+    if (!pdfFile) return existingPdf;
+    // Usa a filial do funcionário (garante pasta correta mesmo em "Todas as filiais")
+    const targetBranch = modalEmployee?.branch_id ?? (isAdmin ? selectedBranch : profile?.branch_id);
+    if (!targetBranch) {
+      setError('Não foi possível determinar a filial para o upload do PDF.');
+      return null;
+    }
     const fileExt = pdfFile.name.split('.').pop();
-    const fileName = `${selectedBranch}/${crypto.randomUUID()}.${fileExt}`;
+    const fileName = `${targetBranch}/${crypto.randomUUID()}.${fileExt}`;
     const { error: uploadError } = await supabase.storage
       .from('financial-pdfs')
       .upload(fileName, pdfFile, { upsert: true });
@@ -350,11 +380,11 @@ export function FinancialCashClosing() {
     const pdfPath = await uploadPdf();
     if (pdfFile && !pdfPath) { setSaving(false); return; }
 
-    // === CÁLCULOS BASEADOS NO ORIGINAL ===
+    // === CÁLCULOS ===
     // Saldo Final (esperado do PDF): Vendas - Entradas
     const saldoFinal = form.total_sales - form.total_income;
 
-    // Saldo Geral (o que foi efetivamente conferido/recolhido):
+    // Saldo Geral (conferido/recolhido):
     //   Cofre + Separado/Recolhido + Pix Externos + Retiradas + Envelopes
     // Todos entram como SOMA comum, sem subtração.
     const saldoGeral =
@@ -364,18 +394,16 @@ export function FinancialCashClosing() {
       totalWithdrawals +
       parseBRL(form.deposit_amount);
 
-    // Diferença: se o conferido for MAIOR que o esperado → sobra
-    //            se o conferido for MENOR que o esperado → falta
     const diff = saldoGeral - saldoFinal;
     const computedSurplus = diff > 0 ? diff : 0;
     const computedShortage = diff < 0 ? Math.abs(diff) : 0;
 
-    // No modo PDF, sobra/falta são digitados manualmente pelo usuário
     const finalSurplus = manualMode ? computedSurplus : parseBRL(form.surplus);
     const finalShortage = manualMode ? computedShortage : parseBRL(form.shortage);
 
+    // A filial do registro é SEMPRE a do funcionário (evita inconsistência em "Todas as filiais")
     const payload = {
-      branch_id: selectedBranch,
+      branch_id: modalEmployee.branch_id,
       employee_id: modalEmployee.id,
       closing_date: form.closing_date,
       total_sales: form.total_sales,
@@ -393,11 +421,18 @@ export function FinancialCashClosing() {
       notes: form.notes.trim() || null,
       status: form.status,
     };
-    if (editing) {
-      await supabase.from('fin_cash_closing').update(payload).eq('id', editing.id);
-    } else {
-      await supabase.from('fin_cash_closing').insert(payload);
+
+    const { error: saveError } = editing
+      ? await supabase.from('fin_cash_closing').update(payload).eq('id', editing.id)
+      : await supabase.from('fin_cash_closing').insert(payload);
+
+    if (saveError) {
+      console.error('Erro ao salvar fechamento:', saveError);
+      setError('Erro ao salvar: ' + saveError.message);
+      setSaving(false);
+      return; // Não fecha o modal, mantém os dados preenchidos
     }
+
     setSaving(false);
     setModalOpen(false);
     fetchData();
@@ -448,7 +483,11 @@ export function FinancialCashClosing() {
         action={
           <div className="flex items-center gap-2">
             {isAdmin && (
-              <Select value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} placeholder="Selecionar filial" />
+              <Select
+                value={selectedBranch}
+                onChange={setSelectedBranch}
+                options={[{ value: '', label: 'Todas as filiais' }, ...branchOptions]}
+              />
             )}
             <Input type="date" value={fDate} onChange={setFDate} />
           </div>
