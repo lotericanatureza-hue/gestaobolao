@@ -116,12 +116,10 @@ const emptyForm = {
 };
 
 /**
- * Componente de input monetário com digitação natural:
- * - Aceita apenas dígitos (e backspace)
- * - Trata o valor como centavos: digitar "1234" → R$ 12,34
+ * Input monetário com digitação natural tipo "caixa eletrônico":
+ * - Aceita apenas dígitos
+ * - Trata o valor como centavos: "1234" → R$ 12,34
  * - Backspace remove o último dígito
- * - Não há necessidade de digitar vírgula, ponto ou R$
- * - Sempre exibe formatado em pt-BR
  */
 function MoneyField({
   value,
@@ -134,12 +132,10 @@ function MoneyField({
   placeholder?: string;
   className?: string;
 }) {
-  // Guarda os dígitos crus (sem formatação) como string para controlar a digitação
   const [digits, setDigits] = useState<string>(() =>
     value > 0 ? String(Math.round(value * 100)) : ''
   );
 
-  // Sincroniza quando o valor externo muda (ex.: carregar do PDF ou editar)
   useEffect(() => {
     const currentFromDigits = digits ? Number(digits) / 100 : 0;
     if (Math.abs(currentFromDigits - value) > 0.001) {
@@ -149,15 +145,13 @@ function MoneyField({
   }, [value]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Remove tudo que não for dígito
-    const onlyDigits = e.target.value.replace(/\D/g, '').slice(0, 12); // limite ~ 9.999.999.999,99
+    const onlyDigits = e.target.value.replace(/\D/g, '').slice(0, 12);
     setDigits(onlyDigits);
     const numeric = onlyDigits ? Number(onlyDigits) / 100 : 0;
     onChange(numeric);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    // Permite apenas dígitos, backspace, delete, tab, setas e atalhos de clipboard
     const allowed =
       e.key === 'Backspace' ||
       e.key === 'Delete' ||
@@ -324,11 +318,8 @@ export function FinancialCashClosing() {
   };
 
   const addPix = () => setPixExternals([...pixExternals, { id: crypto.randomUUID(), description: '', amount: 0 }]);
-  const updatePix = (id: string, field: 'description' | 'amount' | 'checked', value: string | boolean) => {
-    setPixExternals(pixExternals.map((p) => p.id === id ? {
-      ...p,
-      [field]: field === 'amount' ? value : field === 'checked' ? value : value,
-    } : p));
+  const updatePix = (id: string, field: 'description' | 'amount' | 'checked', value: string | boolean | number) => {
+    setPixExternals(pixExternals.map((p) => p.id === id ? { ...p, [field]: value } : p));
   };
   const removePix = (id: string) => setPixExternals(pixExternals.filter((p) => p.id !== id));
   const totalPix = pixExternals.reduce((s, p) => s + Number(p.amount), 0);
@@ -359,12 +350,29 @@ export function FinancialCashClosing() {
     const pdfPath = await uploadPdf();
     if (pdfFile && !pdfPath) { setSaving(false); return; }
 
-    const manualSaldoFinal = form.total_sales - form.total_income;
-    const manualSaldoGeral =
-      form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals - parseBRL(form.deposit_amount);
-    const manualDiff = manualSaldoGeral - manualSaldoFinal;
-    const manualSurplus  = manualMode && manualDiff > 0 ?  manualDiff : parseBRL(form.surplus);
-    const manualShortage = manualMode && manualDiff < 0 ? Math.abs(manualDiff) : parseBRL(form.shortage);
+    // === CÁLCULOS BASEADOS NO ORIGINAL ===
+    // Saldo Final (esperado do PDF): Vendas - Entradas
+    const saldoFinal = form.total_sales - form.total_income;
+
+    // Saldo Geral (o que foi efetivamente conferido/recolhido):
+    //   Cofre + Separado/Recolhido + Pix Externos + Retiradas + Envelopes
+    // Todos entram como SOMA comum, sem subtração.
+    const saldoGeral =
+      form.safe_amount +
+      form.cash_drawer +
+      totalPix +
+      totalWithdrawals +
+      parseBRL(form.deposit_amount);
+
+    // Diferença: se o conferido for MAIOR que o esperado → sobra
+    //            se o conferido for MENOR que o esperado → falta
+    const diff = saldoGeral - saldoFinal;
+    const computedSurplus = diff > 0 ? diff : 0;
+    const computedShortage = diff < 0 ? Math.abs(diff) : 0;
+
+    // No modo PDF, sobra/falta são digitados manualmente pelo usuário
+    const finalSurplus = manualMode ? computedSurplus : parseBRL(form.surplus);
+    const finalShortage = manualMode ? computedShortage : parseBRL(form.shortage);
 
     const payload = {
       branch_id: selectedBranch,
@@ -376,8 +384,8 @@ export function FinancialCashClosing() {
       total_pix_externals: totalPix,
       withdrawals: withdrawals as unknown as Record<string, unknown>[],
       total_withdrawals: totalWithdrawals,
-      surplus: manualSurplus,
-      shortage: manualShortage,
+      surplus: finalSurplus,
+      shortage: finalShortage,
       safe_amount: form.safe_amount,
       cash_drawer: form.cash_drawer,
       deposit_amount: parseBRL(form.deposit_amount),
@@ -569,7 +577,7 @@ export function FinancialCashClosing() {
                               <div><span className="text-slate-500">Separado/Recolhido:</span> <span className="font-medium">R$ {formatBRL(Number(c.cash_drawer))}</span></div>
                               <div><span className="text-slate-500">Retiradas:</span> <span className="font-medium">R$ {formatBRL(Number(c.total_withdrawals ?? 0))}</span></div>
                               <div><span className="text-slate-500">Envelopes:</span> <span className="font-medium">R$ {formatBRL(Number(c.deposit_amount ?? 0))}</span></div>
-                              <div><span className="text-slate-500">Saldo Geral:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount) + Number(c.cash_drawer) + Number(c.total_pix_externals) + Number(c.total_withdrawals ?? 0) - Number(c.deposit_amount ?? 0))}</span></div>
+                              <div><span className="text-slate-500">Saldo Geral:</span> <span className="font-medium">R$ {formatBRL(Number(c.safe_amount) + Number(c.cash_drawer) + Number(c.total_pix_externals) + Number(c.total_withdrawals ?? 0) + Number(c.deposit_amount ?? 0))}</span></div>
                               <div><span className="text-slate-500">Sobra:</span> <span className="font-medium text-emerald-600">R$ {formatBRL(Number(c.surplus))}</span></div>
                               <div><span className="text-slate-500">Falta:</span> <span className="font-medium text-red-600">R$ {formatBRL(Number(c.shortage))}</span></div>
                               <div><span className="text-slate-500">Status:</span> <span className="font-medium">{c.status === 'closed' ? 'Fechado' : 'Pendente'}</span></div>
@@ -686,8 +694,9 @@ export function FinancialCashClosing() {
                 </div>
               </div>
 
+              {/* Cofre + Separado/Recolhido + Envelopes — todos lado a lado no modo manual */}
               {manualMode && (
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <div className="p-3 rounded-xl border border-slate-200">
                     <span className="text-[10px] font-bold uppercase text-slate-500">Cofre</span>
                     <MoneyField
@@ -701,6 +710,14 @@ export function FinancialCashClosing() {
                     <MoneyField
                       value={form.cash_drawer}
                       onChange={(v) => setForm({ ...form, cash_drawer: v })}
+                      className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="p-3 rounded-xl border border-slate-200">
+                    <span className="text-[10px] font-bold uppercase text-slate-500">Envelopes</span>
+                    <MoneyField
+                      value={parseBRL(form.deposit_amount)}
+                      onChange={(v) => setForm({ ...form, deposit_amount: String(v) })}
                       className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
                     />
                   </div>
@@ -754,21 +771,22 @@ export function FinancialCashClosing() {
                 </div>
               )}
 
+              {/* Saldo Geral — modo manual */}
               {manualMode && (
                 <div className="bg-slate-50 rounded-lg p-4 flex justify-between items-center font-bold border-t-2 border-slate-300">
                   <span className="text-slate-700">
-                    Saldo Geral (Cofre + Separado/Recolhido + Pix + Retiradas − Envelopes)
+                    Saldo Geral (Cofre + Separado/Recolhido + Pix + Retiradas + Envelopes)
                   </span>
                   <span
                     className={`tabular-nums text-lg ${
-                      (form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals - parseBRL(form.deposit_amount)) >= 0
+                      (form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals + parseBRL(form.deposit_amount)) >= 0
                         ? 'text-blue-700'
                         : 'text-red-700'
                     }`}
                   >
                     R${' '}
                     {formatBRL(
-                      form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals - parseBRL(form.deposit_amount),
+                      form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals + parseBRL(form.deposit_amount),
                     )}
                   </span>
                 </div>
@@ -796,7 +814,7 @@ export function FinancialCashClosing() {
                     <input type="text" value={p.description} onChange={(e) => updatePix(p.id, 'description', e.target.value)} placeholder="Descrição" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
                     <MoneyField
                       value={Number(p.amount)}
-                      onChange={(v) => updatePix(p.id, 'amount', String(v))}
+                      onChange={(v) => updatePix(p.id, 'amount', v)}
                       className="w-36 rounded-lg border border-slate-300 px-3 py-2 text-sm text-right focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none"
                     />
                     <label className="flex items-center gap-1.5 px-2 py-1 rounded-lg border border-slate-300 cursor-pointer hover:bg-slate-50 transition-colors">
@@ -837,14 +855,19 @@ export function FinancialCashClosing() {
             )}
           </div>
 
+          {/* Sobras / Faltas */}
           {manualMode ? (
             (() => {
-              const manualSaldoFinal = form.total_sales - form.total_income;
-              const manualSaldoGeral =
-                form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals - parseBRL(form.deposit_amount);
-              const manualDiff = manualSaldoGeral - manualSaldoFinal;
-              const surplusVal = manualDiff > 0 ? manualDiff : 0;
-              const shortageVal = manualDiff < 0 ? Math.abs(manualDiff) : 0;
+              const saldoFinal = form.total_sales - form.total_income;
+              const saldoGeral =
+                form.safe_amount +
+                form.cash_drawer +
+                totalPix +
+                totalWithdrawals +
+                parseBRL(form.deposit_amount);
+              const diff = saldoGeral - saldoFinal;
+              const surplusVal = diff > 0 ? diff : 0;
+              const shortageVal = diff < 0 ? Math.abs(diff) : 0;
               return (
                 <div className="grid grid-cols-2 gap-4">
                   <Input label="Sobras" type="text" value={surplusVal ? maskBRL(String(Math.round(surplusVal * 100))) : ''} onChange={() => {}} disabled placeholder="R$ 0,00" />
@@ -859,25 +882,16 @@ export function FinancialCashClosing() {
             </div>
           )}
 
-          {/* Envelopes (antes "Depósitos") — visível em ambos os modos */}
-          <div className="grid grid-cols-2 gap-4">
-            {manualMode ? (
-              <div className="p-3 rounded-xl border border-slate-200">
-                <span className="text-[10px] font-bold uppercase text-slate-500">Envelopes</span>
-                <MoneyField
-                  value={parseBRL(form.deposit_amount)}
-                  onChange={(v) => setForm({ ...form, deposit_amount: String(v) })}
-                  className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
-                />
-              </div>
-            ) : (
+          {/* Envelopes — modo PDF (no modo manual já está acima, junto ao Cofre) */}
+          {!manualMode && (
+            <div className="grid grid-cols-2 gap-4">
               <MoneyInput
                 label="Envelopes"
                 value={form.deposit_amount}
                 onChange={(v) => setForm({ ...form, deposit_amount: v })}
               />
-            )}
-          </div>
+            </div>
+          )}
 
           <Input label="Justificativa" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Justificativa do fechamento" />
           <Select label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as 'open' | 'closed' })} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
