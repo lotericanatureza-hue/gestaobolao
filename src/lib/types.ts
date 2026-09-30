@@ -91,7 +91,23 @@ export interface BolaoOperatorAllocation {
   bolao?: Bolao;
   operator?: Profile;
 }
-
+export interface CashClosing {
+  id: string;
+  branch_id: string;
+  closing_date: string;
+  total_sales: number;
+  total_income: number;
+  surplus: number;
+  shortage: number;
+  safe_amount: number;
+  cash_drawer: number;
+  status: 'open' | 'closed';
+  notes: string | null;
+  resolved_amount: number;
+  resolved_notes: string | null;
+  pending_amount: number;
+  created_at: string;
+}
 export interface BolaoShareTransfer {
   id: string;
   bolao_id: string;
