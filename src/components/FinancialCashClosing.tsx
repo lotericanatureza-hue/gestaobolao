@@ -506,6 +506,19 @@ export function FinancialCashClosing() {
                 options={[{ value: '', label: 'Todas as filiais' }, ...branchOptions]}
               />
             )}
+            {isOperator && (
+              <Button onClick={() => openNew({
+                id: profile?.id ?? 'me',
+                branch_id: profile?.branch_id ?? '',
+                name: profile?.name ?? 'Meu Fechamento',
+                tfl: '',
+                position: 'Operador',
+                active: true,
+                created_at: '',
+              })}>
+                <Plus size={16} /> Novo Fechamento
+              </Button>
+            )}
             <Input type="date" value={fDate} onChange={setFDate} />
           </div>
         }
@@ -536,7 +549,26 @@ export function FinancialCashClosing() {
       {!isOperator && employees.length === 0 ? (
         <Card><EmptyState icon={<User size={48} />} title="Nenhum funcionário cadastrado" description="Cadastre funcionários na aba Funcionários para que cada um tenha seu próprio fechamento de caixa." /></Card>
       ) : isOperator && closings.length === 0 ? (
-        <Card><EmptyState icon={<User size={48} />} title="Nenhum fechamento encontrado" description="Clique em Fechar Caixa para criar seu primeiro fechamento." /></Card>
+        <Card>
+          <EmptyState
+            icon={<User size={48} />}
+            title="Nenhum fechamento encontrado"
+            description="Clique no botão abaixo para criar seu primeiro fechamento de caixa."
+            action={
+              <Button onClick={() => openNew({
+                id: profile?.id ?? 'me',
+                branch_id: profile?.branch_id ?? '',
+                name: profile?.name ?? 'Meu Fechamento',
+                tfl: '',
+                position: 'Operador',
+                active: true,
+                created_at: '',
+              })}>
+                <Plus size={16} /> Novo Fechamento
+              </Button>
+            }
+          />
+        </Card>
       ) : (
         <div className="space-y-4">
           {employeeData.map(({ employee, allClosings }) => {
@@ -570,7 +602,7 @@ export function FinancialCashClosing() {
                       })()}
                     </div>
                   </div>
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
                     {todayClosing ? (
                       todayClosing.status === 'closed' ? (
                         <Badge color="blue"><Lock size={12} className="mr-1" /> Caixa fechado</Badge>
@@ -580,6 +612,12 @@ export function FinancialCashClosing() {
                     ) : (
                       <Badge color="slate">Sem caixa hoje</Badge>
                     )}
+                    <Button size="sm" onClick={() => openNew(employee)}>
+                      <Plus size={14} /> Fechar Caixa
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => openRetroactive(employee)}>
+                      <Calendar size={14} /> Retroativo
+                    </Button>
                     {isExpanded ? <ChevronDown size={20} className="text-slate-400" /> : <ChevronRight size={20} className="text-slate-400" />}
                   </div>
                 </div>
@@ -587,16 +625,6 @@ export function FinancialCashClosing() {
                 {/* Expanded content */}
                 {isExpanded && (
                   <div className="border-t border-slate-100 p-5 space-y-4">
-                    {/* Action buttons */}
-                    <div className="flex items-center justify-end gap-2">
-                      <Button size="sm" onClick={() => openNew(employee)}>
-                        <Plus size={14} /> Fechar Caixa
-                      </Button>
-                      <Button size="sm" variant="secondary" onClick={() => openRetroactive(employee)}>
-                        <Calendar size={14} /> Fechar Retroativo
-                      </Button>
-                    </div>
-
                     {/* All closings as collapsible list */}
                     {allClosings.length > 0 ? (
                       <div className="space-y-2">
