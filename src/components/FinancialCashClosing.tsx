@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar, TrendingUp, TrendingDown } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
-import { Card, Button, Input, MoneyInput, Select, Modal, Badge, Spinner, EmptyState } from './ui';
+import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
 import { formatBRL, formatDateBR, parseBRL, maskBRL } from '../lib/format';
 import type { FinCashClosing, FinEmployee, PixExternal, DailyWithdrawal, Branch } from '../lib/types';
 
@@ -203,7 +203,6 @@ export function FinancialCashClosing() {
   const [existingPdf, setExistingPdf] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [extracted, setExtracted] = useState(false);
-  const [manualMode, setManualMode] = useState(false);
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [fDate, setFDate] = useState(todayStr());
 
@@ -266,7 +265,6 @@ export function FinancialCashClosing() {
     setPdfFile(null);
     setExistingPdf(null);
     setExtracted(false);
-    setManualMode(true);
     setError(null);
     setModalOpen(true);
   };
@@ -280,7 +278,6 @@ export function FinancialCashClosing() {
     setPdfFile(null);
     setExistingPdf(null);
     setExtracted(false);
-    setManualMode(false);
     setError(null);
     setModalOpen(true);
   };
@@ -311,7 +308,6 @@ export function FinancialCashClosing() {
     setPdfFile(null);
     setExistingPdf(c.pdf_path);
     setExtracted(true);
-    setManualMode(false);
     setError(null);
     setModalOpen(true);
   };
@@ -400,8 +396,8 @@ export function FinancialCashClosing() {
     const computedSurplus = diff > 0 ? diff : 0;
     const computedShortage = diff < 0 ? Math.abs(diff) : 0;
 
-    const finalSurplus = manualMode ? computedSurplus : parseBRL(form.surplus);
-    const finalShortage = manualMode ? computedShortage : parseBRL(form.shortage);
+    const finalSurplus = computedSurplus;
+    const finalShortage = computedShortage;
 
     // A filial do registro é SEMPRE a do funcionário (evita inconsistência em "Todas as filiais")
     const payload = {
@@ -698,192 +694,146 @@ export function FinancialCashClosing() {
 
           <Input label="Data do Fechamento" type="date" value={form.closing_date} onChange={(v) => setForm({ ...form, closing_date: v })} required />
 
-          {manualMode ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-start gap-2">
-              <AlertCircle size={16} className="text-amber-600 mt-0.5 shrink-0" />
-              <span className="text-sm text-amber-700">Modo retroativo: insira manualmente os valores que viriam do PDF.</span>
-            </div>
-          ) : (
-            <div>
-              <span className="block text-sm font-medium text-slate-700 mb-1.5">PDF do Fechamento (extração automática)</span>
-              {existingPdf && !pdfFile && (
-                <div className="flex items-center gap-2 mb-2 text-sm text-brand-600 bg-brand-50 rounded-lg p-3">
-                  <FileText size={16} /> PDF já enviado
-                  <button onClick={() => downloadPdf(existingPdf)} className="ml-auto text-brand-700 hover:underline flex items-center gap-1"><Download size={14} /> Ver</button>
-                </div>
+          <div>
+            <span className="block text-sm font-medium text-slate-700 mb-1.5">PDF do Fechamento (opcional — preenchimento automático)</span>
+            {existingPdf && !pdfFile && (
+              <div className="flex items-center gap-2 mb-2 text-sm text-brand-600 bg-brand-50 rounded-lg p-3">
+                <FileText size={16} /> PDF já enviado
+                <button onClick={() => downloadPdf(existingPdf)} className="ml-auto text-brand-700 hover:underline flex items-center gap-1"><Download size={14} /> Ver</button>
+              </div>
+            )}
+            <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-lg py-6 cursor-pointer transition-colors ${extracting ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-400'}`}>
+              {extracting ? (
+                <><Loader2 size={20} className="text-brand-500 animate-spin" /><span className="text-sm text-brand-600">Extraindo dados do PDF...</span></>
+              ) : extracted ? (
+                <><CheckCircle size={20} className="text-emerald-500" /><span className="text-sm text-emerald-600">{pdfFile ? pdfFile.name : 'PDF carregado e dados extraídos'}</span></>
+              ) : (
+                <><Upload size={20} className="text-slate-400" /><span className="text-sm text-slate-500">{pdfFile ? pdfFile.name : 'Clique para enviar um PDF (opcional)'}</span></>
               )}
-              <label className={`flex items-center justify-center gap-2 border-2 border-dashed rounded-lg py-8 cursor-pointer transition-colors ${extracting ? 'border-brand-400 bg-brand-50' : 'border-slate-300 hover:border-brand-400'}`}>
-                {extracting ? (
-                  <><Loader2 size={20} className="text-brand-500 animate-spin" /><span className="text-sm text-brand-600">Extraindo dados do PDF...</span></>
-                ) : extracted ? (
-                  <><CheckCircle size={20} className="text-emerald-500" /><span className="text-sm text-emerald-600">{pdfFile ? pdfFile.name : 'PDF carregado e dados extraídos'}</span></>
-                ) : (
-                  <><Upload size={20} className="text-slate-400" /><span className="text-sm text-slate-500">{pdfFile ? pdfFile.name : 'Clique para enviar um PDF'}</span></>
-                )}
-                <input type="file" accept="application/pdf" className="hidden" onChange={(e) => { if (e.target.files?.[0]) handlePdfSelect(e.target.files[0]); }} />
-              </label>
+              <input type="file" accept="application/pdf" className="hidden" onChange={(e) => { if (e.target.files?.[0]) handlePdfSelect(e.target.files[0]); }} />
+            </label>
+          </div>
+
+          {/* Data fields — always editable */}
+          <div className="space-y-3">
+            {/* KPI cards */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-4 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold uppercase text-slate-500">Créditos</span>
+                <MoneyField
+                  value={form.total_sales}
+                  onChange={(v) => setForm({ ...form, total_sales: v })}
+                  className="w-full mt-1 text-lg font-bold tabular-nums text-emerald-700 bg-transparent border-b border-slate-200 focus:border-emerald-500 focus:outline-none"
+                />
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold uppercase text-slate-500">Débitos</span>
+                <MoneyField
+                  value={form.total_income}
+                  onChange={(v) => setForm({ ...form, total_income: v })}
+                  className="w-full mt-1 text-lg font-bold tabular-nums text-red-700 bg-transparent border-b border-slate-200 focus:border-red-500 focus:outline-none"
+                />
+              </div>
+              <div className="p-4 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold uppercase text-brand-600">Saldo Final</span>
+                <p className="text-lg font-black tabular-nums text-brand-700 mt-1">R$ {formatBRL(form.total_sales - form.total_income)}</p>
+              </div>
             </div>
-          )}
 
-          {/* Data fields — editable in manual mode, read-only display when extracted from PDF */}
-          {(extracted || manualMode) ? (
-            <div className="space-y-3">
-              {manualMode && (
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Preencha os valores manualmente</p>
-              )}
+            {/* Cofre + Separado/Recolhido + Envelopes */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold uppercase text-slate-500">Cofre</span>
+                <MoneyField
+                  value={form.safe_amount}
+                  onChange={(v) => setForm({ ...form, safe_amount: v })}
+                  className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
+                />
+              </div>
+              <div className="p-3 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold uppercase text-slate-500">Separado/Recolhido</span>
+                <MoneyField
+                  value={form.cash_drawer}
+                  onChange={(v) => setForm({ ...form, cash_drawer: v })}
+                  className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
+                />
+              </div>
+              <div className="p-3 rounded-xl border border-slate-200">
+                <span className="text-[10px] font-bold uppercase text-slate-500">Envelopes</span>
+                <MoneyField
+                  value={parseBRL(form.deposit_amount)}
+                  onChange={(v) => setForm({ ...form, deposit_amount: String(v) })}
+                  className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
+                />
+              </div>
+            </div>
 
-              {/* KPI cards */}
+            {/* Credit/Debit summary — only when extracted from PDF */}
+            {extracted && (
               <div className="grid grid-cols-3 gap-3">
-                {manualMode ? (
-                  <div className="p-4 rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-500">Créditos</span>
-                    <MoneyField
-                      value={form.total_sales}
-                      onChange={(v) => setForm({ ...form, total_sales: v })}
-                      className="w-full mt-1 text-lg font-bold tabular-nums text-emerald-700 bg-transparent border-b border-slate-200 focus:border-emerald-500 focus:outline-none"
-                    />
-                  </div>
-                ) : (
-                  <div className="p-4 rounded-xl border border-emerald-200 bg-emerald-50">
-                    <div className="flex items-center gap-1.5 mb-1 text-emerald-700">
-                      <TrendingUp size={14} />
-                      <span className="text-[10px] font-bold uppercase">Total Vendas</span>
-                    </div>
-                    <p className="text-lg font-black tabular-nums text-emerald-700">R$ {formatBRL(form.total_sales)}</p>
-                  </div>
-                )}
-                {manualMode ? (
-                  <div className="p-4 rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-500">Débitos</span>
-                    <MoneyField
-                      value={form.total_income}
-                      onChange={(v) => setForm({ ...form, total_income: v })}
-                      className="w-full mt-1 text-lg font-bold tabular-nums text-red-700 bg-transparent border-b border-slate-200 focus:border-red-500 focus:outline-none"
-                    />
-                  </div>
-                ) : (
-                  <div className="p-4 rounded-xl border border-red-200 bg-red-50">
-                    <div className="flex items-center gap-1.5 mb-1 text-red-700">
-                      <TrendingDown size={14} />
-                      <span className="text-[10px] font-bold uppercase">Total Entradas</span>
-                    </div>
-                    <p className="text-lg font-black tabular-nums text-red-700">R$ {formatBRL(form.total_income)}</p>
-                  </div>
-                )}
-                <div className={`p-4 rounded-xl ${manualMode ? 'border border-slate-200' : 'border border-brand-200 bg-brand-50'}`}>
-                  <span className="text-[10px] font-bold uppercase text-brand-600">Saldo Final</span>
-                  {manualMode ? (
-                    <p className="text-lg font-black tabular-nums text-brand-700 mt-1">R$ {formatBRL(form.total_sales - form.total_income)}</p>
-                  ) : (
-                    <p className="text-lg font-black tabular-nums text-brand-700">R$ {formatBRL(form.saldo_final || (form.total_sales - form.total_income))}</p>
-                  )}
+                <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/50">
+                  <span className="text-[10px] font-bold uppercase text-emerald-600">Créditos</span>
+                  <p className="text-base font-bold tabular-nums text-emerald-700">R$ {formatBRL(form.total_credits)}</p>
+                </div>
+                <div className="p-3 rounded-xl border border-red-200 bg-red-50/50">
+                  <span className="text-[10px] font-bold uppercase text-red-600">Débitos</span>
+                  <p className="text-base font-bold tabular-nums text-red-700">R$ {formatBRL(form.total_debits)}</p>
+                </div>
+                <div className="p-3 rounded-xl border border-brand-200 bg-brand-50/50">
+                  <span className="text-[10px] font-bold uppercase text-brand-600">Total em Caixa</span>
+                  <p className="text-base font-bold tabular-nums text-brand-700">R$ {formatBRL(form.total_em_caixa)}</p>
                 </div>
               </div>
+            )}
 
-              {/* Cofre + Separado/Recolhido + Envelopes — todos lado a lado no modo manual */}
-              {manualMode && (
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="p-3 rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-500">Cofre</span>
-                    <MoneyField
-                      value={form.safe_amount}
-                      onChange={(v) => setForm({ ...form, safe_amount: v })}
-                      className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
-                    />
+            {/* Detailed breakdown — only when extracted from PDF */}
+            {extracted && (
+              <div className="bg-slate-50 rounded-lg p-4 space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Detalhes extraídos do PDF</p>
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Vendas</span>
+                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_sales)}</span>
                   </div>
-                  <div className="p-3 rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-500">Separado/Recolhido</span>
-                    <MoneyField
-                      value={form.cash_drawer}
-                      onChange={(v) => setForm({ ...form, cash_drawer: v })}
-                      className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
-                    />
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Entradas / Receitas</span>
+                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_income)}</span>
                   </div>
-                  <div className="p-3 rounded-xl border border-slate-200">
-                    <span className="text-[10px] font-bold uppercase text-slate-500">Envelopes</span>
-                    <MoneyField
-                      value={parseBRL(form.deposit_amount)}
-                      onChange={(v) => setForm({ ...form, deposit_amount: String(v) })}
-                      className="w-full mt-1 text-base font-bold tabular-nums text-slate-900 bg-transparent border-b border-slate-200 focus:border-slate-500 focus:outline-none"
-                    />
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Cofre</span>
+                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.safe_amount)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 border-b border-slate-200/60">
+                    <span className="text-slate-600">Separado/Recolhido</span>
+                    <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.cash_drawer)}</span>
+                  </div>
+                  <div className="flex justify-between py-1 font-bold border-t-2 border-slate-300 pt-2">
+                    <span className="text-slate-700">Saldo (Vendas - Entradas)</span>
+                    <span className={`tabular-nums ${form.total_sales - form.total_income >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>R$ {formatBRL(form.total_sales - form.total_income)}</span>
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Credit/Debit summary — only show in PDF mode */}
-              {!manualMode && (
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/50">
-                    <span className="text-[10px] font-bold uppercase text-emerald-600">Créditos</span>
-                    <p className="text-base font-bold tabular-nums text-emerald-700">R$ {formatBRL(form.total_credits)}</p>
-                  </div>
-                  <div className="p-3 rounded-xl border border-red-200 bg-red-50/50">
-                    <span className="text-[10px] font-bold uppercase text-red-600">Débitos</span>
-                    <p className="text-base font-bold tabular-nums text-red-700">R$ {formatBRL(form.total_debits)}</p>
-                  </div>
-                  <div className="p-3 rounded-xl border border-brand-200 bg-brand-50/50">
-                    <span className="text-[10px] font-bold uppercase text-brand-600">Total em Caixa</span>
-                    <p className="text-base font-bold tabular-nums text-brand-700">R$ {formatBRL(form.total_em_caixa)}</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Detailed breakdown — only in PDF mode */}
-              {!manualMode && (
-                <div className="bg-slate-50 rounded-lg p-4 space-y-2">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Detalhes extraídos do PDF</p>
-                  <div className="space-y-1.5 text-sm">
-                    <div className="flex justify-between py-1 border-b border-slate-200/60">
-                      <span className="text-slate-600">Vendas</span>
-                      <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_sales)}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-200/60">
-                      <span className="text-slate-600">Entradas / Receitas</span>
-                      <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.total_income)}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-200/60">
-                      <span className="text-slate-600">Cofre</span>
-                      <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.safe_amount)}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-200/60">
-                      <span className="text-slate-600">Separado/Recolhido</span>
-                      <span className="font-semibold tabular-nums text-slate-900">R$ {formatBRL(form.cash_drawer)}</span>
-                    </div>
-                    <div className="flex justify-between py-1 font-bold border-t-2 border-slate-300 pt-2">
-                      <span className="text-slate-700">Saldo (Vendas - Entradas)</span>
-                      <span className={`tabular-nums ${form.total_sales - form.total_income >= 0 ? 'text-emerald-700' : 'text-red-700'}`}>R$ {formatBRL(form.total_sales - form.total_income)}</span>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Saldo Geral — modo manual */}
-              {manualMode && (
-                <div className="bg-slate-50 rounded-lg p-4 flex justify-between items-center font-bold border-t-2 border-slate-300">
-                  <span className="text-slate-700">
-                    Saldo Geral (Cofre + Separado/Recolhido + Pix + Retiradas + Envelopes)
-                  </span>
-                  <span
-                    className={`tabular-nums text-lg ${
-                      (form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals + parseBRL(form.deposit_amount)) >= 0
-                        ? 'text-blue-700'
-                        : 'text-red-700'
-                    }`}
-                  >
-                    R${' '}
-                    {formatBRL(
-                      form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals + parseBRL(form.deposit_amount),
-                    )}
-                  </span>
-                </div>
-              )}
+            {/* Saldo Geral */}
+            <div className="bg-slate-50 rounded-lg p-4 flex justify-between items-center font-bold border-t-2 border-slate-300">
+              <span className="text-slate-700">
+                Saldo Geral (Cofre + Separado/Recolhido + Pix + Retiradas + Envelopes)
+              </span>
+              <span
+                className={`tabular-nums text-lg ${
+                  (form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals + parseBRL(form.deposit_amount)) >= 0
+                    ? 'text-blue-700'
+                    : 'text-red-700'
+                }`}
+              >
+                R${' '}
+                {formatBRL(
+                  form.safe_amount + form.cash_drawer + totalPix + totalWithdrawals + parseBRL(form.deposit_amount),
+                )}
+              </span>
             </div>
-          ) : (
-            <div className="flex items-start gap-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              <span>Envie um PDF para extrair automaticamente os valores. Você poderá revisar antes de salvar.</span>
-            </div>
-          )}
+          </div>
 
           {/* Pix Externos */}
           <div>
@@ -941,43 +891,25 @@ export function FinancialCashClosing() {
             )}
           </div>
 
-          {/* Sobras / Faltas */}
-          {manualMode ? (
-            (() => {
-              const saldoFinal = form.total_sales - form.total_income;
-              const saldoGeral =
-                form.safe_amount +
-                form.cash_drawer +
-                totalPix +
-                totalWithdrawals +
-                parseBRL(form.deposit_amount);
-              const diff = saldoGeral - saldoFinal;
-              const surplusVal = diff > 0 ? diff : 0;
-              const shortageVal = diff < 0 ? Math.abs(diff) : 0;
-              return (
-                <div className="grid grid-cols-2 gap-4">
-                  <Input label="Sobras" type="text" value={surplusVal ? maskBRL(String(Math.round(surplusVal * 100))) : ''} onChange={() => {}} disabled placeholder="R$ 0,00" />
-                  <Input label="Faltas" type="text" value={shortageVal ? maskBRL(String(Math.round(shortageVal * 100))) : ''} onChange={() => {}} disabled placeholder="R$ 0,00" />
-                </div>
-              );
-            })()
-          ) : (
-            <div className="grid grid-cols-2 gap-4">
-              <MoneyInput label="Sobras" value={form.surplus} onChange={(v) => setForm({ ...form, surplus: v })} />
-              <MoneyInput label="Faltas" value={form.shortage} onChange={(v) => setForm({ ...form, shortage: v })} />
-            </div>
-          )}
-
-          {/* Envelopes — modo PDF (no modo manual já está acima, junto ao Cofre) */}
-          {!manualMode && (
-            <div className="grid grid-cols-2 gap-4">
-              <MoneyInput
-                label="Envelopes"
-                value={form.deposit_amount}
-                onChange={(v) => setForm({ ...form, deposit_amount: v })}
-              />
-            </div>
-          )}
+          {/* Sobras / Faltas — auto-calculadas */}
+          {(() => {
+            const saldoFinal = form.total_sales - form.total_income;
+            const saldoGeral =
+              form.safe_amount +
+              form.cash_drawer +
+              totalPix +
+              totalWithdrawals +
+              parseBRL(form.deposit_amount);
+            const diff = saldoGeral - saldoFinal;
+            const surplusVal = diff > 0 ? diff : 0;
+            const shortageVal = diff < 0 ? Math.abs(diff) : 0;
+            return (
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Sobras" type="text" value={surplusVal ? maskBRL(String(Math.round(surplusVal * 100))) : ''} onChange={() => {}} disabled placeholder="R$ 0,00" />
+                <Input label="Faltas" type="text" value={shortageVal ? maskBRL(String(Math.round(shortageVal * 100))) : ''} onChange={() => {}} disabled placeholder="R$ 0,00" />
+              </div>
+            );
+          })()}
 
           <Input label="Justificativa" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Justificativa do fechamento" />
           <Select label="Status" value={form.status} onChange={(v) => setForm({ ...form, status: v as 'open' | 'closed' })} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
@@ -985,7 +917,7 @@ export function FinancialCashClosing() {
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
-            <Button onClick={save} disabled={saving || (!manualMode && extracting)}>{saving ? 'Salvando...' : 'Salvar'}</Button>
+            <Button onClick={save} disabled={saving || extracting}>{saving ? 'Salvando...' : 'Salvar'}</Button>
           </div>
         </div>
       </Modal>
