@@ -372,7 +372,7 @@ export function FinancialCashClosing() {
 
   const save = async () => {
     if (saving) return;
-    if (!modalEmployee?.id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(modalEmployee.id)) {
+    if (!modalEmployee?.id || (!isOperator && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(modalEmployee.id))) {
       setError('Funcionário inválido. Recarregue a tela e tente novamente.');
       return;
     }
@@ -405,7 +405,7 @@ export function FinancialCashClosing() {
     // A filial do registro é SEMPRE a do funcionário (evita inconsistência em "Todas as filiais")
     const payload = {
       branch_id: modalEmployee.branch_id,
-      employee_id: modalEmployee.id,
+      employee_id: isOperator ? null : modalEmployee.id,
       created_by: profile?.id || null,
       closing_date: form.closing_date,
       total_sales: form.total_sales,
