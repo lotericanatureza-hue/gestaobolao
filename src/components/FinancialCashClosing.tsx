@@ -183,6 +183,8 @@ function MoneyField({
 export function FinancialCashClosing() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
+  const isSupervisor = profile?.role === 'supervisor';
+  const isOperator = !isAdmin && !isSupervisor;
   const [branches, setBranches] = useState<Branch[]>([]);
   // selectedBranch = '' significa "Todas as filiais" (apenas para admin)
   const [selectedBranch, setSelectedBranch] = useState<string>('');
@@ -405,6 +407,7 @@ export function FinancialCashClosing() {
     const payload = {
       branch_id: modalEmployee.branch_id,
       employee_id: modalEmployee.id,
+      created_by: profile?.id,
       closing_date: form.closing_date,
       total_sales: form.total_sales,
       total_income: form.total_income,
@@ -459,11 +462,25 @@ export function FinancialCashClosing() {
   // Filter closings by selected date
   const dateClosings = closings.filter((c) => c.closing_date === fDate);
 
-  // Per-employee data
-  const employeeData = employees.map((emp) => {
-    const empClosings = closings.filter((c) => c.employee_id === emp.id);
-    return { employee: emp, allClosings: [...empClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) };
-  });
+  // Per-employee data — operators only see their own closings, not the full employee list
+  const employeeData = isOperator
+    ? (() => {
+        const myClosings = [...closings].sort((a, b) => b.closing_date.localeCompare(a.closing_date));
+        const me: FinEmployee = {
+          id: profile?.id ?? 'me',
+          branch_id: profile?.branch_id ?? '',
+          name: profile?.name ?? 'Meu Fechamento',
+          tfl: '',
+          position: 'Operador',
+          active: true,
+          created_at: '',
+        };
+        return [{ employee: me, allClosings: myClosings }];
+      })()
+    : employees.map((emp) => {
+        const empClosings = closings.filter((c) => c.employee_id === emp.id);
+        return { employee: emp, allClosings: [...empClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) };
+      });
 
   // Totals for the day
   const dayTotalSales = dateClosings.reduce((s, c) => s + Number(c.total_sales), 0);
@@ -516,8 +533,10 @@ export function FinancialCashClosing() {
       </div>
 
       {/* Employee cards */}
-      {employees.length === 0 ? (
+      {!isOperator && employees.length === 0 ? (
         <Card><EmptyState icon={<User size={48} />} title="Nenhum funcionário cadastrado" description="Cadastre funcionários na aba Funcionários para que cada um tenha seu próprio fechamento de caixa." /></Card>
+      ) : isOperator && closings.length === 0 ? (
+        <Card><EmptyState icon={<User size={48} />} title="Nenhum fechamento encontrado" description="Clique em Fechar Caixa para criar seu primeiro fechamento." /></Card>
       ) : (
         <div className="space-y-4">
           {employeeData.map(({ employee, allClosings }) => {

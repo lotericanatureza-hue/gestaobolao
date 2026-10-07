@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { TrendingUp, TrendingDown, Wallet, Calendar, Store, DollarSign, ArrowDownCircle, ArrowUpCircle, Clock } from 'lucide-react';
+import { CalendarDays } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -19,7 +20,9 @@ export function FinancialDashboard() {
   const [dailyControls, setDailyControls] = useState<FinDailyControl[]>([]);
   const [loading, setLoading] = useState(true);
   const now = new Date();
+  const [period, setPeriod] = useState<'month' | 'day'>('month');
   const [fMonth, setFMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
+  const [fDay, setFDay] = useState(now.toISOString().split('T')[0]);
 
   useEffect(() => {
     supabase.from('branches').select('*').order('name').then(({ data }) => {
@@ -53,32 +56,38 @@ export function FinancialDashboard() {
   const branchClosings = selectedBranch ? closings.filter((c) => c.branch_id === selectedBranch) : closings;
   const branchDaily = selectedBranch ? dailyControls.filter((d) => d.branch_id === selectedBranch) : dailyControls;
 
-  // Filter by month
+  // Filter by selected period (month or day)
   const [fYear, fMonthNum] = fMonth.split('-').map(Number);
-  const monthBills = branchBills.filter((b) => b.month_ref === fMonthNum && b.year_ref === fYear);
-  const monthClosings = branchClosings.filter((c) => {
-    const d = new Date(c.closing_date);
-    return d.getFullYear() === fYear && d.getMonth() + 1 === fMonthNum;
-  });
-  const monthDaily = branchDaily.filter((d) => {
-    const dd = new Date(d.control_date);
-    return dd.getFullYear() === fYear && dd.getMonth() + 1 === fMonthNum;
-  });
+  const periodBills = period === 'month'
+    ? branchBills.filter((b) => b.month_ref === fMonthNum && b.year_ref === fYear)
+    : branchBills.filter((b) => b.due_date === fDay || b.payment_date === fDay);
+  const periodClosings = period === 'month'
+    ? branchClosings.filter((c) => {
+        const d = new Date(c.closing_date);
+        return d.getFullYear() === fYear && d.getMonth() + 1 === fMonthNum;
+      })
+    : branchClosings.filter((c) => c.closing_date === fDay);
+  const periodDaily = period === 'month'
+    ? branchDaily.filter((d) => {
+        const dd = new Date(d.control_date);
+        return dd.getFullYear() === fYear && dd.getMonth() + 1 === fMonthNum;
+      })
+    : branchDaily.filter((d) => d.control_date === fDay);
 
-  const totalExpenses = monthBills.filter((b) => b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
-  const totalIncome = monthBills.filter((b) => b.type === 'income').reduce((s, b) => s + Number(b.amount), 0);
-  const totalPending = monthBills.filter((b) => b.status === 'pending' && b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
+  const totalExpenses = periodBills.filter((b) => b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
+  const totalIncome = periodBills.filter((b) => b.type === 'income').reduce((s, b) => s + Number(b.amount), 0);
+  const totalPending = periodBills.filter((b) => b.status === 'pending' && b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
   const balance = totalIncome - totalExpenses;
 
-  const totalSales = monthClosings.reduce((s, c) => s + Number(c.total_sales), 0);
-  const totalPix = monthClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
-  const totalSurplus = monthClosings.reduce((s, c) => s + Number(c.surplus), 0);
-  const totalShortage = monthClosings.reduce((s, c) => s + Number(c.shortage), 0);
-  const totalSafe = monthDaily.reduce((s, d) => s + Number(d.safe_amount), 0);
-  const totalWorked = monthDaily.reduce((s, d) => s + Number(d.worked_amount), 0);
+  const totalSales = periodClosings.reduce((s, c) => s + Number(c.total_sales), 0);
+  const totalPix = periodClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
+  const totalSurplus = periodClosings.reduce((s, c) => s + Number(c.surplus), 0);
+  const totalShortage = periodClosings.reduce((s, c) => s + Number(c.shortage), 0);
+  const totalSafe = periodDaily.reduce((s, d) => s + Number(d.safe_amount), 0);
+  const totalWorked = periodDaily.reduce((s, d) => s + Number(d.worked_amount), 0);
 
-  // Per-branch summary (consolidated view)
-  const branchSummary = branches.map((br) => {
+  // Per-branch summary (consolidated view, month only)
+  const branchSummary = period === 'month' ? branches.map((br) => {
     const brBills = bills.filter((b) => b.branch_id === br.id && b.month_ref === fMonthNum && b.year_ref === fYear);
     const brExpenses = brBills.filter((b) => b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
     const brIncome = brBills.filter((b) => b.type === 'income').reduce((s, b) => s + Number(b.amount), 0);
@@ -89,7 +98,7 @@ export function FinancialDashboard() {
     });
     const brSales = brClosings.reduce((s, c) => s + Number(c.total_sales), 0);
     return { branch: br, expenses: brExpenses, income: brIncome, balance: brIncome - brExpenses, sales: brSales };
-  }).filter((s) => s.expenses > 0 || s.income > 0 || s.sales > 0);
+  }).filter((s) => s.expenses > 0 || s.income > 0 || s.sales > 0) : [];
 
   const branchOptions = [
     { value: '', label: 'Visão Consolidada' },
@@ -111,13 +120,34 @@ export function FinancialDashboard() {
     <div>
       <PageHeader
         title="Dashboard Financeiro"
-        subtitle={selectedBranch ? `Visão da filial — ${monthNames[fMonthNum - 1]} ${fYear}` : `Visão consolidada — ${monthNames[fMonthNum - 1]} ${fYear}`}
+        subtitle={
+          period === 'month'
+            ? (selectedBranch ? `Visão da filial — ${monthNames[fMonthNum - 1]} ${fYear}` : `Visão consolidada — ${monthNames[fMonthNum - 1]} ${fYear}`)
+            : (selectedBranch ? `Visão da filial — ${new Date(fDay + 'T12:00:00').toLocaleDateString('pt-BR')}` : `Visão consolidada — ${new Date(fDay + 'T12:00:00').toLocaleDateString('pt-BR')}`)
+        }
         action={
           <div className="flex items-center gap-2">
+            <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+              <button
+                onClick={() => setPeriod('month')}
+                className={`px-3 py-2 text-sm font-medium transition-colors ${period === 'month' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Calendar size={16} className="inline mr-1" /> Mês
+              </button>
+              <button
+                onClick={() => setPeriod('day')}
+                className={`px-3 py-2 text-sm font-medium transition-colors ${period === 'day' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                <CalendarDays size={16} className="inline mr-1" /> Dia
+              </button>
+            </div>
             {isAdmin && (
               <Select value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} />
             )}
-            <Select value={fMonth} onChange={setFMonth} options={monthOpts} />
+            {period === 'month'
+              ? <Select value={fMonth} onChange={setFMonth} options={monthOpts} />
+              : <input type="date" value={fDay} onChange={(e) => setFDay(e.target.value)} className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none" />
+            }
           </div>
         }
       />
@@ -156,7 +186,7 @@ export function FinancialDashboard() {
 
       {/* Cash closing summary */}
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-        <DollarSign size={16} /> Fechamento de Caixa — {monthNames[fMonthNum - 1]}
+        <DollarSign size={16} /> Fechamento de Caixa — {period === 'month' ? monthNames[fMonthNum - 1] : new Date(fDay + 'T12:00:00').toLocaleDateString('pt-BR')}
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <Card className="p-5">
@@ -165,7 +195,7 @@ export function FinancialDashboard() {
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Vendas</p>
           </div>
           <p className="text-xl font-bold text-brand-950">R$ {formatBRL(totalSales)}</p>
-          <p className="text-xs text-slate-400 mt-1">{monthClosings.length} fechamento(s)</p>
+          <p className="text-xs text-slate-400 mt-1">{periodClosings.length} fechamento(s)</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
@@ -192,7 +222,7 @@ export function FinancialDashboard() {
 
       {/* Daily control summary */}
       <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-        <Calendar size={16} /> Controle Diário — {monthNames[fMonthNum - 1]}
+        <Calendar size={16} /> Controle Diário — {period === 'month' ? monthNames[fMonthNum - 1] : new Date(fDay + 'T12:00:00').toLocaleDateString('pt-BR')}
       </h2>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
         <Card className="p-5">
@@ -201,7 +231,7 @@ export function FinancialDashboard() {
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Total Trabalhado</p>
           </div>
           <p className="text-xl font-bold text-brand-950">R$ {formatBRL(totalWorked)}</p>
-          <p className="text-xs text-slate-400 mt-1">{monthDaily.length} registros</p>
+          <p className="text-xs text-slate-400 mt-1">{periodDaily.length} registros</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
@@ -215,7 +245,7 @@ export function FinancialDashboard() {
             <div className="w-9 h-9 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center"><Clock size={18} /></div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Dif. Fluxo de Caixa</p>
           </div>
-          <p className={`text-xl font-bold ${monthDaily.reduce((s, d) => s + (Number(d.worked_amount) - Number(d.valor_043 ?? 0)), 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(monthDaily.reduce((s, d) => s + (Number(d.worked_amount) - Number(d.valor_043 ?? 0)), 0))}</p>
+          <p className={`text-xl font-bold ${periodDaily.reduce((s, d) => s + (Number(d.worked_amount) - Number(d.valor_043 ?? 0)), 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>R$ {formatBRL(periodDaily.reduce((s, d) => s + (Number(d.worked_amount) - Number(d.valor_043 ?? 0)), 0))}</p>
         </Card>
       </div>
 
@@ -256,8 +286,8 @@ export function FinancialDashboard() {
         </>
       )}
 
-      {selectedBranch && monthBills.length === 0 && monthClosings.length === 0 && monthDaily.length === 0 && (
-        <Card><EmptyState icon={<Wallet size={48} />} title="Sem dados no período" description="Não há registros financeiros para esta filial no mês selecionado." /></Card>
+      {selectedBranch && periodBills.length === 0 && periodClosings.length === 0 && periodDaily.length === 0 && (
+        <Card><EmptyState icon={<Wallet size={48} />} title="Sem dados no período" description={`Não há registros financeiros para esta filial no ${period === 'month' ? 'mês' : 'dia'} selecionado.`} /></Card>
       )}
     </div>
   );
