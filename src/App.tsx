@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse, Wallet, Receipt, Tag, CalendarCheck, BookX, UserCog, HandCoins } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse, Wallet, Receipt, Tag, CalendarCheck, BookX, UserCog, HandCoins, CheckCircle } from 'lucide-react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
 import { Layout, AdminView, OperatorView, FinancialView, NavItem } from './components/Layout';
@@ -22,6 +22,7 @@ import { FinancialCashClosing } from './components/FinancialCashClosing';
 import { FinancialEmployees } from './components/FinancialEmployees';
 import { FinancialLoans } from './components/FinancialLoans';
 import { FinancialBolaoClosing } from './components/FinancialBolaoClosing';
+import { ResetPassword, UpdatePassword } from './components/ResetPassword';
 
 function AppContent() {
   const { profile, loading } = useAuth();
@@ -29,9 +30,46 @@ function AppContent() {
   const [adminView, setAdminView] = useState<AdminView>('dashboard');
   const [operatorView, setOperatorView] = useState<OperatorView>('sales');
   const [finView, setFinView] = useState<FinancialView>('fin-dashboard');
+  const [authScreen, setAuthScreen] = useState<'login' | 'reset' | 'update'>('login');
+  const [passwordUpdated, setPasswordUpdated] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('type') === 'recovery') {
+      setAuthScreen('update');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
 
   if (loading) return <LoadingScreen />;
-  if (!profile) return <LoginScreen />;
+  if (authScreen === 'reset') return <ResetPassword onBack={() => setAuthScreen('login')} />;
+  if (!profile) {
+    if (authScreen === 'update') {
+      return (
+        <UpdatePassword
+          onSuccess={() => {
+            setPasswordUpdated(true);
+            setAuthScreen('login');
+          }}
+        />
+      );
+    }
+    if (passwordUpdated) {
+      return (
+        <div className="min-h-screen bg-gradient-to-br from-brand-950 via-brand-900 to-brand-950 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center">
+            <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-4">
+              <CheckCircle size={28} />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Senha atualizada!</h2>
+            <p className="text-slate-500 text-sm mb-6">Sua senha foi redefinida com sucesso. Faça login com sua nova senha.</p>
+            <Button onClick={() => setPasswordUpdated(false)} className="w-full">Ir para o login</Button>
+          </div>
+        </div>
+      );
+    }
+    return <LoginScreen onForgotPassword={() => setAuthScreen('reset')} />;
+  }
 
   const isAdmin = profile.role === 'admin';
   const isSupervisor = profile.role === 'supervisor';

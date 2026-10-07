@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { LogIn, UserPlus, AlertCircle, Ticket, Wallet } from 'lucide-react';
+import { LogIn, UserPlus, AlertCircle, Ticket, Wallet, KeyRound } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { Button, Input } from './ui';
 
-export function LoginScreen() {
+export function LoginScreen({ onForgotPassword }: { onForgotPassword: () => void }) {
   const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const [email, setEmail] = useState('');
@@ -106,6 +106,15 @@ export function LoginScreen() {
               {loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}
             </Button>
           </form>
+
+          {mode === 'login' && (
+            <button
+              onClick={onForgotPassword}
+              className="w-full text-sm text-slate-500 hover:text-brand-600 flex items-center justify-center gap-1.5 transition-colors mt-2"
+            >
+              <KeyRound size={14} /> Esqueceu sua senha?
+            </button>
+          )}
 
           {mode === 'signup' && (
             <p className="text-xs text-slate-400 text-center mt-4">
