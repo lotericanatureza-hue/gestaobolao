@@ -21,6 +21,7 @@ import { FinancialDailyControl } from './components/FinancialDailyControl';
 import { FinancialCashClosing } from './components/FinancialCashClosing';
 import { FinancialEmployees } from './components/FinancialEmployees';
 import { FinancialLoans } from './components/FinancialLoans';
+import { FinancialBolaoClosing } from './components/FinancialBolaoClosing';
 
 function AppContent() {
   const { profile, loading } = useAuth();
@@ -36,31 +37,44 @@ function AppContent() {
   const isSupervisor = profile.role === 'supervisor';
 
   const switchArea = () => {
-    setArea((prev) => prev === 'bolao' ? 'financial' : 'bolao');
+    setArea((prev) => {
+      const next = prev === 'bolao' ? 'financial' : 'bolao';
+      if (next === 'financial' && !isAdmin && !isSupervisor) {
+        setFinView('fin-bolao-closing');
+      }
+      return next;
+    });
   };
 
-  // Financial area - admin only
-  if (area === 'financial' && isAdmin) {
-    const finNav: NavItem[] = [
-      { id: 'fin-dashboard', label: 'Dashboard', icon: <Wallet size={18} /> },
-      { id: 'fin-bills-group', label: 'Pagamentos', icon: <Receipt size={18} />, children: [
-        { id: 'fin-bills', label: 'Contas a Pagar', icon: <Receipt size={16} /> },
-        { id: 'fin-categories', label: 'Categorias', icon: <Tag size={16} /> },
-      ]},
-      { id: 'fin-daily', label: 'Controle Diário', icon: <CalendarCheck size={18} /> },
-      { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
-      { id: 'fin-loans', label: 'Empréstimos', icon: <HandCoins size={18} /> },
-      { id: 'fin-employees', label: 'Funcionários', icon: <UserCog size={18} /> },
-    ];
+  // Financial area - all roles (admin/supervisor see full nav, operator sees limited nav)
+  if (area === 'financial') {
+    const finNav: NavItem[] = (isAdmin || isSupervisor)
+      ? [
+          { id: 'fin-dashboard', label: 'Dashboard', icon: <Wallet size={18} /> },
+          { id: 'fin-bills-group', label: 'Pagamentos', icon: <Receipt size={18} />, children: [
+            { id: 'fin-bills', label: 'Contas a Pagar', icon: <Receipt size={16} /> },
+            { id: 'fin-categories', label: 'Categorias', icon: <Tag size={16} /> },
+          ]},
+          { id: 'fin-daily', label: 'Controle Diário', icon: <CalendarCheck size={18} /> },
+          { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
+          { id: 'fin-bolao-closing', label: 'Fechamento Bolão', icon: <Ticket size={18} /> },
+          { id: 'fin-loans', label: 'Empréstimos', icon: <HandCoins size={18} /> },
+          { id: 'fin-employees', label: 'Funcionários', icon: <UserCog size={18} /> },
+        ]
+      : [
+          { id: 'fin-bolao-closing', label: 'Fechamento Bolão', icon: <Ticket size={18} /> },
+          { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
+        ];
     return (
       <Layout activeView={finView} onNavigate={(v) => setFinView(v as FinancialView)} navItems={finNav} area="financial" onSwitchArea={switchArea}>
-        {finView === 'fin-dashboard' && <FinancialDashboard />}
-        {finView === 'fin-bills' && <FinancialBills />}
-        {finView === 'fin-categories' && <FinancialCategories />}
-        {finView === 'fin-daily' && <FinancialDailyControl />}
+        {finView === 'fin-dashboard' && (isAdmin || isSupervisor) && <FinancialDashboard />}
+        {finView === 'fin-bills' && (isAdmin || isSupervisor) && <FinancialBills />}
+        {finView === 'fin-categories' && (isAdmin || isSupervisor) && <FinancialCategories />}
+        {finView === 'fin-daily' && (isAdmin || isSupervisor) && <FinancialDailyControl />}
         {finView === 'fin-closing' && <FinancialCashClosing />}
-        {finView === 'fin-loans' && <FinancialLoans />}
-        {finView === 'fin-employees' && <FinancialEmployees />}
+        {finView === 'fin-bolao-closing' && <FinancialBolaoClosing />}
+        {finView === 'fin-loans' && (isAdmin || isSupervisor) && <FinancialLoans />}
+        {finView === 'fin-employees' && (isAdmin || isSupervisor) && <FinancialEmployees />}
       </Layout>
     );
   }
@@ -95,7 +109,7 @@ function AppContent() {
     { id: 'manage', label: 'Gestão de Bolões', icon: <ShoppingBag size={18} /> },
   ];
   return (
-    <Layout activeView={operatorView} onNavigate={(v) => setOperatorView(v as OperatorView)} navItems={operatorNav}>
+    <Layout activeView={operatorView} onNavigate={(v) => setOperatorView(v as OperatorView)} navItems={operatorNav} area="bolao" onSwitchArea={switchArea}>
       {operatorView === 'stock' && <OperatorStock />}
       {operatorView === 'sales' && <OperatorSales />}
       {operatorView === 'manage' && <OperatorManage />}

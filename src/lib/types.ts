@@ -257,6 +257,51 @@ export interface FinLoanReturn {
   created_at: string;
 }
 
+export interface BolaoClosingItem {
+  id: string;
+  product_id: string;
+  product_name: string;
+  slug: string;
+  shares: number;
+  price_per_share: number;
+  fee_per_share: number;
+  total: number;
+}
+
+export interface BolaoClosingPixExternal {
+  id: string;
+  description: string;
+  amount: number;
+}
+
+export interface BolaoClosingOwed {
+  id: string;
+  description: string;
+  amount: number;
+}
+
+export interface FinBolaoClosing {
+  id: string;
+  operator_id: string;
+  branch_id: string;
+  closing_date: string;
+  items: BolaoClosingItem[];
+  total_cotas: number;
+  total_value: number;
+  total_fee: number;
+  pix_externals: BolaoClosingPixExternal[];
+  total_pix_externals: number;
+  owed_amounts: BolaoClosingOwed[];
+  total_owed: number;
+  notes: string | null;
+  status: 'open' | 'closed';
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  operator?: Profile;
+  branch?: Branch;
+}
+
 export interface FinLoan {
   id: string;
   from_branch_id: string;
