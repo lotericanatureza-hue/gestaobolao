@@ -104,13 +104,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    try {
-      await supabase.auth.signOut({ scope: 'local' });
-    } finally {
-      setProfile(null);
-      setUser(null);
-      setSession(null);
+    if (typeof window !== 'undefined') {
+      Object.keys(window.localStorage)
+        .filter((key) => key.startsWith('sb-') && key.endsWith('-auth-token'))
+        .forEach((key) => window.localStorage.removeItem(key));
     }
+
+    setProfile(null);
+    setUser(null);
+    setSession(null);
   };
 
   const resetPassword = async (email: string) => {
