@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar, CalendarDays } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, User, ChevronDown, ChevronRight, Calendar, CalendarDays } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -264,7 +264,11 @@ export function FinancialCashClosing() {
     if (empRes.error) console.error('[fetchData] fin_employees:', empRes.error);
 
     setClosings((ccRes.data ?? []) as FinCashClosing[]);
-    setEmployees((empRes.data ?? []) as FinEmployee[]);
+    setEmployees(
+      (empRes.data ?? [])
+        .map((employee) => employee as FinEmployee)
+        .filter((employee) => employee.tfl.trim().length > 0)
+    );
     setLoading(false);
   }, [selectedBranch, isAdmin, profile?.branch_id]);
 

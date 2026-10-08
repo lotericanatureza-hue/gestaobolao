@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Mail, Lock, AlertCircle, CheckCircle, ArrowLeft, KeyRound } from 'lucide-react';
+import { Lock, AlertCircle, CheckCircle, ArrowLeft, KeyRound } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { Button, Input } from './ui';
 

@@ -3,7 +3,7 @@ import { Ticket, Plus, Pencil, Trash2, Copy, DollarSign, Receipt, Lock, Unlock, 
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
-import { Card, Button, Input, MoneyInput, Select, Modal, Badge, Spinner, EmptyState } from './ui';
+import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
 import { LotteryIcon } from '../lib/lotteryIcons';
 import { formatBRL, formatDateBR, parseBRL, maskBRL } from '../lib/format';
 import type { Product, Profile, Branch, FinBolaoClosing, BolaoClosingItem, BolaoClosingPixExternal, BolaoClosingOwed } from '../lib/types';
@@ -291,10 +291,8 @@ export function FinancialBolaoClosing() {
     ? closings.filter((c) => c.closing_date === fDate)
     : closings.filter((c) => c.closing_date.startsWith(fMonth));
   const dayTotalValue = periodClosings.reduce((s, c) => s + Number(c.total_value), 0);
-  const dayTotalCotas = periodClosings.reduce((s, c) => s + Number(c.total_cotas), 0);
   const dayTotalFee = periodClosings.reduce((s, c) => s + Number(c.total_fee), 0);
   const dayTotalPix = periodClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
-  const dayTotalOwed = periodClosings.reduce((s, c) => s + Number(c.total_owed), 0);
 
   if (loading && !closings.length) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;

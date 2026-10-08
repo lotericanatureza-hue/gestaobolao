@@ -3,7 +3,7 @@ import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, Shoppin
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
 import { Layout, AdminView, OperatorView, FinancialView, NavItem } from './components/Layout';
-import { LoadingScreen } from './components/ui';
+import { Button, LoadingScreen } from './components/ui';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AdminBranches } from './components/AdminBranches';
 import { AdminProducts } from './components/AdminProducts';

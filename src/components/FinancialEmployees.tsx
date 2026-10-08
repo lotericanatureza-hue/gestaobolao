@@ -39,13 +39,17 @@ export function FinancialEmployees() {
     setLoading(true);
     const [empRes, userRes] = await Promise.all([
       supabase.from('fin_employees').select('*').eq('branch_id', selectedBranch).order('name'),
-      supabase.from('profiles').select('*').eq('branch_id', selectedBranch).order('name'),
+      supabase.from('profiles').select('*').eq('branch_id', selectedBranch).eq('role', 'operator').eq('active', true).order('name'),
     ]);
     const list = (empRes.data ?? []) as FinEmployee[];
-    const users = (userRes.data ?? []) as Profile[];
-    setBranchUsers(users);
-    const userMap = new Map(users.map((u) => [u.id, u]));
-    setEmployees(list.map((e) => ({ ...e, profile: e.user_id ? userMap.get(e.user_id) : undefined })));
+    const operators = (userRes.data ?? []) as Profile[];
+    const userMap = new Map(operators.map((u) => [u.id, u]));
+    setBranchUsers(operators);
+    setEmployees(
+      list
+        .filter((employee) => employee.tfl.trim().length > 0)
+        .map((employee) => ({ ...employee, profile: employee.user_id ? userMap.get(employee.user_id) : undefined }))
+    );
     setLoading(false);
   }, [selectedBranch]);
 
@@ -59,7 +63,7 @@ export function FinancialEmployees() {
 
   const branchOptions = branches.map((b) => ({ value: b.id, label: b.name }));
 
-  // Usuários que ainda não estão associados a outro funcionário + o usuário atualmente associado (em edição)
+  // Operadores que ainda não estão associados a outro funcionário + o operador atualmente associado (em edição)
   const availableUsers = (): Profile[] => {
     const linkedIds = new Set(
       employees
@@ -143,7 +147,7 @@ export function FinancialEmployees() {
       />
 
       {employees.length === 0 ? (
-        <Card><EmptyState icon={<Users size={48} />} title="Nenhum funcionário" description="Cadastre funcionários e associe cada um a um caixa (TFL) e, opcionalmente, a um usuário do sistema." /></Card>
+        <Card><EmptyState icon={<Users size={48} />} title="Nenhum funcionário" description="Cadastre funcionários com um TFL e associe cada um, se necessário, ao seu usuário operador." /></Card>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {employees.map((e) => (
@@ -188,7 +192,7 @@ export function FinancialEmployees() {
           <Input label="TFL (Caixa) *" value={form.tfl} onChange={(v) => setForm({ ...form, tfl: v })} placeholder="Ex: TFL-001" required />
           <Input label="Cargo" value={form.position} onChange={(v) => setForm({ ...form, position: v })} placeholder="Ex: Operador de Caixa" />
           <Select
-            label="Usuário associado (opcional)"
+            label="Usuário operador associado (opcional)"
             value={form.user_id}
             onChange={(v) => setForm({ ...form, user_id: v })}
             options={[{ value: '', label: 'Nenhum' }, ...userOptions]}
@@ -196,8 +200,8 @@ export function FinancialEmployees() {
           />
           {form.user_id && (
             <p className="text-xs text-slate-500 -mt-2">
-              Ao associar um usuário, os fechamentos de caixa deste funcionário serão vinculados ao perfil do operador,
-              consolidando as informações tanto no perfil do operador quanto no do administrador.
+              Selecione o usuário operador correspondente. Os fechamentos antigos e novos continuarão no mesmo funcionário,
+              sem criar outro cadastro.
             </p>
           )}
           <label className="flex items-center gap-2 cursor-pointer">
