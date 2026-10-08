@@ -190,6 +190,7 @@ export function FinancialCashClosing() {
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [employees, setEmployees] = useState<FinEmployee[]>([]);
   const [closings, setClosings] = useState<FinCashClosing[]>([]);
+  const [linkedEmployee, setLinkedEmployee] = useState<FinEmployee | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FinCashClosing | null>(null);
@@ -217,6 +218,19 @@ export function FinancialCashClosing() {
       // Admin: selectedBranch permanece '' = "Todas as filiais"
     });
   }, [profile, isAdmin]);
+
+  // Operador: busca funcionário vinculado ao seu usuário
+  useEffect(() => {
+    if (!isOperator || !profile?.id) return;
+    supabase
+      .from('fin_employees')
+      .select('*, profile:profiles!fin_employees_user_id_fkey(*)')
+      .eq('user_id', profile.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        setLinkedEmployee((data as FinEmployee | null) ?? null);
+      });
+  }, [isOperator, profile?.id]);
 
   const fetchData = useCallback(async () => {
     // Operador precisa de branch; admin pode estar sem (ver tudo)
@@ -405,7 +419,7 @@ export function FinancialCashClosing() {
     // A filial do registro é SEMPRE a do funcionário (evita inconsistência em "Todas as filiais")
     const payload = {
       branch_id: modalEmployee.branch_id,
-      employee_id: isOperator ? null : modalEmployee.id,
+      employee_id: isOperator ? (linkedEmployee?.id ?? null) : modalEmployee.id,
       created_by: profile?.id || null,
       closing_date: form.closing_date,
       total_sales: form.total_sales,
@@ -464,17 +478,20 @@ export function FinancialCashClosing() {
   // Per-employee data — operators only see their own closings, not the full employee list
   const employeeData = isOperator
     ? (() => {
-        const myClosings = [...closings].sort((a, b) => b.closing_date.localeCompare(a.closing_date));
-        const me: FinEmployee = {
+        const myClosings = linkedEmployee
+          ? closings.filter((c) => c.employee_id === linkedEmployee.id)
+          : [...closings].sort((a, b) => b.closing_date.localeCompare(a.closing_date));
+        const me: FinEmployee = linkedEmployee ?? {
           id: profile?.id ?? 'me',
           branch_id: profile?.branch_id ?? '',
           name: profile?.name ?? 'Meu Fechamento',
           tfl: '',
           position: 'Operador',
           active: true,
+          user_id: profile?.id ?? null,
           created_at: '',
         };
-        return [{ employee: me, allClosings: myClosings }];
+        return [{ employee: me, allClosings: [...myClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) }];
       })()
     : employees.map((emp) => {
         const empClosings = closings.filter((c) => c.employee_id === emp.id);
@@ -486,6 +503,18 @@ export function FinancialCashClosing() {
   const dayTotalPix = dateClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
   const dayTotalSurplus = dateClosings.reduce((s, c) => s + Number(c.surplus), 0);
   const dayTotalShortage = dateClosings.reduce((s, c) => s + Number(c.shortage), 0);
+
+  // Operador: identidade de funcionário (vinculado ou fallback sintético)
+  const operatorEmployee: FinEmployee = linkedEmployee ?? {
+    id: profile?.id ?? 'me',
+    branch_id: profile?.branch_id ?? '',
+    name: profile?.name ?? 'Meu Fechamento',
+    tfl: '',
+    position: 'Operador',
+    active: true,
+    user_id: profile?.id ?? null,
+    created_at: '',
+  };
 
   if (loading && !closings.length) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
@@ -506,15 +535,7 @@ export function FinancialCashClosing() {
               />
             )}
             {isOperator && (
-              <Button onClick={() => openNew({
-                id: profile?.id ?? 'me',
-                branch_id: profile?.branch_id ?? '',
-                name: profile?.name ?? 'Meu Fechamento',
-                tfl: '',
-                position: 'Operador',
-                active: true,
-                created_at: '',
-              })}>
+              <Button onClick={() => openNew(operatorEmployee)}>
                 <Plus size={16} /> Novo Fechamento
               </Button>
             )}
@@ -554,15 +575,7 @@ export function FinancialCashClosing() {
             title="Nenhum fechamento encontrado"
             description="Clique no botão abaixo para criar seu primeiro fechamento de caixa."
             action={
-              <Button onClick={() => openNew({
-                id: profile?.id ?? 'me',
-                branch_id: profile?.branch_id ?? '',
-                name: profile?.name ?? 'Meu Fechamento',
-                tfl: '',
-                position: 'Operador',
-                active: true,
-                created_at: '',
-              })}>
+              <Button onClick={() => openNew(operatorEmployee)}>
                 <Plus size={16} /> Novo Fechamento
               </Button>
             }

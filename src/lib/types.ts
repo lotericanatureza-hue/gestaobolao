@@ -244,8 +244,10 @@ export interface FinEmployee {
   tfl: string;
   position: string | null;
   active: boolean;
+  user_id: string | null;
   created_at: string;
   branch?: Branch;
+  profile?: Profile;
 }
 
 export interface FinLoanReturn {

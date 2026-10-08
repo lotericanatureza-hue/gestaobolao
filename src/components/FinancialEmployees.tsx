@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Users, Plus, Pencil, Trash2, User } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, User, Link2, Unlink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, Select, Modal, Badge, Spinner, EmptyState } from './ui';
-import type { FinEmployee, Branch } from '../lib/types';
+import type { FinEmployee, Branch, Profile } from '../lib/types';
 
-const emptyForm = { name: '', tfl: '', position: '', active: true };
+const emptyForm = { name: '', tfl: '', position: '', active: true, user_id: '' };
 
 export function FinancialEmployees() {
   const { profile } = useAuth();
@@ -14,6 +14,7 @@ export function FinancialEmployees() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [employees, setEmployees] = useState<FinEmployee[]>([]);
+  const [branchUsers, setBranchUsers] = useState<Profile[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FinEmployee | null>(null);
@@ -36,14 +37,45 @@ export function FinancialEmployees() {
   const fetchData = useCallback(async () => {
     if (!selectedBranch) { setLoading(false); return; }
     setLoading(true);
-    const { data } = await supabase.from('fin_employees').select('*').eq('branch_id', selectedBranch).order('name');
+    const { data } = await supabase
+      .from('fin_employees')
+      .select('*, profile:profiles!fin_employees_user_id_fkey(*)')
+      .eq('branch_id', selectedBranch)
+      .order('name');
     setEmployees((data ?? []) as FinEmployee[]);
     setLoading(false);
   }, [selectedBranch]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  const fetchBranchUsers = useCallback(async () => {
+    if (!selectedBranch) return;
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('branch_id', selectedBranch)
+      .order('name');
+    setBranchUsers((data ?? []) as Profile[]);
+  }, [selectedBranch]);
+
+  useEffect(() => { fetchBranchUsers(); }, [fetchBranchUsers]);
+
   const branchOptions = branches.map((b) => ({ value: b.id, label: b.name }));
+
+  // Usuários que ainda não estão associados a outro funcionário + o usuário atualmente associado (em edição)
+  const availableUsers = (): Profile[] => {
+    const linkedIds = new Set(
+      employees
+        .filter((e) => e.user_id && (!editing || e.id !== editing.id))
+        .map((e) => e.user_id as string)
+    );
+    return branchUsers.filter((u) => !linkedIds.has(u.id));
+  };
+
+  const userOptions = availableUsers().map((u) => ({
+    value: u.id,
+    label: `${u.name}${u.role ? ` (${u.role})` : ''}`,
+  }));
 
   const openNew = () => {
     setEditing(null);
@@ -54,7 +86,7 @@ export function FinancialEmployees() {
 
   const openEdit = (e: FinEmployee) => {
     setEditing(e);
-    setForm({ name: e.name, tfl: e.tfl, position: e.position ?? '', active: e.active });
+    setForm({ name: e.name, tfl: e.tfl, position: e.position ?? '', active: e.active, user_id: e.user_id ?? '' });
     setError(null);
     setModalOpen(true);
   };
@@ -69,6 +101,7 @@ export function FinancialEmployees() {
       tfl: form.tfl.trim(),
       position: form.position.trim() || null,
       active: form.active,
+      user_id: form.user_id || null,
     };
     if (editing) {
       await supabase.from('fin_employees').update(payload).eq('id', editing.id);
@@ -90,11 +123,18 @@ export function FinancialEmployees() {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
   }
 
+  const getRoleLabel = (role: string) => {
+    if (role === 'admin') return 'Administrador';
+    if (role === 'supervisor') return 'Supervisor';
+    if (role === 'operator') return 'Operador';
+    return role;
+  };
+
   return (
     <div>
       <PageHeader
         title="Funcionários"
-        subtitle="Cadastro de funcionários associados a caixa (TFL) por filial"
+        subtitle="Cadastro de funcionários associados a caixa (TFL) por filial — vincule a um usuário para consolidar registros"
         action={
           <div className="flex items-center gap-2">
             {isAdmin && (
@@ -106,7 +146,7 @@ export function FinancialEmployees() {
       />
 
       {employees.length === 0 ? (
-        <Card><EmptyState icon={<Users size={48} />} title="Nenhum funcionário" description="Cadastre funcionários e associe cada um a um caixa (TFL)." /></Card>
+        <Card><EmptyState icon={<Users size={48} />} title="Nenhum funcionário" description="Cadastre funcionários e associe cada um a um caixa (TFL) e, opcionalmente, a um usuário do sistema." /></Card>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {employees.map((e) => (
@@ -123,7 +163,19 @@ export function FinancialEmployees() {
                 </div>
                 <Badge color={e.active ? 'green' : 'slate'}>{e.active ? 'Ativo' : 'Inativo'}</Badge>
               </div>
-              {e.position && <p className="text-sm text-slate-500 mb-3">Cargo: {e.position}</p>}
+              {e.position && <p className="text-sm text-slate-500 mb-2">Cargo: {e.position}</p>}
+              {e.profile ? (
+                <div className="flex items-center gap-2 text-sm bg-brand-50 rounded-lg px-3 py-2 mb-3">
+                  <Link2 size={14} className="text-brand-600" />
+                  <span className="text-brand-700 font-medium">{e.profile.name}</span>
+                  <span className="text-brand-400 text-xs">— {getRoleLabel(e.profile.role)}</span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 text-sm text-slate-400 mb-3">
+                  <Unlink size={14} />
+                  <span>Sem usuário associado</span>
+                </div>
+              )}
               <div className="flex gap-2 mt-4 pt-4 border-t border-slate-100">
                 <Button size="sm" variant="secondary" onClick={() => openEdit(e)}><Pencil size={14} /> Editar</Button>
                 <Button size="sm" variant="danger" onClick={() => remove(e)}><Trash2 size={14} /> Excluir</Button>
@@ -138,6 +190,19 @@ export function FinancialEmployees() {
           <Input label="Nome *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} placeholder="Nome do funcionário" required />
           <Input label="TFL (Caixa) *" value={form.tfl} onChange={(v) => setForm({ ...form, tfl: v })} placeholder="Ex: TFL-001" required />
           <Input label="Cargo" value={form.position} onChange={(v) => setForm({ ...form, position: v })} placeholder="Ex: Operador de Caixa" />
+          <Select
+            label="Usuário associado (opcional)"
+            value={form.user_id}
+            onChange={(v) => setForm({ ...form, user_id: v })}
+            options={[{ value: '', label: 'Nenhum' }, ...userOptions]}
+            placeholder="Selecionar usuário"
+          />
+          {form.user_id && (
+            <p className="text-xs text-slate-500 -mt-2">
+              Ao associar um usuário, os fechamentos de caixa deste funcionário serão vinculados ao perfil do operador,
+              consolidando as informações tanto no perfil do operador quanto no do administrador.
+            </p>
+          )}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} className="w-4 h-4 rounded text-brand-600 focus:ring-brand-500" />
             <span className="text-sm text-slate-700">Funcionário ativo</span>
