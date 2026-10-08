@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Ticket, Plus, Pencil, Trash2, Copy, DollarSign, Receipt, Lock, Unlock, ChevronDown, ChevronRight, User } from 'lucide-react';
+import { Ticket, Plus, Pencil, Trash2, Copy, DollarSign, Receipt, Lock, Unlock, ChevronDown, ChevronRight, User, Calendar, CalendarDays } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -42,6 +42,8 @@ export function FinancialBolaoClosing() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [fDate, setFDate] = useState(todayStr());
+  const [viewMode, setViewMode] = useState<'day' | 'month'>('day');
+  const [fMonth, setFMonth] = useState(todayStr().slice(0, 7));
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -284,13 +286,15 @@ export function FinancialBolaoClosing() {
     fetchData();
   };
 
-  // Filter by selected date
-  const dateClosings = closings.filter((c) => c.closing_date === fDate);
-  const dayTotalValue = dateClosings.reduce((s, c) => s + Number(c.total_value), 0);
-  const dayTotalCotas = dateClosings.reduce((s, c) => s + Number(c.total_cotas), 0);
-  const dayTotalFee = dateClosings.reduce((s, c) => s + Number(c.total_fee), 0);
-  const dayTotalPix = dateClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
-  const dayTotalOwed = dateClosings.reduce((s, c) => s + Number(c.total_owed), 0);
+  // Filter by selected period (day or month)
+  const periodClosings = viewMode === 'day'
+    ? closings.filter((c) => c.closing_date === fDate)
+    : closings.filter((c) => c.closing_date.startsWith(fMonth));
+  const dayTotalValue = periodClosings.reduce((s, c) => s + Number(c.total_value), 0);
+  const dayTotalCotas = periodClosings.reduce((s, c) => s + Number(c.total_cotas), 0);
+  const dayTotalFee = periodClosings.reduce((s, c) => s + Number(c.total_fee), 0);
+  const dayTotalPix = periodClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
+  const dayTotalOwed = periodClosings.reduce((s, c) => s + Number(c.total_owed), 0);
 
   if (loading && !closings.length) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
@@ -311,17 +315,40 @@ export function FinancialBolaoClosing() {
             {isAdmin && (
               <Select value={selectedBranch} onChange={setSelectedBranch} options={[{ value: '', label: 'Todas as filiais' }, ...branchOptions]} />
             )}
-            <Input type="date" value={fDate} onChange={setFDate} />
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+              <button
+                onClick={() => setViewMode('day')}
+                className={`px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors ${viewMode === 'day' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Calendar size={14} /> Dia
+              </button>
+              <button
+                onClick={() => setViewMode('month')}
+                className={`px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors ${viewMode === 'month' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                <CalendarDays size={14} /> Mês
+              </button>
+            </div>
+            {viewMode === 'day' ? (
+              <Input type="date" value={fDate} onChange={setFDate} />
+            ) : (
+              <input
+                type="month"
+                value={fMonth}
+                onChange={(e) => setFMonth(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none"
+              />
+            )}
             <Button onClick={openNew}><Plus size={18} /> Novo Fechamento</Button>
           </div>
         }
       />
 
-      {/* Day summary */}
+      {/* Period summary */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
         <Card className="p-4">
-          <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Fechamentos do Dia</p>
-          <p className="text-xl font-bold text-brand-950">{dateClosings.length}</p>
+          <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Fechamentos {viewMode === 'day' ? 'do Dia' : 'do Mês'}</p>
+          <p className="text-xl font-bold text-brand-950">{periodClosings.length}</p>
         </Card>
         <Card className="p-4">
           <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Total Cotas</p>
@@ -343,9 +370,13 @@ export function FinancialBolaoClosing() {
 
       {closings.length === 0 ? (
         <Card><EmptyState icon={<Ticket size={48} />} title="Nenhum fechamento" description="Clique em 'Novo Fechamento' para registrar o fechamento de bolão do dia." /></Card>
+      ) : viewMode === 'day' && periodClosings.length === 0 ? (
+        <Card><EmptyState icon={<Ticket size={48} />} title="Nenhum fechamento neste dia" description="Selecione outra data ou mude para a visão mensal." /></Card>
+      ) : viewMode === 'month' && periodClosings.length === 0 ? (
+        <Card><EmptyState icon={<Ticket size={48} />} title="Nenhum fechamento neste mês" description="Selecione outro mês ou mude para a visão diária." /></Card>
       ) : (
         <div className="space-y-3">
-          {closings.map((c) => {
+          {periodClosings.map((c) => {
             const isExpanded = expandedId === c.id;
             const canEdit = isAdmin || (isSupervisor && c.branch_id === profile?.branch_id) || (c.operator_id === profile?.id);
             return (

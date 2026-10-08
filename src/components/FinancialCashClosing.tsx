@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, AlertCircle, User, ChevronDown, ChevronRight, Calendar, CalendarDays } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -206,6 +206,8 @@ export function FinancialCashClosing() {
   const [extracted, setExtracted] = useState(false);
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [fDate, setFDate] = useState(todayStr());
+  const [viewMode, setViewMode] = useState<'day' | 'month'>('day');
+  const [fMonth, setFMonth] = useState(todayStr().slice(0, 7)); // YYYY-MM
 
   // Carrega filiais — admin começa em "Todas" (''), operador na sua filial
   useEffect(() => {
@@ -472,15 +474,18 @@ export function FinancialCashClosing() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank');
   };
 
-  // Filter closings by selected date
-  const dateClosings = closings.filter((c) => c.closing_date === fDate);
+  // Filter closings by view mode (day or month)
+  const periodClosings = viewMode === 'day'
+    ? closings.filter((c) => c.closing_date === fDate)
+    : closings.filter((c) => c.closing_date.startsWith(fMonth));
+
+  // Helper: match closing to employee by employee_id OR by created_by -> user_id
+  const closingMatchesEmployee = (c: FinCashClosing, empId: string, empUserId: string | null): boolean =>
+    c.employee_id === empId || (c.employee_id === null && empUserId !== null && c.created_by === empUserId);
 
   // Per-employee data — operators only see their own closings, not the full employee list
   const employeeData = isOperator
     ? (() => {
-        const myClosings = linkedEmployee
-          ? closings.filter((c) => c.employee_id === linkedEmployee.id)
-          : [...closings].sort((a, b) => b.closing_date.localeCompare(a.closing_date));
         const me: FinEmployee = linkedEmployee ?? {
           id: profile?.id ?? 'me',
           branch_id: profile?.branch_id ?? '',
@@ -491,18 +496,23 @@ export function FinancialCashClosing() {
           user_id: profile?.id ?? null,
           created_at: '',
         };
+        const myClosings = closings.filter((c) =>
+          closingMatchesEmployee(c, me.id, me.user_id)
+        );
         return [{ employee: me, allClosings: [...myClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) }];
       })()
     : employees.map((emp) => {
-        const empClosings = closings.filter((c) => c.employee_id === emp.id);
+        const empClosings = closings.filter((c) =>
+          closingMatchesEmployee(c, emp.id, emp.user_id ?? null)
+        );
         return { employee: emp, allClosings: [...empClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) };
       });
 
-  // Totals for the day
-  const dayTotalSales = dateClosings.reduce((s, c) => s + Number(c.total_sales), 0);
-  const dayTotalPix = dateClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
-  const dayTotalSurplus = dateClosings.reduce((s, c) => s + Number(c.surplus), 0);
-  const dayTotalShortage = dateClosings.reduce((s, c) => s + Number(c.shortage), 0);
+  // Totals for the selected period
+  const periodTotalSales = periodClosings.reduce((s, c) => s + Number(c.total_sales), 0);
+  const periodTotalPix = periodClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
+  const periodTotalSurplus = periodClosings.reduce((s, c) => s + Number(c.surplus), 0);
+  const periodTotalShortage = periodClosings.reduce((s, c) => s + Number(c.shortage), 0);
 
   // Operador: identidade de funcionário (vinculado ou fallback sintético)
   const operatorEmployee: FinEmployee = linkedEmployee ?? {
@@ -526,7 +536,7 @@ export function FinancialCashClosing() {
         title="Fechamento de Caixa"
         subtitle="Cada funcionário tem seu próprio fechamento — extração automática do PDF"
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {isAdmin && (
               <Select
                 value={selectedBranch}
@@ -534,41 +544,64 @@ export function FinancialCashClosing() {
                 options={[{ value: '', label: 'Todas as filiais' }, ...branchOptions]}
               />
             )}
+            <div className="flex rounded-lg border border-slate-300 overflow-hidden">
+              <button
+                onClick={() => setViewMode('day')}
+                className={`px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors ${viewMode === 'day' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                <Calendar size={14} /> Dia
+              </button>
+              <button
+                onClick={() => setViewMode('month')}
+                className={`px-3 py-2 text-sm font-medium flex items-center gap-1.5 transition-colors ${viewMode === 'month' ? 'bg-brand-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                <CalendarDays size={14} /> Mês
+              </button>
+            </div>
+            {viewMode === 'day' ? (
+              <Input type="date" value={fDate} onChange={setFDate} />
+            ) : (
+              <input
+                type="month"
+                value={fMonth}
+                onChange={(e) => setFMonth(e.target.value)}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none"
+              />
+            )}
             {isOperator && (
               <Button onClick={() => openNew(operatorEmployee)}>
                 <Plus size={16} /> Novo Fechamento
               </Button>
             )}
-            <Input type="date" value={fDate} onChange={setFDate} />
           </div>
         }
       />
 
-      {/* Day summary */}
+      {/* Day/Month summary */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <Card className="p-5">
-          <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Vendas do Dia</p>
-          <p className="text-xl font-bold text-brand-950">R$ {formatBRL(dayTotalSales)}</p>
-          <p className="text-xs text-slate-400 mt-1">{dateClosings.length} fechamento(s)</p>
+          <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Vendas {viewMode === 'day' ? 'do Dia' : 'do Mês'}</p>
+          <p className="text-xl font-bold text-brand-950">R$ {formatBRL(periodTotalSales)}</p>
+          <p className="text-xs text-slate-400 mt-1">{periodClosings.length} fechamento(s)</p>
         </Card>
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Pix Externos</p>
-          <p className="text-xl font-bold text-brand-600">R$ {formatBRL(dayTotalPix)}</p>
+          <p className="text-xl font-bold text-brand-600">R$ {formatBRL(periodTotalPix)}</p>
         </Card>
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Sobras</p>
-          <p className="text-xl font-bold text-emerald-600">R$ {formatBRL(dayTotalSurplus)}</p>
+          <p className="text-xl font-bold text-emerald-600">R$ {formatBRL(periodTotalSurplus)}</p>
         </Card>
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Faltas</p>
-          <p className="text-xl font-bold text-red-600">R$ {formatBRL(dayTotalShortage)}</p>
+          <p className="text-xl font-bold text-red-600">R$ {formatBRL(periodTotalShortage)}</p>
         </Card>
       </div>
 
       {/* Employee cards */}
       {!isOperator && employees.length === 0 ? (
         <Card><EmptyState icon={<User size={48} />} title="Nenhum funcionário cadastrado" description="Cadastre funcionários na aba Funcionários para que cada um tenha seu próprio fechamento de caixa." /></Card>
-      ) : isOperator && closings.length === 0 ? (
+      ) : isOperator && employeeData[0]?.allClosings.length === 0 ? (
         <Card>
           <EmptyState
             icon={<User size={48} />}
@@ -585,7 +618,9 @@ export function FinancialCashClosing() {
         <div className="space-y-4">
           {employeeData.map(({ employee, allClosings }) => {
             const isExpanded = expandedEmp === employee.id;
-            const todayClosing = allClosings.find((c) => c.closing_date === fDate);
+            const periodClosing = viewMode === 'day'
+              ? allClosings.find((c) => c.closing_date === fDate)
+              : allClosings.find((c) => c.closing_date.startsWith(fMonth));
             return (
               <Card key={employee.id} className="overflow-hidden">
                 {/* Employee header */}
@@ -601,8 +636,11 @@ export function FinancialCashClosing() {
                       <h3 className="font-semibold text-slate-900">{employee.name}</h3>
                       <p className="text-xs text-slate-400">TFL: {employee.tfl}{employee.position ? ` • ${employee.position}` : ''}</p>
                       {(() => {
-                        const totalSurplus = allClosings.reduce((s, c) => s + Number(c.surplus), 0);
-                        const totalShortage = allClosings.reduce((s, c) => s + Number(c.shortage), 0);
+                        const periodEmpClosings = viewMode === 'day'
+                          ? allClosings.filter((c) => c.closing_date === fDate)
+                          : allClosings.filter((c) => c.closing_date.startsWith(fMonth));
+                        const totalSurplus = periodEmpClosings.reduce((s, c) => s + Number(c.surplus), 0);
+                        const totalShortage = periodEmpClosings.reduce((s, c) => s + Number(c.shortage), 0);
                         const result = totalSurplus - totalShortage;
                         return (
                           <p className="text-xs mt-1 flex items-center gap-3">
@@ -615,14 +653,14 @@ export function FinancialCashClosing() {
                     </div>
                   </div>
                   <div className="flex items-center gap-3" onClick={(e) => e.stopPropagation()}>
-                    {todayClosing ? (
-                      todayClosing.status === 'closed' ? (
+                    {periodClosing ? (
+                      periodClosing.status === 'closed' ? (
                         <Badge color="blue"><Lock size={12} className="mr-1" /> Caixa fechado</Badge>
                       ) : (
                         <Badge color="amber"><Unlock size={12} className="mr-1" /> Pendente</Badge>
                       )
                     ) : (
-                      <Badge color="slate">Sem caixa hoje</Badge>
+                      <Badge color="slate">Sem caixa {viewMode === 'day' ? 'hoje' : 'no mês'}</Badge>
                     )}
                     <Button size="sm" onClick={() => openNew(employee)}>
                       <Plus size={14} /> Fechar Caixa
@@ -637,13 +675,16 @@ export function FinancialCashClosing() {
                 {/* Expanded content */}
                 {isExpanded && (
                   <div className="border-t border-slate-100 p-5 space-y-4">
-                    {/* All closings as collapsible list */}
-                    {allClosings.length > 0 ? (
+                    {(() => {
+                      const visibleClosings = viewMode === 'day'
+                        ? allClosings.filter((c) => c.closing_date === fDate)
+                        : allClosings.filter((c) => c.closing_date.startsWith(fMonth));
+                      return visibleClosings.length > 0 ? (
                       <div className="space-y-2">
                         <h4 className="text-sm font-semibold text-slate-600 flex items-center gap-2">
-                          <FileText size={16} /> Histórico de Fechamentos ({allClosings.length})
+                          <FileText size={16} /> {viewMode === 'day' ? 'Fechamento do dia' : `Fechamentos do mês (${visibleClosings.length})`}
                         </h4>
-                        {allClosings.map((c) => (
+                        {visibleClosings.map((c) => (
                           <details key={c.id} className={`rounded-lg border transition-colors ${c.status === 'closed' ? 'bg-slate-50 border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
                             <summary className="flex items-center justify-between p-3 cursor-pointer hover:bg-slate-100 transition-colors rounded-lg">
                               <div className="flex items-center gap-3">
@@ -685,8 +726,9 @@ export function FinancialCashClosing() {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-slate-400 text-center py-4">Nenhum fechamento registrado para este funcionário.</p>
-                    )}
+                      <p className="text-sm text-slate-400 text-center py-4">Nenhum fechamento {viewMode === 'day' ? 'neste dia' : 'neste mês'} para este funcionário.</p>
+                    );
+                    })()}
                   </div>
                 )}
               </Card>
