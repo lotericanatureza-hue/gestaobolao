@@ -37,25 +37,22 @@ export function FinancialEmployees() {
   const fetchData = useCallback(async () => {
     if (!selectedBranch) { setLoading(false); return; }
     setLoading(true);
-    const { data } = await supabase
-      .from('fin_employees')
-      .select('*, profile:profiles!fin_employees_user_id_fkey(*)')
-      .eq('branch_id', selectedBranch)
-      .order('name');
-    setEmployees((data ?? []) as FinEmployee[]);
+    const [empRes, userRes] = await Promise.all([
+      supabase.from('fin_employees').select('*').eq('branch_id', selectedBranch).order('name'),
+      supabase.from('profiles').select('*').eq('branch_id', selectedBranch).order('name'),
+    ]);
+    const list = (empRes.data ?? []) as FinEmployee[];
+    const users = (userRes.data ?? []) as Profile[];
+    setBranchUsers(users);
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    setEmployees(list.map((e) => ({ ...e, profile: e.user_id ? userMap.get(e.user_id) : undefined })));
     setLoading(false);
   }, [selectedBranch]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const fetchBranchUsers = useCallback(async () => {
-    if (!selectedBranch) return;
-    const { data } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('branch_id', selectedBranch)
-      .order('name');
-    setBranchUsers((data ?? []) as Profile[]);
+    // Already fetched in fetchData — kept for compatibility
   }, [selectedBranch]);
 
   useEffect(() => { fetchBranchUsers(); }, [fetchBranchUsers]);

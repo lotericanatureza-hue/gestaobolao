@@ -224,7 +224,7 @@ export function FinancialCashClosing() {
     if (!isOperator || !profile?.id) return;
     supabase
       .from('fin_employees')
-      .select('*, profile:profiles!fin_employees_user_id_fkey(*)')
+      .select('*')
       .eq('user_id', profile.id)
       .maybeSingle()
       .then(({ data }) => {
