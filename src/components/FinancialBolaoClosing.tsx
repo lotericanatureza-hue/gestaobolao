@@ -20,6 +20,9 @@ type ReportItem = {
   drawDate: string;
   productId: string;
   slug: string;
+  reportSection: string;
+  reportKind: 'cotas' | 'bolao';
+  sourceLine: string;
 };
 
 const emptyItem = (drawDate = todayStr()): ReportItem => ({
@@ -32,6 +35,9 @@ const emptyItem = (drawDate = todayStr()): ReportItem => ({
   drawDate,
   productId: '',
   slug: '',
+  reportSection: '',
+  reportKind: 'cotas',
+  sourceLine: '',
 });
 
 function amountFromText(value: string): number {
@@ -45,39 +51,91 @@ function dateFromReport(text: string): string {
   return match ? `${match[3]}-${match[2]}-${match[1]}` : todayStr();
 }
 
+function extractReportTotals(text: string): { quota: number; fee: number } | null {
+  let quota = 0;
+  let fee = 0;
+  let found = false;
+  const moneyPattern = /^\d{1,3}(?:\.\d{3})*,\d{2}$|^\d+,\d{2}$|^\d+\.\d{2}$/;
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!/^TOTAL\b/i.test(line)) continue;
+    const values = line.split(/\s+/).filter((part) => moneyPattern.test(part));
+    if (values.length >= 2) {
+      quota += amountFromText(values[values.length - 2]);
+      fee += amountFromText(values[values.length - 1]);
+      found = true;
+    } else if (values.length === 1) {
+      quota += amountFromText(values[0]);
+      found = true;
+    }
+  }
+  return found ? { quota, fee } : null;
+}
+
 function extractReportItems(text: string, products: Product[]): ReportItem[] {
   const defaultDate = dateFromReport(text);
   const parsed: ReportItem[] = [];
-  const lines = text.split(/\r?\n/).map((line) => line.replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim());
+  let reportSection = 'Cotas baixadas/impressas registradas na outra TFL';
+  let reportKind: 'cotas' | 'bolao' = 'cotas';
+  const lines = text.split(/\r?\n/).map((line) => line.replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const moneyPattern = /^\d{1,3}(?:\.\d{3})*,\d{2}$|^\d+,\d{2}$|^\d+\.\d{2}$/;
 
   for (const line of lines) {
-    if (/^(TOTAL|MODAL|VALOR|COTAS|BOLAO|TERMINAL|OPERADOR|DATA|REV|CAIXA|VENDAS|RESUMO|TFL)/i.test(line)) continue;
-    const match = line.match(/^([A-ZÀ-Ú][A-ZÀ-Ú0-9]*-[A-Z0-9]+)\s+(.+)$/i);
-    if (!match) continue;
-    const modalityAndContest = match[1].toUpperCase();
-    const parts = match[2].split(/\s+/).filter(Boolean);
-    const values = parts.filter((part) => /^\d{1,3}(?:\.\d{3})*,\d{2}$|^\d+,\d{2}$|^\d+\.\d{2}$/.test(part));
-    if (values.length < 2) continue;
-
-    const [modality, ...contestParts] = modalityAndContest.split('-');
-    const quantity = parts.find((part) => /^\d+(?:\/\d+)?$/.test(part)) ?? '';
-    const quotaToken = values.length >= 3 ? values[values.length - 3] : values[values.length - 2];
-    const feeToken = values[values.length - 1];
-    const product = products.find((item) => item.slug.toLowerCase().includes(modality.toLowerCase()) || item.name.toLowerCase().includes(modality.toLowerCase()));
-
-    if (quantity && quotaToken && feeToken) {
-      parsed.push({
-        id: crypto.randomUUID(),
-        modality,
-        contest: contestParts.join('-'),
-        quantity,
-        quotaValue: `R$ ${formatBRL(amountFromText(quotaToken))}`,
-        feeValue: `R$ ${formatBRL(amountFromText(feeToken))}`,
-        drawDate: defaultDate,
-        productId: product?.id ?? '',
-        slug: product?.slug ?? '',
-      });
+    if (/BOLAO CAIXA - SEM TARIFA/i.test(line)) {
+      reportSection = 'Bolão caixa - sem tarifa de serviço';
+      reportKind = 'bolao';
+      continue;
     }
+    if (/BOLAO CAIXA - COM TARIFA/i.test(line)) {
+      reportSection = 'Bolão caixa - com tarifa de serviço';
+      reportKind = 'bolao';
+      continue;
+    }
+    if (/COTAS BAIXADAS\/IMPRESSAS REGISTRADAS NA TFL/i.test(line)) {
+      reportSection = 'Cotas baixadas/impressas registradas na TFL';
+      reportKind = 'cotas';
+      continue;
+    }
+    if (/COTAS BAIXADAS\/IMPRESSAS REGISTRADAS OUTRA TFL/i.test(line)) {
+      reportSection = 'Cotas baixadas/impressas registradas na outra TFL';
+      reportKind = 'cotas';
+      continue;
+    }
+    if (/VENDAS DE COTAS VIRTUAIS NO MKP/i.test(line)) {
+      reportSection = 'Vendas de cotas virtuais no MKP';
+      reportKind = 'cotas';
+      continue;
+    }
+    if (/^(TOTAL|MODAL|VALOR|COTAS|TERMINAL|OPERADOR|DATA|REV|CAIXA|VENDAS|RESUMO|TFL)/i.test(line)) continue;
+
+    const match = line.match(/^(\+?[A-ZÀ-Ú][A-ZÀ-Ú0-9]*)(?:-([A-Z0-9-]+))?\s+(.+)$/i);
+    if (!match) continue;
+    const modality = match[1].toUpperCase();
+    const contest = match[2]?.toUpperCase() ?? '';
+    const parts = match[3].split(/\s+/).filter(Boolean);
+    const values = parts.filter((part) => moneyPattern.test(part));
+    const quantity = parts.find((part) => /^\d+(?:\/\d+)?$/.test(part)) ?? '';
+    const hasContest = Boolean(contest);
+    const isValidLine = reportKind === 'bolao' ? values.length >= 1 : hasContest && values.length >= 2;
+    if (!isValidLine || !quantity) continue;
+
+    const quotaToken = reportKind === 'bolao' && values.length >= 3 ? values[values.length - 3] : values[0];
+    const feeToken = reportKind === 'bolao' && values.length < 3 ? '0,00' : reportKind === 'bolao' ? values[values.length - 1] : values[values.length - 1];
+    const product = products.find((item) => item.slug.toLowerCase().includes(modality.toLowerCase()) || item.name.toLowerCase().includes(modality.toLowerCase()));
+    parsed.push({
+      id: crypto.randomUUID(),
+      modality,
+      contest,
+      quantity,
+      quotaValue: `R$ ${formatBRL(amountFromText(quotaToken))}`,
+      feeValue: `R$ ${formatBRL(amountFromText(feeToken))}`,
+      drawDate: defaultDate,
+      productId: product?.id ?? '',
+      slug: product?.slug ?? '',
+      reportSection,
+      reportKind,
+      sourceLine: line,
+    });
   }
   return parsed;
 }
@@ -96,6 +154,9 @@ function itemFromStored(item: BolaoClosingItem): ReportItem {
     drawDate: item.draw_date ?? todayStr(),
     productId: item.product_id ?? '',
     slug: item.slug ?? '',
+    reportSection: item.report_section ?? '',
+    reportKind: item.report_kind ?? 'cotas',
+    sourceLine: item.source_line ?? '',
   };
 }
 
@@ -119,6 +180,9 @@ function itemForSave(item: ReportItem): BolaoClosingItem {
     quota_value: quotaValue,
     fee_value: feeValue,
     draw_date: item.drawDate,
+    report_section: item.reportSection,
+    report_kind: item.reportKind,
+    source_line: item.sourceLine,
   };
 }
 
@@ -146,6 +210,7 @@ export function FinancialBolaoClosing() {
   const [status, setStatus] = useState<'open' | 'closed'>('open');
   const [sourceName, setSourceName] = useState('');
   const [ocrText, setOcrText] = useState('');
+  const [reportTotals, setReportTotals] = useState<{ quota: number; fee: number } | null>(null);
   const [ocrState, setOcrState] = useState<'idle' | 'reading' | 'done' | 'error'>('idle');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -193,6 +258,7 @@ export function FinancialBolaoClosing() {
     setStatus('open');
     setSourceName('');
     setOcrText('');
+    setReportTotals(null);
     setOcrState('idle');
     setError(null);
     setModalOpen(true);
@@ -207,6 +273,7 @@ export function FinancialBolaoClosing() {
     setStatus(closing.status);
     setSourceName(closing.source_report_name ?? '');
     setOcrText(closing.ocr_text ?? '');
+    setReportTotals(null);
     setOcrState(closing.ocr_text ? 'done' : 'idle');
     setError(null);
     setModalOpen(true);
@@ -226,23 +293,38 @@ export function FinancialBolaoClosing() {
     } : item));
   };
 
-  const runOcr = async (file: File) => {
+  const runOcr = async (files: File[]) => {
     setOcrState('reading');
     setError(null);
     try {
       const worker = await createWorker('por');
-      const result = await worker.recognize(file);
+      const texts: string[] = [];
+      const extracted: ReportItem[] = [];
+      let quotaTotal = 0;
+      let feeTotal = 0;
+      let hasReportTotals = false;
+      for (const file of files) {
+        const result = await worker.recognize(file);
+        const text = result.data.text;
+        texts.push(text);
+        extracted.push(...extractReportItems(text, products));
+        const totals = extractReportTotals(text);
+        if (totals) {
+          quotaTotal += totals.quota;
+          feeTotal += totals.fee;
+          hasReportTotals = true;
+        }
+      }
       await worker.terminate();
-      const text = result.data.text;
-      const extracted = extractReportItems(text, products);
-      setSourceName(file.name);
-      setOcrText(text);
-      setItems(extracted.length ? extracted : [emptyItem(dateFromReport(text))]);
+      setSourceName(files.map((file) => file.name).join(', '));
+      setOcrText(texts.join('\n\n--- PRÓXIMA FOTO ---\n\n'));
+      setReportTotals(hasReportTotals ? { quota: quotaTotal, fee: feeTotal } : null);
+      setItems(extracted.length ? extracted : [emptyItem(dateFromReport(texts[0] ?? ''))]);
       setOcrState('done');
-      if (!extracted.length) setError('A foto foi lida, mas nenhuma linha reconhecível foi encontrada. Confira a imagem ou inclua as linhas manualmente.');
+      if (!extracted.length) setError('As fotos foram lidas, mas nenhuma linha reconhecível foi encontrada. Confira as imagens ou inclua as linhas manualmente.');
     } catch {
       setOcrState('error');
-      setError('Não foi possível ler essa foto. Tente uma imagem mais nítida e bem iluminada.');
+      setError('Não foi possível ler uma das fotos. Tente imagens mais nítidas e bem iluminadas.');
     }
   };
 
@@ -250,11 +332,14 @@ export function FinancialBolaoClosing() {
   const totalQuantity = savedItems.reduce((sum, item) => sum + (Number(item.quantity?.split('/')[0]) || 0), 0);
   const totalValue = savedItems.reduce((sum, item) => sum + Number(item.quota_value ?? 0) + Number(item.fee_value ?? 0), 0);
   const totalFee = savedItems.reduce((sum, item) => sum + Number(item.fee_value ?? 0), 0);
+  const totalQuota = totalValue - totalFee;
+  const totalsMatch = !reportTotals || (Math.abs(totalQuota - reportTotals.quota) < 0.01 && Math.abs(totalFee - reportTotals.fee) < 0.01);
 
   const save = async () => {
     if (saving) return;
     if (!savedItems.length) { setError('Inclua pelo menos uma linha completa do relatório.'); return; }
     if (savedItems.some((item) => !item.draw_date)) { setError('Informe a data do sorteio em todas as linhas.'); return; }
+    if (!totalsMatch) { setError('A soma das linhas ainda não bate com o total impresso no relatório. Revise todas as linhas antes de salvar.'); return; }
     const operatorId = canManageAll ? formOperatorId : profile?.id ?? '';
     if (!operatorId) { setError('Selecione o operador.'); return; }
     let branchId = profile?.branch_id ?? '';
@@ -352,19 +437,20 @@ export function FinancialBolaoClosing() {
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Conferir fechamento' : 'Novo fechamento por relatório'} maxWidth="max-w-6xl">
         <div className="space-y-5">
-          <div className="rounded-2xl border border-brand-100 bg-brand-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"><div><p className="font-semibold text-brand-950">1. Fotografe ou envie o relatório</p><p className="text-sm text-brand-700 mt-1">A leitura acontece neste dispositivo. Depois, confira todas as linhas antes de salvar.</p></div><label className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium cursor-pointer"><Upload size={17} /> {ocrState === 'reading' ? 'Lendo relatório...' : 'Escolher foto'}<input type="file" accept="image/*" capture="environment" className="sr-only" disabled={ocrState === 'reading'} onChange={(event) => { const file = event.target.files?.[0]; if (file) void runOcr(file); event.currentTarget.value = ''; }} /></label></div>
-          {ocrState === 'reading' && <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-600"><Spinner className="text-brand-600" /> Analisando a imagem e identificando as linhas...</div>}
+          <div className="rounded-2xl border border-brand-100 bg-brand-50 p-4 flex flex-col md:flex-row md:items-center justify-between gap-4"><div><p className="font-semibold text-brand-950">1. Fotografe ou envie o relatório</p><p className="text-sm text-brand-700 mt-1">A leitura acontece neste dispositivo. Depois, confira todas as linhas antes de salvar.</p></div><label className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand-600 hover:bg-brand-700 text-white px-4 py-2 text-sm font-medium cursor-pointer"><Upload size={17} /> {ocrState === 'reading' ? 'Lendo relatórios...' : 'Escolher fotos'}<input type="file" accept="image/*" capture="environment" multiple className="sr-only" disabled={ocrState === 'reading'} onChange={(event) => { const files = Array.from(event.target.files ?? []); if (files.length) void runOcr(files); event.currentTarget.value = ''; }} /></label></div>
+          {ocrState === 'reading' && <div className="flex items-center gap-2 rounded-lg bg-slate-50 p-3 text-sm text-slate-600"><Spinner className="text-brand-600" /> Analisando as fotos e identificando todas as linhas...</div>}
           {ocrState === 'done' && <div className="flex items-center gap-2 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-700"><CheckCircle2 size={17} /> Relatório lido. Confira os valores e as datas de sorteio abaixo.</div>}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><Input label="Data do fechamento" type="date" value={formDate} onChange={setFormDate} required />{canManageAll ? <Select label="Operador" value={formOperatorId} onChange={setFormOperatorId} options={operators.map((operator) => ({ value: operator.id, label: operator.name }))} placeholder="Selecione o operador" required /> : <div><span className="block text-sm font-medium text-slate-700 mb-1.5">Operador</span><p className="text-sm font-medium text-slate-900 bg-slate-50 rounded-lg px-3 py-2">{profile?.name}</p></div>}</div>
 
           <div><div className="flex items-center justify-between mb-2"><div><p className="font-semibold text-slate-900">2. Confira as linhas extraídas</p><p className="text-xs text-slate-500 mt-1">A data do sorteio é obrigatória e pode ser diferente em cada linha.</p></div><Button size="sm" variant="secondary" onClick={() => setItems((current) => [...current, emptyItem(formDate)])}><Plus size={14} /> Adicionar linha</Button></div><div className="space-y-3">{items.map((item, index) => <div key={item.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="grid grid-cols-1 md:grid-cols-12 gap-2 items-end"><label className="md:col-span-3 text-[11px] text-slate-500">Modalidade/concurso<input value={`${item.modality}${item.contest ? `-${item.contest}` : ''}`} onChange={(event) => { const [modality, ...contest] = event.target.value.split('-'); setItems((current) => current.map((row) => row.id === item.id ? { ...row, modality, contest: contest.join('-') } : row)); }} placeholder="FACIL-3800" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></label><label className="md:col-span-2 text-[11px] text-slate-500">Quantidade<input value={item.quantity} onChange={(event) => updateItem(item.id, 'quantity', event.target.value)} placeholder="6 ou 6/2" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></label><label className="md:col-span-2 text-[11px] text-slate-500">Valor cotas<input value={item.quotaValue} onChange={(event) => updateItem(item.id, 'quotaValue', event.target.value)} placeholder="R$ 0,00" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></label><label className="md:col-span-2 text-[11px] text-slate-500">Valor tarifa<input value={item.feeValue} onChange={(event) => updateItem(item.id, 'feeValue', event.target.value)} placeholder="R$ 0,00" className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></label><label className="md:col-span-2 text-[11px] text-slate-500">Data sorteio<input type="date" value={item.drawDate} onChange={(event) => updateItem(item.id, 'drawDate', event.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900" /></label><button className="p-2 text-slate-400 hover:text-red-600" title={`Remover linha ${index + 1}`} onClick={() => setItems((current) => current.length > 1 ? current.filter((row) => row.id !== item.id) : current)}><Trash2 size={17} /></button></div><div className="mt-2 flex items-center gap-2"><select value={item.productId} onChange={(event) => selectProduct(item.id, event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-600"><option value="">Vincular ao produto cadastrado (opcional)</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select><span className="text-xs text-slate-400">Linha {index + 1}</span></div></div>)}</div></div>
 
-          <div className="rounded-xl bg-brand-50 p-4 flex flex-wrap gap-5 text-sm"><span className="text-slate-700">Quantidade: <strong className="text-brand-950">{totalQuantity}</strong></span><span className="text-slate-700">Valor cotas: <strong className="text-brand-700">R$ {formatBRL(totalValue - totalFee)}</strong></span><span className="text-slate-700">Tarifas: <strong className="text-emerald-700">R$ {formatBRL(totalFee)}</strong></span><span className="text-slate-700">Total: <strong className="text-brand-950">R$ {formatBRL(totalValue)}</strong></span></div>
+          <div className="rounded-xl bg-brand-50 p-4 flex flex-wrap gap-5 text-sm"><span className="text-slate-700">Quantidade: <strong className="text-brand-950">{totalQuantity}</strong></span><span className="text-slate-700">Valor cotas: <strong className="text-brand-700">R$ {formatBRL(totalQuota)}</strong></span><span className="text-slate-700">Tarifas: <strong className="text-emerald-700">R$ {formatBRL(totalFee)}</strong></span><span className="text-slate-700">Total: <strong className="text-brand-950">R$ {formatBRL(totalValue)}</strong></span></div>
+          {reportTotals && <div className={`rounded-lg p-3 text-sm ${totalsMatch ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}><strong>{totalsMatch ? 'Conferência aprovada:' : 'Atenção:'}</strong> soma das linhas — cotas R$ {formatBRL(totalQuota)} e tarifas R$ {formatBRL(totalFee)}; relatório — cotas R$ {formatBRL(reportTotals.quota)} e tarifas R$ {formatBRL(reportTotals.fee)}.{!totalsMatch && ' Corrija as linhas destacadas pela leitura antes de salvar.'}</div>}
           <Input label="Observações" value={notes} onChange={setNotes} placeholder="Notas adicionais" />
           <Select label="Status" value={status} onChange={(value) => setStatus(value as 'open' | 'closed')} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
           {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2"><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button onClick={save} disabled={saving || ocrState === 'reading'}>{saving ? 'Salvando...' : 'Salvar fechamento'}</Button></div>
+          <div className="flex justify-end gap-2 pt-2"><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button onClick={save} disabled={saving || ocrState === 'reading' || !totalsMatch}>{saving ? 'Salvando...' : 'Salvar fechamento'}</Button></div>
         </div>
       </Modal>
     </div>
