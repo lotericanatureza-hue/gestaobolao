@@ -261,13 +261,19 @@ export interface FinLoanReturn {
 
 export interface BolaoClosingItem {
   id: string;
-  product_id: string;
+  product_id?: string;
   product_name: string;
   slug: string;
   shares: number;
   price_per_share: number;
   fee_per_share: number;
   total: number;
+  modality?: string;
+  contest?: string;
+  quantity?: string;
+  quota_value?: number;
+  fee_value?: number;
+  draw_date?: string;
 }
 
 export interface BolaoClosingPixExternal {
@@ -300,6 +306,8 @@ export interface FinBolaoClosing {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  source_report_name?: string | null;
+  ocr_text?: string | null;
   operator?: Profile;
   branch?: Branch;
 }
