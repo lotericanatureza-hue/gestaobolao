@@ -274,6 +274,8 @@ export interface BolaoClosingItem {
   quota_value?: number;
   fee_value?: number;
   draw_date?: string;
+  fee_percentage?: number;
+  validated?: boolean;
   report_section?: string;
   report_kind?: 'cotas' | 'bolao';
   source_line?: string;
