@@ -249,7 +249,6 @@ export function FinancialCashClosing() {
     let empQuery = supabase
       .from('fin_employees')
       .select('*')
-      .eq('active', true)
       .order('name');
 
     // Filtra apenas se uma filial específica estiver selecionada
@@ -264,11 +263,9 @@ export function FinancialCashClosing() {
     if (empRes.error) console.error('[fetchData] fin_employees:', empRes.error);
 
     setClosings((ccRes.data ?? []) as FinCashClosing[]);
-    setEmployees(
-      (empRes.data ?? [])
-        .map((employee) => employee as FinEmployee)
-        .filter((employee) => employee.tfl.trim().length > 0)
-    );
+    const loadedEmployees = (empRes.data ?? []).map((employee) => employee as FinEmployee);
+    const loadedClosingEmployeeIds = new Set((ccRes.data ?? []).map((closing) => (closing as FinCashClosing).employee_id).filter((id): id is string => Boolean(id)));
+    setEmployees(loadedEmployees.filter((employee) => employee.tfl.trim().length > 0 || loadedClosingEmployeeIds.has(employee.id)));
     setLoading(false);
   }, [selectedBranch, isAdmin, profile?.branch_id]);
 
@@ -487,6 +484,10 @@ export function FinancialCashClosing() {
   const closingMatchesEmployee = (c: FinCashClosing, empId: string, empUserId: string | null): boolean =>
     c.employee_id === empId || (c.employee_id === null && empUserId !== null && c.created_by === empUserId);
 
+  const unassignedClosings = !isOperator
+    ? closings.filter((closing) => !employees.some((employee) => closingMatchesEmployee(closing, employee.id, employee.user_id ?? null)))
+    : [];
+
   // Per-employee data — operators only see their own closings, not the full employee list
   const employeeData = isOperator
     ? (() => {
@@ -505,12 +506,27 @@ export function FinancialCashClosing() {
         );
         return [{ employee: me, allClosings: [...myClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) }];
       })()
-    : employees.map((emp) => {
-        const empClosings = closings.filter((c) =>
-          closingMatchesEmployee(c, emp.id, emp.user_id ?? null)
-        );
-        return { employee: emp, allClosings: [...empClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) };
-      });
+    : [
+        ...employees.map((emp) => {
+          const empClosings = closings.filter((c) =>
+            closingMatchesEmployee(c, emp.id, emp.user_id ?? null)
+          );
+          return { employee: emp, allClosings: [...empClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) };
+        }),
+        ...(unassignedClosings.length > 0 ? [{
+          employee: {
+            id: 'legacy-unassigned',
+            branch_id: '',
+            name: 'Fechamentos históricos sem funcionário vinculado',
+            tfl: 'Registros anteriores',
+            position: 'Revisar associação',
+            active: false,
+            user_id: null,
+            created_at: '',
+          } as FinEmployee,
+          allClosings: [...unassignedClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)),
+        }] : []),
+      ];
 
   // Totals for the selected period
   const periodTotalSales = periodClosings.reduce((s, c) => s + Number(c.total_sales), 0);
@@ -603,7 +619,7 @@ export function FinancialCashClosing() {
       </div>
 
       {/* Employee cards */}
-      {!isOperator && employees.length === 0 ? (
+      {!isOperator && employees.length === 0 && unassignedClosings.length === 0 ? (
         <Card><EmptyState icon={<User size={48} />} title="Nenhum funcionário cadastrado" description="Cadastre funcionários na aba Funcionários para que cada um tenha seu próprio fechamento de caixa." /></Card>
       ) : isOperator && employeeData[0]?.allClosings.length === 0 ? (
         <Card>
@@ -666,12 +682,14 @@ export function FinancialCashClosing() {
                     ) : (
                       <Badge color="slate">Sem caixa {viewMode === 'day' ? 'hoje' : 'no mês'}</Badge>
                     )}
-                    <Button size="sm" onClick={() => openNew(employee)}>
-                      <Plus size={14} /> Fechar Caixa
-                    </Button>
-                    <Button size="sm" variant="secondary" onClick={() => openRetroactive(employee)}>
-                      <Calendar size={14} /> Retroativo
-                    </Button>
+                    {employee.id !== 'legacy-unassigned' && <>
+                      <Button size="sm" onClick={() => openNew(employee)}>
+                        <Plus size={14} /> Fechar Caixa
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => openRetroactive(employee)}>
+                        <Calendar size={14} /> Retroativo
+                      </Button>
+                    </>}
                     {isExpanded ? <ChevronDown size={20} className="text-slate-400" /> : <ChevronRight size={20} className="text-slate-400" />}
                   </div>
                 </div>

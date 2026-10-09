@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Camera, CheckCircle2, ChevronDown, ChevronRight, FileText, Lock, Plus, Ticket, Trash2, Unlock, Upload, User } from 'lucide-react';
-import { createWorker } from 'tesseract.js';
+import { createWorker, PSM } from 'tesseract.js';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -137,7 +137,36 @@ function extractReportItems(text: string, products: Product[]): ReportItem[] {
       sourceLine: line,
     });
   }
-  return parsed;
+  const compact = extractCompactReportItems(text, products, defaultDate);
+  return compact.length > parsed.length ? compact : parsed;
+}
+
+function extractCompactReportItems(text: string, products: Product[], defaultDate: string): ReportItem[] {
+  const money = '(?:\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+,\\d{2}|\\d+\\.\\d{2})';
+  const rowPattern = new RegExp(`(\\+?[A-ZÀ-Ú][A-ZÀ-Ú0-9]*(?:-[A-Z0-9-]+)?)\\s+(\\d+(?:\\/\\d+)?)\\s+(${money}(?:\\s+${money}){0,2})`, 'gi');
+  return Array.from(text.matchAll(rowPattern)).map((match) => {
+    const modalityAndContest = match[1].toUpperCase();
+    const [modality, ...contestParts] = modalityAndContest.split('-');
+    const values = match[3].split(/\\s+/).filter(Boolean);
+    const reportKind: 'cotas' | 'bolao' = values.length >= 3 ? 'bolao' : 'cotas';
+    const quotaToken = values[0];
+    const feeToken = values.length >= 3 ? values[values.length - 1] : values.length === 2 ? values[1] : '0,00';
+    const product = products.find((item) => item.slug.toLowerCase().includes(modality.toLowerCase()) || item.name.toLowerCase().includes(modality.toLowerCase()));
+    return {
+      id: crypto.randomUUID(),
+      modality,
+      contest: contestParts.join('-'),
+      quantity: match[2],
+      quotaValue: `R$ ${formatBRL(amountFromText(quotaToken))}`,
+      feeValue: `R$ ${formatBRL(amountFromText(feeToken))}`,
+      drawDate: defaultDate,
+      productId: product?.id ?? '',
+      slug: product?.slug ?? '',
+      reportSection: '',
+      reportKind,
+      sourceLine: match[0].trim(),
+    };
+  });
 }
 
 function itemFromStored(item: BolaoClosingItem): ReportItem {
@@ -298,17 +327,28 @@ export function FinancialBolaoClosing() {
     setError(null);
     try {
       const worker = await createWorker('por');
+      await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_BLOCK, preserve_interword_spaces: '1' });
       const texts: string[] = [];
       const extracted: ReportItem[] = [];
       let quotaTotal = 0;
       let feeTotal = 0;
       let hasReportTotals = false;
       for (const file of files) {
-        const result = await worker.recognize(file);
-        const text = result.data.text;
-        texts.push(text);
-        extracted.push(...extractReportItems(text, products));
-        const totals = extractReportTotals(text);
+        let bestText = '';
+        let bestItems: ReportItem[] = [];
+        for (const pageMode of [PSM.SINGLE_BLOCK, PSM.SPARSE_TEXT]) {
+          await worker.setParameters({ tessedit_pageseg_mode: pageMode, preserve_interword_spaces: '1' });
+          const result = await worker.recognize(file);
+          const candidateText = result.data.text;
+          const candidateItems = extractReportItems(candidateText, products);
+          if (candidateItems.length > bestItems.length || (candidateItems.length === bestItems.length && candidateText.length > bestText.length)) {
+            bestText = candidateText;
+            bestItems = candidateItems;
+          }
+        }
+        texts.push(bestText);
+        extracted.push(...bestItems);
+        const totals = extractReportTotals(bestText);
         if (totals) {
           quotaTotal += totals.quota;
           feeTotal += totals.fee;
