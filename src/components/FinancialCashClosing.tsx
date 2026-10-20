@@ -115,6 +115,12 @@ const emptyForm = {
   status: 'open' as 'open' | 'closed',
 };
 
+/**
+ * Input monetário com digitação natural tipo "caixa eletrônico":
+ * - Aceita apenas dígitos
+ * - Trata o valor como centavos: "1234" → R$ 12,34
+ * - Backspace remove o último dígito
+ */
 function MoneyField({
   value,
   onChange,
@@ -177,15 +183,6 @@ function MoneyField({
 // ============================================================
 // CONSOLIDAÇÃO DE FUNCIONÁRIOS DUPLICADOS
 // ============================================================
-// Regras de união (em ordem de confiança):
-//   1) Mesmo user_id  -> mesma pessoa (certeza)
-//   2) Mesmo tfl      -> mesma pessoa (alta confiança)
-//   3) Mesmo nome normalizado, quando exatamente UM dos lados tem user_id
-//      e o outro não -> mesma pessoa (candidato razoável)
-// O funcionário canônico do grupo é sempre o que tem user_id; se nenhum
-// tiver, é o primeiro encontrado.
-// ============================================================
-
 const normalizeName = (s: string) =>
   s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
 
@@ -234,7 +231,6 @@ function buildEmployeeGroups(employees: FinEmployee[]): EmployeeGroup[] {
   for (const ids of byUser.values()) for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
   for (const ids of byTfl.values()) for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
 
-  // nome só une quando há exatamente 1 com user_id e >=1 sem user_id
   const empById = new Map(employees.map((e) => [e.id, e]));
   for (const ids of byName.values()) {
     const withUser = ids.filter((id) => empById.get(id)!.user_id);
@@ -264,10 +260,7 @@ function buildEmployeeGroups(employees: FinEmployee[]): EmployeeGroup[] {
   return Array.from(groupsMap.values());
 }
 
-function closingMatchesGroup(
-  c: FinCashClosing,
-  group: EmployeeGroup,
-): boolean {
+function closingMatchesGroup(c: FinCashClosing, group: EmployeeGroup): boolean {
   if (c.employee_id && group.employeeIds.has(c.employee_id)) return true;
   if (c.created_by && group.userIds.has(c.created_by)) return true;
   return false;
@@ -354,11 +347,11 @@ export function FinancialCashClosing() {
     const loadedClosingEmployeeIds = new Set(
       (ccRes.data ?? []).map((closing) => (closing as FinCashClosing).employee_id).filter((id): id is string => Boolean(id))
     );
-    // Mantém funcionário com TFL, com fechamento, OU com user_id vinculado
-    // (o vínculo de usuário é o que garante a consolidação dos cadastros)
+    
+    // Mantém funcionário com TFL, com fechamento, ou com user_id vinculado.
     setEmployees(
       loadedEmployees.filter((employee) =>
-        employee.tfl.trim().length > 0 ||
+        employee.tfl?.trim().length > 0 ||
         loadedClosingEmployeeIds.has(employee.id) ||
         employee.user_id != null
       )
@@ -560,18 +553,43 @@ export function FinancialCashClosing() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank');
   };
 
+  // Resumo do topo (filtrado pelo dia/mês selecionado)
   const periodClosings = viewMode === 'day'
     ? closings.filter((c) => c.closing_date === fDate)
     : closings.filter((c) => c.closing_date.startsWith(fMonth));
 
   // ============================================================
-  // AGRUPAMENTO CONSOLIDADO
+  // AGRUPAMENTO CONSOLIDADO + GRUPOS ÓRFÃOS
   // ============================================================
   const employeeGroups = buildEmployeeGroups(employees);
 
+  // Proteção: Se por algum motivo o funcionário não veio no fetch de employees,
+  // nós o resgatamos do join do próprio fechamento para não sumir da tela.
+  const knownEmpIds = new Set(employees.map((e) => e.id));
+  const orphanEmployeeIds = new Set(
+    closings
+      .map((c) => c.employee_id)
+      .filter((id): id is string => Boolean(id) && !knownEmpIds.has(id)),
+  );
+
+  const orphanGroups: EmployeeGroup[] = [];
+  for (const id of orphanEmployeeIds) {
+    const anyClosing = closings.find((c) => c.employee_id === id && c.employee);
+    const emp = anyClosing?.employee ?? null;
+    if (!emp) continue;
+    orphanGroups.push({
+      canonical: emp,
+      employeeIds: new Set([emp.id]),
+      userIds: new Set(emp.user_id ? [emp.user_id] : []),
+      members: [emp],
+    });
+  }
+
+  const allGroups = [...employeeGroups, ...orphanGroups];
+
   const unassignedClosings = !isOperator
     ? closings.filter(
-        (closing) => !employeeGroups.some((g) => closingMatchesGroup(closing, g)),
+        (closing) => !allGroups.some((g) => closingMatchesGroup(closing, g)),
       )
     : [];
 
@@ -599,7 +617,7 @@ export function FinancialCashClosing() {
         }];
       })()
     : [
-        ...employeeGroups.map((group) => {
+        ...allGroups.map((group) => {
           const empClosings = closings.filter((c) => closingMatchesGroup(c, group));
           return {
             employee: group.canonical,
@@ -796,13 +814,13 @@ export function FinancialCashClosing() {
                 {isExpanded && (
                   <div className="border-t border-slate-100 p-5 space-y-4">
                     {(() => {
-                      const visibleClosings = viewMode === 'day'
-                        ? allClosings.filter((c) => c.closing_date === fDate)
-                        : allClosings.filter((c) => c.closing_date.startsWith(fMonth));
+                      // MOSTRA TODO O HISTÓRICO, independente do filtro de dia/mês do topo
+                      const visibleClosings = allClosings;
+                      
                       return visibleClosings.length > 0 ? (
                       <div className="space-y-2">
                         <h4 className="text-sm font-semibold text-slate-600 flex items-center gap-2">
-                          <FileText size={16} /> {viewMode === 'day' ? 'Fechamento do dia' : `Fechamentos do mês (${visibleClosings.length})`}
+                          <FileText size={16} /> Histórico de Fechamentos ({visibleClosings.length})
                         </h4>
                         {visibleClosings.map((c) => (
                           <details key={c.id} className={`rounded-lg border transition-colors ${c.status === 'closed' ? 'bg-slate-50 border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
@@ -846,7 +864,7 @@ export function FinancialCashClosing() {
                         ))}
                       </div>
                     ) : (
-                      <p className="text-sm text-slate-400 text-center py-4">Nenhum fechamento {viewMode === 'day' ? 'neste dia' : 'neste mês'} para este funcionário.</p>
+                      <p className="text-sm text-slate-400 text-center py-4">Nenhum fechamento registrado para este funcionário.</p>
                     );
                     })()}
                   </div>
