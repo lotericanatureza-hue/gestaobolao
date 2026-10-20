@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, User, ChevronDown, ChevronRight, Calendar, CalendarDays } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, FileText, Download, PlusCircle, Trash, Lock, Unlock, Loader2, CheckCircle, User, ChevronDown, ChevronRight, Calendar, CalendarDays, Users } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -115,12 +115,6 @@ const emptyForm = {
   status: 'open' as 'open' | 'closed',
 };
 
-/**
- * Input monetário com digitação natural tipo "caixa eletrônico":
- * - Aceita apenas dígitos
- * - Trata o valor como centavos: "1234" → R$ 12,34
- * - Backspace remove o último dígito
- */
 function MoneyField({
   value,
   onChange,
@@ -180,13 +174,111 @@ function MoneyField({
   );
 }
 
+// ============================================================
+// CONSOLIDAÇÃO DE FUNCIONÁRIOS DUPLICADOS
+// ============================================================
+// Regras de união (em ordem de confiança):
+//   1) Mesmo user_id  -> mesma pessoa (certeza)
+//   2) Mesmo tfl      -> mesma pessoa (alta confiança)
+//   3) Mesmo nome normalizado, quando exatamente UM dos lados tem user_id
+//      e o outro não -> mesma pessoa (candidato razoável)
+// O funcionário canônico do grupo é sempre o que tem user_id; se nenhum
+// tiver, é o primeiro encontrado.
+// ============================================================
+
+const normalizeName = (s: string) =>
+  s.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ');
+
+interface EmployeeGroup {
+  canonical: FinEmployee;
+  employeeIds: Set<string>;
+  userIds: Set<string>;
+  members: FinEmployee[];
+}
+
+function buildEmployeeGroups(employees: FinEmployee[]): EmployeeGroup[] {
+  const parent = new Map<string, string>();
+  const find = (x: string): string => {
+    let cur = x;
+    while (parent.get(cur) !== cur) cur = parent.get(cur)!;
+    return cur;
+  };
+  const union = (a: string, b: string) => {
+    const ra = find(a), rb = find(b);
+    if (ra !== rb) parent.set(ra, rb);
+  };
+
+  employees.forEach((e) => parent.set(e.id, e.id));
+
+  const byUser = new Map<string, string[]>();
+  const byTfl = new Map<string, string[]>();
+  const byName = new Map<string, string[]>();
+
+  for (const e of employees) {
+    if (e.user_id) {
+      if (!byUser.has(e.user_id)) byUser.set(e.user_id, []);
+      byUser.get(e.user_id)!.push(e.id);
+    }
+    if (e.tfl?.trim()) {
+      const k = e.tfl.trim().toLowerCase();
+      if (!byTfl.has(k)) byTfl.set(k, []);
+      byTfl.get(k)!.push(e.id);
+    }
+    if (!e.user_id) {
+      const k = normalizeName(e.name);
+      if (!byName.has(k)) byName.set(k, []);
+      byName.get(k)!.push(e.id);
+    }
+  }
+
+  for (const ids of byUser.values()) for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+  for (const ids of byTfl.values()) for (let i = 1; i < ids.length; i++) union(ids[0], ids[i]);
+
+  // nome só une quando há exatamente 1 com user_id e >=1 sem user_id
+  const empById = new Map(employees.map((e) => [e.id, e]));
+  for (const ids of byName.values()) {
+    const withUser = ids.filter((id) => empById.get(id)!.user_id);
+    const withoutUser = ids.filter((id) => !empById.get(id)!.user_id);
+    if (withoutUser.length > 0 && withUser.length === 1) {
+      for (const id of withoutUser) union(id, withUser[0]);
+    }
+  }
+
+  const groupsMap = new Map<string, EmployeeGroup>();
+  for (const e of employees) {
+    const root = find(e.id);
+    if (!groupsMap.has(root)) {
+      groupsMap.set(root, {
+        canonical: e,
+        employeeIds: new Set(),
+        userIds: new Set(),
+        members: [],
+      });
+    }
+    const g = groupsMap.get(root)!;
+    g.employeeIds.add(e.id);
+    if (e.user_id) g.userIds.add(e.user_id);
+    g.members.push(e);
+    if (e.user_id && !g.canonical.user_id) g.canonical = e;
+  }
+  return Array.from(groupsMap.values());
+}
+
+function closingMatchesGroup(
+  c: FinCashClosing,
+  group: EmployeeGroup,
+): boolean {
+  if (c.employee_id && group.employeeIds.has(c.employee_id)) return true;
+  if (c.created_by && group.userIds.has(c.created_by)) return true;
+  return false;
+}
+
 export function FinancialCashClosing() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
   const isSupervisor = profile?.role === 'supervisor';
   const isOperator = !isAdmin && !isSupervisor;
   const [branches, setBranches] = useState<Branch[]>([]);
-  // selectedBranch = '' significa "Todas as filiais" (apenas para admin)
   const [selectedBranch, setSelectedBranch] = useState<string>('');
   const [employees, setEmployees] = useState<FinEmployee[]>([]);
   const [closings, setClosings] = useState<FinCashClosing[]>([]);
@@ -207,9 +299,8 @@ export function FinancialCashClosing() {
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [fDate, setFDate] = useState(todayStr());
   const [viewMode, setViewMode] = useState<'day' | 'month'>('day');
-  const [fMonth, setFMonth] = useState(todayStr().slice(0, 7)); // YYYY-MM
+  const [fMonth, setFMonth] = useState(todayStr().slice(0, 7));
 
-  // Carrega filiais — admin começa em "Todas" (''), operador na sua filial
   useEffect(() => {
     supabase.from('branches').select('*').order('name').then(({ data }) => {
       const list = (data ?? []) as Branch[];
@@ -217,11 +308,9 @@ export function FinancialCashClosing() {
       if (!isAdmin) {
         setSelectedBranch(profile?.branch_id ?? '');
       }
-      // Admin: selectedBranch permanece '' = "Todas as filiais"
     });
   }, [profile, isAdmin]);
 
-  // Operador: busca funcionário vinculado ao seu usuário
   useEffect(() => {
     if (!isOperator || !profile?.id) return;
     supabase
@@ -235,7 +324,6 @@ export function FinancialCashClosing() {
   }, [isOperator, profile?.id]);
 
   const fetchData = useCallback(async () => {
-    // Operador precisa de branch; admin pode estar sem (ver tudo)
     const effectiveBranch = isAdmin ? selectedBranch : (profile?.branch_id ?? '');
     if (!isAdmin && !effectiveBranch) { setLoading(false); return; }
 
@@ -251,7 +339,6 @@ export function FinancialCashClosing() {
       .select('*')
       .order('name');
 
-    // Filtra apenas se uma filial específica estiver selecionada
     if (effectiveBranch) {
       ccQuery = ccQuery.eq('branch_id', effectiveBranch);
       empQuery = empQuery.eq('branch_id', effectiveBranch);
@@ -264,8 +351,18 @@ export function FinancialCashClosing() {
 
     setClosings((ccRes.data ?? []) as FinCashClosing[]);
     const loadedEmployees = (empRes.data ?? []).map((employee) => employee as FinEmployee);
-    const loadedClosingEmployeeIds = new Set((ccRes.data ?? []).map((closing) => (closing as FinCashClosing).employee_id).filter((id): id is string => Boolean(id)));
-    setEmployees(loadedEmployees.filter((employee) => employee.tfl.trim().length > 0 || loadedClosingEmployeeIds.has(employee.id)));
+    const loadedClosingEmployeeIds = new Set(
+      (ccRes.data ?? []).map((closing) => (closing as FinCashClosing).employee_id).filter((id): id is string => Boolean(id))
+    );
+    // Mantém funcionário com TFL, com fechamento, OU com user_id vinculado
+    // (o vínculo de usuário é o que garante a consolidação dos cadastros)
+    setEmployees(
+      loadedEmployees.filter((employee) =>
+        employee.tfl.trim().length > 0 ||
+        loadedClosingEmployeeIds.has(employee.id) ||
+        employee.user_id != null
+      )
+    );
     setLoading(false);
   }, [selectedBranch, isAdmin, profile?.branch_id]);
 
@@ -300,7 +397,6 @@ export function FinancialCashClosing() {
   };
 
   const openEdit = (c: FinCashClosing) => {
-    // Usa o funcionário do próprio registro (vem do JOIN) — evita depender do estado local
     const emp = c.employee ?? employees.find((e) => e.id === c.employee_id) ?? null;
     setEditing(c);
     setModalEmployee(emp);
@@ -372,7 +468,6 @@ export function FinancialCashClosing() {
 
   const uploadPdf = async (): Promise<string | null> => {
     if (!pdfFile) return existingPdf;
-    // Usa a filial do funcionário (garante pasta correta mesmo em "Todas as filiais")
     const targetBranch = modalEmployee?.branch_id ?? (isAdmin ? selectedBranch : profile?.branch_id);
     if (!targetBranch) {
       setError('Não foi possível determinar a filial para o upload do PDF.');
@@ -398,13 +493,7 @@ export function FinancialCashClosing() {
     const pdfPath = await uploadPdf();
     if (pdfFile && !pdfPath) { setSaving(false); return; }
 
-    // === CÁLCULOS ===
-    // Saldo Final (esperado do PDF): Vendas - Entradas
     const saldoFinal = form.total_sales - form.total_income;
-
-    // Saldo Geral (conferido/recolhido):
-    //   Cofre + Separado/Recolhido + Pix Externos + Retiradas + Envelopes
-    // Todos entram como SOMA comum, sem subtração.
     const saldoGeral =
       form.safe_amount +
       form.cash_drawer +
@@ -416,10 +505,6 @@ export function FinancialCashClosing() {
     const computedSurplus = diff > 0 ? diff : 0;
     const computedShortage = diff < 0 ? Math.abs(diff) : 0;
 
-    const finalSurplus = computedSurplus;
-    const finalShortage = computedShortage;
-
-    // A filial do registro é SEMPRE a do funcionário (evita inconsistência em "Todas as filiais")
     const payload = {
       branch_id: modalEmployee.branch_id,
       employee_id: isOperator ? (linkedEmployee?.id ?? null) : modalEmployee.id,
@@ -431,8 +516,8 @@ export function FinancialCashClosing() {
       total_pix_externals: totalPix,
       withdrawals: withdrawals as unknown as Record<string, unknown>[],
       total_withdrawals: totalWithdrawals,
-      surplus: finalSurplus,
-      shortage: finalShortage,
+      surplus: computedSurplus,
+      shortage: computedShortage,
       safe_amount: form.safe_amount,
       cash_drawer: form.cash_drawer,
       deposit_amount: parseBRL(form.deposit_amount),
@@ -449,7 +534,7 @@ export function FinancialCashClosing() {
       console.error('Erro ao salvar fechamento:', saveError);
       setError('Erro ao salvar: ' + saveError.message);
       setSaving(false);
-      return; // Não fecha o modal, mantém os dados preenchidos
+      return;
     }
 
     setSaving(false);
@@ -475,20 +560,21 @@ export function FinancialCashClosing() {
     if (data?.signedUrl) window.open(data.signedUrl, '_blank');
   };
 
-  // Filter closings by view mode (day or month)
   const periodClosings = viewMode === 'day'
     ? closings.filter((c) => c.closing_date === fDate)
     : closings.filter((c) => c.closing_date.startsWith(fMonth));
 
-  // Helper: match closing to employee by employee_id OR by created_by -> user_id
-  const closingMatchesEmployee = (c: FinCashClosing, empId: string, empUserId: string | null): boolean =>
-    c.employee_id === empId || (c.employee_id === null && empUserId !== null && c.created_by === empUserId);
+  // ============================================================
+  // AGRUPAMENTO CONSOLIDADO
+  // ============================================================
+  const employeeGroups = buildEmployeeGroups(employees);
 
   const unassignedClosings = !isOperator
-    ? closings.filter((closing) => !employees.some((employee) => closingMatchesEmployee(closing, employee.id, employee.user_id ?? null)))
+    ? closings.filter(
+        (closing) => !employeeGroups.some((g) => closingMatchesGroup(closing, g)),
+      )
     : [];
 
-  // Per-employee data — operators only see their own closings, not the full employee list
   const employeeData = isOperator
     ? (() => {
         const me: FinEmployee = linkedEmployee ?? {
@@ -501,17 +587,25 @@ export function FinancialCashClosing() {
           user_id: profile?.id ?? null,
           created_at: '',
         };
-        const myClosings = closings.filter((c) =>
-          closingMatchesEmployee(c, me.id, me.user_id)
-        );
-        return [{ employee: me, allClosings: [...myClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) }];
+        const myClosings = closings.filter((c) => {
+          if (c.employee_id === me.id) return true;
+          if (me.user_id && c.created_by === me.user_id) return true;
+          return false;
+        });
+        return [{
+          employee: me,
+          group: null as EmployeeGroup | null,
+          allClosings: [...myClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)),
+        }];
       })()
     : [
-        ...employees.map((emp) => {
-          const empClosings = closings.filter((c) =>
-            closingMatchesEmployee(c, emp.id, emp.user_id ?? null)
-          );
-          return { employee: emp, allClosings: [...empClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)) };
+        ...employeeGroups.map((group) => {
+          const empClosings = closings.filter((c) => closingMatchesGroup(c, group));
+          return {
+            employee: group.canonical,
+            group,
+            allClosings: [...empClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)),
+          };
         }),
         ...(unassignedClosings.length > 0 ? [{
           employee: {
@@ -524,17 +618,16 @@ export function FinancialCashClosing() {
             user_id: null,
             created_at: '',
           } as FinEmployee,
+          group: null as EmployeeGroup | null,
           allClosings: [...unassignedClosings].sort((a, b) => b.closing_date.localeCompare(a.closing_date)),
         }] : []),
       ];
 
-  // Totals for the selected period
   const periodTotalSales = periodClosings.reduce((s, c) => s + Number(c.total_sales), 0);
   const periodTotalPix = periodClosings.reduce((s, c) => s + Number(c.total_pix_externals), 0);
   const periodTotalSurplus = periodClosings.reduce((s, c) => s + Number(c.surplus), 0);
   const periodTotalShortage = periodClosings.reduce((s, c) => s + Number(c.shortage), 0);
 
-  // Operador: identidade de funcionário (vinculado ou fallback sintético)
   const operatorEmployee: FinEmployee = linkedEmployee ?? {
     id: profile?.id ?? 'me',
     branch_id: profile?.branch_id ?? '',
@@ -597,7 +690,6 @@ export function FinancialCashClosing() {
         }
       />
 
-      {/* Day/Month summary */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <Card className="p-5">
           <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">Vendas {viewMode === 'day' ? 'do Dia' : 'do Mês'}</p>
@@ -618,7 +710,6 @@ export function FinancialCashClosing() {
         </Card>
       </div>
 
-      {/* Employee cards */}
       {!isOperator && employees.length === 0 && unassignedClosings.length === 0 ? (
         <Card><EmptyState icon={<User size={48} />} title="Nenhum funcionário cadastrado" description="Cadastre funcionários na aba Funcionários para que cada um tenha seu próprio fechamento de caixa." /></Card>
       ) : isOperator && employeeData[0]?.allClosings.length === 0 ? (
@@ -636,14 +727,14 @@ export function FinancialCashClosing() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {employeeData.map(({ employee, allClosings }) => {
+          {employeeData.map(({ employee, group, allClosings }) => {
             const isExpanded = expandedEmp === employee.id;
             const periodClosing = viewMode === 'day'
               ? allClosings.find((c) => c.closing_date === fDate)
               : allClosings.find((c) => c.closing_date.startsWith(fMonth));
+            const consolidatedCount = group?.members.length ?? 1;
             return (
               <Card key={employee.id} className="overflow-hidden">
-                {/* Employee header */}
                 <div
                   className="flex items-center justify-between p-5 cursor-pointer hover:bg-slate-50 transition-colors"
                   onClick={() => setExpandedEmp(isExpanded ? null : employee.id)}
@@ -653,7 +744,15 @@ export function FinancialCashClosing() {
                       <User size={22} />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-slate-900">{employee.name}</h3>
+                      <h3 className="font-semibold text-slate-900 flex items-center gap-2 flex-wrap">
+                        {employee.name}
+                        {consolidatedCount > 1 && (
+                          <Badge color="slate">
+                            <Users size={11} className="mr-1" />
+                            {consolidatedCount} cadastros unificados
+                          </Badge>
+                        )}
+                      </h3>
                       <p className="text-xs text-slate-400">TFL: {employee.tfl}{employee.position ? ` • ${employee.position}` : ''}</p>
                       {(() => {
                         const periodEmpClosings = viewMode === 'day'
@@ -694,7 +793,6 @@ export function FinancialCashClosing() {
                   </div>
                 </div>
 
-                {/* Expanded content */}
                 {isExpanded && (
                   <div className="border-t border-slate-100 p-5 space-y-4">
                     {(() => {
@@ -759,7 +857,6 @@ export function FinancialCashClosing() {
         </div>
       )}
 
-      {/* Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Fechamento' : 'Novo Fechamento de Caixa'} maxWidth="max-w-2xl">
         <div className="space-y-4">
           {modalEmployee && (
@@ -794,9 +891,7 @@ export function FinancialCashClosing() {
             </label>
           </div>
 
-          {/* Data fields — always editable */}
           <div className="space-y-3">
-            {/* KPI cards */}
             <div className="grid grid-cols-3 gap-3">
               <div className="p-4 rounded-xl border border-slate-200">
                 <span className="text-[10px] font-bold uppercase text-slate-500">Créditos</span>
@@ -820,7 +915,6 @@ export function FinancialCashClosing() {
               </div>
             </div>
 
-            {/* Cofre + Separado/Recolhido + Envelopes */}
             <div className="grid grid-cols-3 gap-3">
               <div className="p-3 rounded-xl border border-slate-200">
                 <span className="text-[10px] font-bold uppercase text-slate-500">Cofre</span>
@@ -848,7 +942,6 @@ export function FinancialCashClosing() {
               </div>
             </div>
 
-            {/* Credit/Debit summary — only when extracted from PDF */}
             {extracted && (
               <div className="grid grid-cols-3 gap-3">
                 <div className="p-3 rounded-xl border border-emerald-200 bg-emerald-50/50">
@@ -866,7 +959,6 @@ export function FinancialCashClosing() {
               </div>
             )}
 
-            {/* Detailed breakdown — only when extracted from PDF */}
             {extracted && (
               <div className="bg-slate-50 rounded-lg p-4 space-y-2">
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Detalhes extraídos do PDF</p>
@@ -895,7 +987,6 @@ export function FinancialCashClosing() {
               </div>
             )}
 
-            {/* Saldo Geral */}
             <div className="bg-slate-50 rounded-lg p-4 flex justify-between items-center font-bold border-t-2 border-slate-300">
               <span className="text-slate-700">
                 Saldo Geral (Cofre + Separado/Recolhido + Pix + Retiradas + Envelopes)
@@ -915,7 +1006,6 @@ export function FinancialCashClosing() {
             </div>
           </div>
 
-          {/* Pix Externos */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="block text-sm font-medium text-slate-700">Pix Externos</span>
@@ -945,7 +1035,6 @@ export function FinancialCashClosing() {
             )}
           </div>
 
-          {/* Retiradas */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="block text-sm font-medium text-slate-700">Retiradas</span>
@@ -971,7 +1060,6 @@ export function FinancialCashClosing() {
             )}
           </div>
 
-          {/* Sobras / Faltas — auto-calculadas */}
           {(() => {
             const saldoFinal = form.total_sales - form.total_income;
             const saldoGeral =
