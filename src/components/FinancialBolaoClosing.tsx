@@ -54,46 +54,64 @@ function parseDate(text: string): string {
   const m = text.match(/(?:DATA\s+DE\s+REFER[EÊ]NCIA[^\d]*)?(\d{2})\s*[/.\-]\s*(\d{2})\s*[/.\-]\s*(20\d{2})/i);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : today();
 }
-/** Leitura estruturada do RESUMO DE BOLÃO, mantendo linhas repetidas. */
+/**
+ * Parser tolerante inspirado no primeiro componente (que reconhecia mais linhas).
+ * A saída é exclusivamente JSON; a leitura não depende do formulário antigo.
+ * Não inventa valores para linhas incompletas.
+ */
 function parseCaixaText(text: string): Extracao {
   const clean = text.toUpperCase().replace(/[–—]/g, '-').replace(/\u00a0/g, ' ');
-  const linhas = clean.split(/\r?\n/).map(x => x.replace(/\s+/g, ' ').trim());
-  const jogos: Jogo[] = [];
-  const avisos: string[] = [];
-  let secao: Jogo['secao'] = 'com_tarifa';
-  let cotasImpressas: number | null = null;
-  let taxasImpressas: number | null = null;
-  const moeda = '(?:\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+,\\d{2})';
-  const linhaJogo = new RegExp(`^\\+?([A-Z][A-Z0-9]*-\\d{2,6})\\s+(\\d{1,3}\\s*\\/\\s*\\d{1,3})\\s+(${moeda})\\s+(${moeda})(?:\\s+(${moeda}))?\\s*$`);
-  const linhaTotal = new RegExp(`^TOTAL\\s+(${moeda})(?:\\s+(${moeda}))?\\s*$`);
-  for (const [i, original] of linhas.entries()) {
-    if (/BOL[AÃ]O CAIXA\s*-\s*SEM TARIFA/.test(original)) { secao = 'sem_tarifa'; continue; }
-    if (/BOL[AÃ]O CAIXA\s*-\s*COM TARIFA/.test(original)) { secao = 'com_tarifa'; continue; }
-    const total = original.match(linhaTotal);
-    if (total && secao === 'com_tarifa') {
-      cotasImpressas = numberBR(total[1]);
-      taxasImpressas = total[2] ? numberBR(total[2]) : null;
+  const lines = clean.split(/\r?\n/).map(x => x.replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const moneyToken = /^(?:\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}|\d+\.\d{2})$/;
+  const moneySource = '(?:\\d{1,3}(?:\\.\\d{3})*,\\d{2}|\\d+,\\d{2}|\\d+\\.\\d{2})';
+  const globalRow = new RegExp(`(\\+?[A-Z][A-Z0-9]*-\\d{2,6})\\s+(\\d{1,3}\\s*\\/\\s*\\d{1,3})\\s+(${moneySource})\\s+(${moneySource})\\s+(${moneySource})`, 'g');
+  const games: Jogo[] = [];
+  const warnings: string[] = [];
+  let section: Jogo['secao'] = 'com_tarifa';
+  let printedQuota: number | null = null;
+  let printedFee: number | null = null;
+  for (const [i, line] of lines.entries()) {
+    if (/BOL[AÃ]O CAIXA\s*-\s*SEM TARIFA/.test(line)) { section = 'sem_tarifa'; continue; }
+    if (/BOL[AÃ]O CAIXA\s*-\s*COM TARIFA/.test(line)) { section = 'com_tarifa'; continue; }
+    if (/^TOTAL\b/.test(line)) {
+      const amounts = line.split(/\s+/).filter(x => moneyToken.test(x));
+      if (section === 'com_tarifa' && amounts.length >= 2) {
+        printedQuota = numberBR(amounts[amounts.length - 2]);
+        printedFee = numberBR(amounts[amounts.length - 1]);
+      }
       continue;
     }
-    // Corrige apenas confusões de OCR em códigos; não altera valores monetários.
-    const linha = original.replace(/^\+?([A-Z][A-Z0-9]*)\s*-\s*(\d{2,6})/, '$1-$2');
-    const match = linha.match(linhaJogo);
-    if (match) {
-      const v = numberBR(match[3]);
-      const p = match[5] ? numberBR(match[4]) : 0;
-      const t = match[5] ? numberBR(match[5]) : 0;
-      if ([v, p, t].every(Number.isFinite)) jogos.push({ concurso: match[1], cotas: match[2].replace(/\s/g, ''), valor_bolao: v, percentual_taxa: p, valor_taxa: t, secao });
-    } else if (/^\+?[A-Z][A-Z0-9]*-\d{2,6}\s+\d+\s*\/\s*\d+/.test(linha)) {
-      avisos.push(`Linha ${i + 1} não reconhecida: ${original}`);
+    // A primeira versão aceitava linhas parcialmente reconhecidas e separava tokens.
+    const normalized = line.replace(/^(\+?[A-Z][A-Z0-9]*)\s*-\s*(\d{2,6})/, '$1-$2');
+    const match = normalized.match(/^(\+?[A-Z][A-Z0-9]*)(?:-([0-9]{2,6}))?\s+(\d{1,3}\s*\/\s*\d{1,3})\s+(.+)$/);
+    if (!match || !match[2]) continue;
+    const values = match[4].split(/\s+/).filter(x => moneyToken.test(x));
+    if (section === 'com_tarifa' && values.length < 3) {
+      warnings.push(`Linha ${i + 1} incompleta: ${line}`);
+      continue;
     }
+    if (section === 'sem_tarifa' && values.length < 1) continue;
+    const v = numberBR(values[0]);
+    const pct = section === 'com_tarifa' ? numberBR(values[1]) : 0;
+    const fee = section === 'com_tarifa' ? numberBR(values[2]) : 0;
+    if (![v, pct, fee].every(Number.isFinite)) continue;
+    games.push({ concurso: `${match[1]}-${match[2]}`, cotas: match[3].replace(/\s/g, ''), valor_bolao: v, percentual_taxa: pct, valor_taxa: fee, secao: section });
   }
+  // Recuperação de linhas coladas pelo OCR, sem duplicar os registros já lidos.
+  const compact = [...clean.matchAll(globalRow)].map(m => ({
+    concurso: m[1], cotas: m[2].replace(/\s/g, ''),
+    valor_bolao: numberBR(m[3]), percentual_taxa: numberBR(m[4]), valor_taxa: numberBR(m[5]),
+    secao: 'com_tarifa' as const,
+  })).filter(j => [j.valor_bolao, j.percentual_taxa, j.valor_taxa].every(Number.isFinite));
+  // Mantém a ordem e a multiplicidade, inclusive apostas idênticas.
+  const chosen = compact.length > games.length ? compact : games;
   const revision = clean.match(/\bREV\s+([\d.\-]+)/);
   const operator = clean.match(/\bOPERADOR\s*:\s*([A-Z0-9]+)/);
   const owner = clean.match(/\bPROPRIETARIO\s*:\s*([^\n]+)/);
-  const extracao = createExtraction(jogos, {
-    data_referencia: parseDate(clean), revisao: revision?.[1] ?? '', operador_caixa: operator?.[1] ?? '', proprietario: owner?.[1]?.trim() ?? '',
-  }, { cotas: cotasImpressas, taxas: taxasImpressas }, avisos);
-  return extracao;
+  return createExtraction(chosen, {
+    data_referencia: parseDate(clean), revisao: revision?.[1] ?? '',
+    operador_caixa: operator?.[1] ?? '', proprietario: owner?.[1]?.trim() ?? '',
+  }, { cotas: printedQuota, taxas: printedFee }, chosen === compact ? [] : warnings);
 }
 /** Aceita tanto JSON completo quanto o JSON simplificado da extração da foto. */
 function parseJsonInput(raw: string): Extracao {
@@ -264,7 +282,10 @@ export function FinancialBolaoClosing() {
             await worker.setParameters({ tessedit_pageseg_mode: mode, preserve_interword_spaces: '1' });
             const result = await worker.recognize(image);
             const extracted = parseCaixaText(result.data.text);
-            const score = extracted.jogos.length * 100 - extracted.conferencia.avisos.length * 5 +
+            const score = extracted.jogos.length * 100 - extracted.conferencia.avisos.length * 8 -
+              extracted.jogos.filter(j => Math.abs(money(j.valor_bolao * j.percentual_taxa / 100) - money(j.valor_taxa)) > 2).length * 25 +
+              (extracted.conferencia.total_impresso_cotas !== null && money(extracted.resumo.valor_total_cotas) === money(extracted.conferencia.total_impresso_cotas) ? 500 : 0) +
+              (extracted.conferencia.total_impresso_taxas !== null && money(extracted.resumo.valor_total_taxas) === money(extracted.conferencia.total_impresso_taxas) ? 500 : 0) +
               (extracted.conferencia.total_impresso_cotas !== null ? 20 : 0) +
               (extracted.conferencia.total_impresso_taxas !== null ? 20 : 0);
             if (!best || score > best.score) best = { extracted, text: result.data.text, score };
@@ -397,3 +418,4 @@ export function FinancialBolaoClosing() {
     </Modal>
   </div>;
 }
+
