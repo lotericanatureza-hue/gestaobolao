@@ -46,7 +46,8 @@ const emptyItem = (drawDate = todayStr()): ReportItem => ({
 });
 
 function amountFromText(value: string): number {
-  const normalized = value.replace(/R\$\s?/gi, '').replace(/\./g, '').replace(',', '.').trim();
+  const cleaned = String(value ?? '').replace(/R\$\s?/gi, '').trim();
+  const normalized = cleaned.includes(',') ? cleaned.replace(/\./g, '').replace(',', '.') : cleaned;
   const amount = Number(normalized);
   return Number.isFinite(amount) ? amount : 0;
 }
@@ -243,6 +244,79 @@ function extractCompactReportItems(text: string, products: Product[], defaultDat
   });
 }
 
+
+// Importação do JSON estruturado do comprovante (sem OCR).
+type ImportedGame = {
+  concurso: string;
+  cotas: string;
+  valor_bolao: number | string;
+  percentual_taxa: number | string;
+  valor_taxa: number | string;
+  data_sorteio?: string;
+};
+type ImportedReport = {
+  data_referencia?: string;
+  resumo?: {
+    valor_total_cotas?: number | string;
+    total_cotas?: number | string;
+    valor_total_taxas?: number | string;
+    total_taxas?: number | string;
+    valor_total_com_taxas?: number | string;
+  };
+  total_cotas?: number | string;
+  total_taxas?: number | string;
+  total_geral?: number | string;
+  jogos: ImportedGame[];
+};
+function importMoney(value: number | string | undefined): number {
+  if (typeof value === 'number') return value;
+  return amountFromText(String(value ?? ''));
+}
+function parseClosingJson(text: string, products: Product[]) {
+  const data: ImportedReport = JSON.parse(text);
+  if (!data || !Array.isArray(data.jogos) || !data.jogos.length) {
+    throw new Error('O JSON precisa conter um array jogos não vazio.');
+  }
+  const referenceDate = /^\d{4}-\d{2}-\d{2}$/.test(data.data_referencia ?? '')
+    ? data.data_referencia! : todayStr();
+  const imported = data.jogos.map((game, index): ReportItem => {
+    if (!game || typeof game.concurso !== 'string' || !/^\d+\/\d+$/.test(String(game.cotas))) {
+      throw new Error(`Jogo ${index + 1}: concurso ou cotas inválidos.`);
+    }
+    const [modality, ...contestParts] = game.concurso.replace(/^\+/, '').split('-');
+    const quota = importMoney(game.valor_bolao);
+    const fee = importMoney(game.valor_taxa);
+    const pct = importMoney(game.percentual_taxa);
+    if (![quota, fee, pct].every(Number.isFinite) || quota < 0 || fee < 0 || pct < 0) {
+      throw new Error(`Jogo ${index + 1}: valores monetários inválidos.`);
+    }
+    const product = products.find((p) => p.slug.toLowerCase().includes(modality.toLowerCase()) || p.name.toLowerCase().includes(modality.toLowerCase()));
+    return {
+      id: crypto.randomUUID(), modality, contest: contestParts.join('-'), quantity: String(game.cotas),
+      quotaValue: `R$ ${formatBRL(quota)}`,
+      feePercentage: pct.toFixed(2).replace('.', ','),
+      feeValue: `R$ ${formatBRL(fee)}`,
+      drawDate: game.data_sorteio || referenceDate,
+      productId: product?.id ?? '', slug: product?.slug ?? '',
+      reportSection: 'Bolão caixa - com tarifa de serviço', reportKind: 'bolao',
+      sourceLine: JSON.stringify(game), validated: checkFeeConsistency(quota, pct, fee),
+    };
+  });
+  const summary = data.resumo;
+  const quota = summary?.valor_total_cotas ?? summary?.total_cotas ?? data.total_cotas;
+  const fee = summary?.valor_total_taxas ?? summary?.total_taxas ?? data.total_taxas;
+  const total = summary?.valor_total_com_taxas ?? data.total_geral;
+  if (total !== undefined && quota !== undefined && fee !== undefined &&
+      Math.abs(importMoney(total) - importMoney(quota) - importMoney(fee)) > 0.01) {
+    throw new Error('O total geral do JSON não corresponde à soma de cotas e tarifas.');
+  }
+  return {
+    items: imported,
+    totals: quota !== undefined && fee !== undefined ? { quota: importMoney(quota), fee: importMoney(fee) } : null,
+    date: referenceDate,
+  };
+}
+
 function itemFromStored(item: BolaoClosingItem): ReportItem {
   const quantity = item.quantity ?? String(item.shares ?? '');
   const quotaValue = item.quota_value ?? Number(item.price_per_share ?? 0) * (item.shares || 1);
@@ -318,6 +392,7 @@ export function FinancialBolaoClosing() {
   const [status, setStatus] = useState<'open' | 'closed'>('open');
   const [sourceName, setSourceName] = useState('');
   const [ocrText, setOcrText] = useState('');
+  const [jsonText, setJsonText] = useState('');
   const [reportTotals, setReportTotals] = useState<{ quota: number; fee: number } | null>(null);
   const [ocrState, setOcrState] = useState<'idle' | 'preprocessing' | 'reading' | 'done' | 'error'>('idle');
   const [ocrProgress, setOcrProgress] = useState('');
@@ -367,6 +442,7 @@ export function FinancialBolaoClosing() {
     setStatus('open');
     setSourceName('');
     setOcrText('');
+    setJsonText('');
     setReportTotals(null);
     setOcrState('idle');
     setOcrProgress('');
@@ -383,6 +459,7 @@ export function FinancialBolaoClosing() {
     setStatus(closing.status);
     setSourceName(closing.source_report_name ?? '');
     setOcrText(closing.ocr_text ?? '');
+    setJsonText('');
     setReportTotals(null);
     setOcrState(closing.ocr_text ? 'done' : 'idle');
     setOcrProgress('');
@@ -487,6 +564,21 @@ export function FinancialBolaoClosing() {
     }
   };
 
+  const importJson = () => {
+    try {
+      const parsed = parseClosingJson(jsonText, products);
+      setItems(parsed.items);
+      setReportTotals(parsed.totals);
+      setFormDate(parsed.date);
+      setSourceName('Importação JSON');
+      setOcrText(jsonText);
+      setOcrState('done');
+      setError(null);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Não foi possível importar o JSON.');
+    }
+  };
+
   const savedItems = useMemo(() => items.map(itemForSave).filter((item) => item.product_name && item.quantity && item.draw_date), [items]);
   const totalQuantity = savedItems.reduce((sum, item) => sum + (Number(item.quantity?.split('/')[0]) || 0), 0);
   const totalQuota = savedItems.reduce((sum, item) => sum + Number(item.quota_value ?? 0), 0);
@@ -504,7 +596,8 @@ export function FinancialBolaoClosing() {
     if (saving) return;
     if (!savedItems.length) { setError('Inclua pelo menos uma linha completa do relatório.'); return; }
     if (savedItems.some((item) => !item.draw_date)) { setError('Informe a data do sorteio em todas as linhas.'); return; }
-    if (!totalsMatch) { setError('A soma das linhas ainda não bate com o total impresso no relatório. Revise todas as linhas antes de salvar.'); return; }
+    if (!totalsMatch) { setError('A soma das linhas não bate com o total do relatório/JSON.'); return; }
+    if (invalidCount > 0) { setError('Há tarifas inconsistentes. Revise os valores antes de salvar.'); return; }
     const operatorId = canManageAll ? formOperatorId : profile?.id ?? '';
     if (!operatorId) { setError('Selecione o operador.'); return; }
     let branchId = profile?.branch_id ?? '';
@@ -616,7 +709,7 @@ export function FinancialBolaoClosing() {
           <Input label="Observações" value={notes} onChange={setNotes} placeholder="Notas adicionais" />
           <Select label="Status" value={status} onChange={(value) => setStatus(value as 'open' | 'closed')} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
           {error && <p className="text-sm text-red-700 bg-red-50 rounded-lg p-3">{error}</p>}
-          <div className="flex justify-end gap-2 pt-2"><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button onClick={save} disabled={saving || ocrState === 'preprocessing' || ocrState === 'reading' || !totalsMatch}>{saving ? 'Salvando...' : 'Salvar fechamento'}</Button></div>
+          <div className="flex justify-end gap-2 pt-2"><Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button><Button onClick={save} disabled={saving || ocrState === 'preprocessing' || ocrState === 'reading' || !totalsMatch || invalidCount > 0}>{saving ? 'Salvando...' : 'Salvar fechamento'}</Button></div>
         </div>
       </Modal>
     </div>
