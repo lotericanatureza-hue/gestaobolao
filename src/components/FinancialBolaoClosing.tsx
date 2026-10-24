@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Camera, ChevronDown, ChevronRight, FileJson, Lock, Percent, Trash2, Unlock, Upload } from 'lucide-react';
+import { Camera, ChevronDown, ChevronRight, FileJson, Lock, Percent, Plus, Trash2, Unlock, Upload } from 'lucide-react';
 import { createWorker, PSM } from 'tesseract.js';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
@@ -26,6 +26,13 @@ type Extracao = {
   jogos: Jogo[];
   resumo: { quantidade_boloes: number; valor_total_cotas: number; valor_total_taxas: number; valor_total_com_taxas: number };
   conferencia: { total_impresso_cotas: number | null; total_impresso_taxas: number | null; avisos: string[] };
+};
+type ManualGame = {
+  id: string;
+  game: string;
+  contest: string;
+  value: string;
+  tarifa: string;
 };
 const today = () => new Date().toLocaleDateString('en-CA');
 const money = (v: number) => Math.round((v + Number.EPSILON) * 100);
@@ -175,6 +182,37 @@ function storedToJson(closing: FinBolaoClosing): Extracao {
   return createExtraction(jogos, { data_referencia: closing.closing_date });
 }
 
+function manualGamesToItems(games: ManualGame[], drawDate: string): BolaoClosingItem[] {
+  return games.map(g => ({
+    id: g.id, product_id: '', product_name: g.game.trim(), slug: '', shares: 0,
+    price_per_share: 0, fee_per_share: 0,
+    total: (numberBR(g.value) || 0) + (numberBR(g.tarifa) || 0),
+    modality: g.game.trim(), contest: g.contest.trim(), quantity: '',
+    quota_value: numberBR(g.value) || 0, fee_value: numberBR(g.tarifa) || 0,
+    draw_date: drawDate, validated: true,
+    report_section: 'Cadastro manual', report_kind: 'bolao', source_line: 'Manual',
+  } as BolaoClosingItem));
+}
+
+function closingToManualGames(closing: FinBolaoClosing): ManualGame[] {
+  const items = closing.items ?? [];
+  if (!items.length && closing.bolao_game && closing.bolao_contest) {
+    return [{ id: crypto.randomUUID(), game: closing.bolao_game, contest: closing.bolao_contest, value: closing.bolao_value ? String(closing.bolao_value) : '', tarifa: closing.bolao_tarifa ? String(closing.bolao_tarifa) : '' }];
+  }
+  return items.map(item => ({
+    id: item.id ?? crypto.randomUUID(),
+    game: item.modality ?? item.product_name ?? '',
+    contest: item.contest ?? '',
+    value: item.quota_value != null ? String(item.quota_value) : '',
+    tarifa: item.fee_value != null ? String(item.fee_value) : '',
+  }));
+}
+
+function isManualClosing(c: FinBolaoClosing): boolean {
+  if (c.items?.length && c.items.some(i => i.source_line === 'Manual')) return true;
+  return !!(c.bolao_game && c.bolao_contest);
+}
+
 export function FinancialBolaoClosing() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
@@ -210,10 +248,7 @@ export function FinancialBolaoClosing() {
   const [configSaving, setConfigSaving] = useState(false);
   const [tab, setTab] = useState<'manual' | 'json'>('manual');
   const [bolaoDate, setBolaoDate] = useState(today());
-  const [bolaoGame, setBolaoGame] = useState('');
-  const [bolaoContest, setBolaoContest] = useState('');
-  const [bolaoValue, setBolaoValue] = useState('');
-  const [bolaoTarifa, setBolaoTarifa] = useState('');
+  const [manualGames, setManualGames] = useState<ManualGame[]>([{ id: crypto.randomUUID(), game: '', contest: '', value: '', tarifa: '' }]);
   const [housePct, setHousePct] = useState('');
   const [operatorPct, setOperatorPct] = useState('');
 
@@ -259,7 +294,8 @@ export function FinancialBolaoClosing() {
     setOperatorId(canManageAll ? '' : profile?.id ?? '');
     setData(null); setJsonText(''); setSourceName(''); setOcrText(''); setNotes('');
     setStatus('open'); setError(''); setMessage('');
-    setBolaoDate(filterDate); setBolaoGame(''); setBolaoContest(''); setBolaoValue(''); setBolaoTarifa('');
+    setBolaoDate(filterDate);
+    setManualGames([{ id: crypto.randomUUID(), game: '', contest: '', value: '', tarifa: '' }]);
     setHousePct(config ? String(config.house_percentage) : '50');
     setOperatorPct(config ? String(config.operator_percentage) : '50');
     setTab('manual');
@@ -271,13 +307,11 @@ export function FinancialBolaoClosing() {
     setOperatorId(closing.operator_id); setNotes(closing.notes ?? ''); setStatus(closing.status);
     setSourceName(closing.source_report_name ?? ''); setOcrText(closing.ocr_text ?? '');
     setBolaoDate(closing.bolao_date ?? closing.closing_date);
-    setBolaoGame(closing.bolao_game ?? '');
-    setBolaoContest(closing.bolao_contest ?? '');
-    setBolaoValue(closing.bolao_value ? String(closing.bolao_value) : '');
-    setBolaoTarifa(closing.bolao_tarifa ? String(closing.bolao_tarifa) : '');
+    const manual = isManualClosing(closing);
+    setManualGames(manual ? closingToManualGames(closing) : [{ id: crypto.randomUUID(), game: '', contest: '', value: '', tarifa: '' }]);
     setHousePct(closing.house_percentage != null ? String(closing.house_percentage) : config ? String(config.house_percentage) : '50');
     setOperatorPct(closing.operator_percentage != null ? String(closing.operator_percentage) : config ? String(config.operator_percentage) : '50');
-    setTab('manual');
+    setTab(manual ? 'manual' : 'json');
     let restored = storedToJson(closing);
     try {
       const previous = JSON.parse(closing.ocr_text ?? '{}');
@@ -287,14 +321,18 @@ export function FinancialBolaoClosing() {
     setError(''); setMessage(''); setModalOpen(true);
   };
 
-  const manualValueNum = useMemo(() => numberBR(bolaoValue) || 0, [bolaoValue]);
-  const tarifaNum = useMemo(() => numberBR(bolaoTarifa) || 0, [bolaoTarifa]);
-  const grossValue = useMemo(() => manualValueNum + tarifaNum, [manualValueNum, tarifaNum]);
+  const addGame = () => setManualGames(gs => [...gs, { id: crypto.randomUUID(), game: '', contest: '', value: '', tarifa: '' }]);
+  const removeGame = (id: string) => setManualGames(gs => gs.length > 1 ? gs.filter(g => g.id !== id) : gs);
+  const updateGame = (id: string, field: keyof ManualGame, v: string) => setManualGames(gs => gs.map(g => g.id === id ? { ...g, [field]: v } : g));
+
+  const totalValue = useMemo(() => manualGames.reduce((s, g) => s + (numberBR(g.value) || 0), 0), [manualGames]);
+  const totalTarifa = useMemo(() => manualGames.reduce((s, g) => s + (numberBR(g.tarifa) || 0), 0), [manualGames]);
+  const grossValue = useMemo(() => totalValue + totalTarifa, [totalValue, totalTarifa]);
   const housePctNum = useMemo(() => Number(housePct) || 0, [housePct]);
   const operatorPctNum = useMemo(() => Number(operatorPct) || 0, [operatorPct]);
   const pctSum = housePctNum + operatorPctNum;
-  const houseAmount = useMemo(() => tarifaNum > 0 && pctSum > 0 ? (tarifaNum * housePctNum / pctSum) : 0, [tarifaNum, housePctNum, pctSum]);
-  const operatorAmount = useMemo(() => tarifaNum > 0 && pctSum > 0 ? (tarifaNum * operatorPctNum / pctSum) : 0, [tarifaNum, operatorPctNum, pctSum]);
+  const houseAmount = useMemo(() => totalTarifa > 0 && pctSum > 0 ? (totalTarifa * housePctNum / pctSum) : 0, [totalTarifa, housePctNum, pctSum]);
+  const operatorAmount = useMemo(() => totalTarifa > 0 && pctSum > 0 ? (totalTarifa * operatorPctNum / pctSum) : 0, [totalTarifa, operatorPctNum, pctSum]);
 
   const saveConfig = async () => {
     if (!isAdmin) return;
@@ -371,13 +409,12 @@ export function FinancialBolaoClosing() {
   };
   const issues = useMemo(() => data ? validation(data) : [], [data]);
 
+  const validManualGames = useMemo(() => manualGames.filter(g => g.game.trim() && g.contest.trim() && (numberBR(g.value) || 0) > 0 && (numberBR(g.tarifa) || 0) > 0), [manualGames]);
+
   const save = async () => {
     if (busy) return;
     if (tab === 'manual') {
-      if (!bolaoGame.trim()) { setError('Informe o jogo/produto do bolão.'); return; }
-      if (!bolaoContest.trim()) { setError('Informe o número do concurso.'); return; }
-      if (manualValueNum <= 0) { setError('Informe o valor do bolão.'); return; }
-      if (tarifaNum <= 0) { setError('Informe o valor da tarifa.'); return; }
+      if (!validManualGames.length) { setError('Adicione ao menos um jogo com produto, concurso, valor e tarifa.'); return; }
       if (pctSum <= 0) { setError('Defina os percentuais da casa e do operador.'); return; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(bolaoDate)) { setError('Informe a data do jogo.'); return; }
     } else {
@@ -391,14 +428,15 @@ export function FinancialBolaoClosing() {
     setBusy(true); setError('');
     let payload: Record<string, unknown>;
     if (tab === 'manual') {
+      const items = manualGamesToItems(validManualGames, bolaoDate);
       payload = {
         operator_id: selectedOperator, branch_id: branchId, closing_date: closingDate,
-        items: [], total_cotas: 0, total_value: grossValue, total_fee: tarifaNum,
+        items: items as unknown as Record<string, unknown>[],
+        total_cotas: validManualGames.length, total_value: grossValue, total_fee: totalTarifa,
         pix_externals: editing?.pix_externals ?? [], total_pix_externals: editing?.total_pix_externals ?? 0,
         owed_amounts: editing?.owed_amounts ?? [], total_owed: editing?.total_owed ?? 0,
         notes: notes.trim() || null, status,
-        bolao_date: bolaoDate, bolao_game: bolaoGame.trim(), bolao_contest: bolaoContest.trim(),
-        bolao_value: manualValueNum, bolao_tarifa: tarifaNum,
+        bolao_date: bolaoDate, bolao_game: null, bolao_contest: null, bolao_value: null, bolao_tarifa: null,
         house_percentage: housePctNum, operator_percentage: operatorPctNum,
         house_amount: houseAmount, operator_amount: operatorAmount,
         source_report_name: null, ocr_text: null,
@@ -415,7 +453,7 @@ export function FinancialBolaoClosing() {
         owed_amounts: editing?.owed_amounts ?? [], total_owed: editing?.total_owed ?? 0,
         notes: notes.trim() || null, status, source_report_name: sourceName || null,
         ocr_text: JSON.stringify({ extracao: parsed, texto_original: ocrText }),
-        bolao_date: drawDate, bolao_game: '', bolao_contest: '', bolao_value: null,
+        bolao_date: drawDate, bolao_game: '', bolao_contest: '', bolao_value: null, bolao_tarifa: null,
         house_percentage: null, operator_percentage: null,
         house_amount: 0, operator_amount: 0,
       };
@@ -439,9 +477,32 @@ export function FinancialBolaoClosing() {
   const total = visible.reduce((s, c) => s + Number(c.total_value ?? 0), 0);
   const totalHouse = visible.reduce((s, c) => s + Number(c.house_amount ?? 0), 0);
   const totalOperator = visible.reduce((s, c) => s + Number(c.operator_amount ?? 0), 0);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, FinBolaoClosing[]>();
+    for (const c of visible) {
+      const key = `${c.closing_date}__${c.operator_id}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(c);
+    }
+    return Array.from(map.entries()).map(([key, items]) => {
+      const [date, opId] = key.split('__');
+      const operator = items[0]?.operator;
+      const dayTotal = items.reduce((s, c) => s + Number(c.total_value ?? 0), 0);
+      const dayTarifa = items.reduce((s, c) => s + Number(c.total_fee ?? 0), 0);
+      const dayHouse = items.reduce((s, c) => s + Number(c.house_amount ?? 0), 0);
+      const dayOperator = items.reduce((s, c) => s + Number(c.operator_amount ?? 0), 0);
+      const allGames = items.flatMap(c => {
+        if (isManualClosing(c)) return closingToManualGames(c).map(g => ({ game: g.game, contest: g.contest, value: numberBR(g.value) || 0, tarifa: numberBR(g.tarifa) || 0, drawDate: c.bolao_date ?? c.closing_date }));
+        return (c.items ?? []).map(item => ({ game: item.modality ?? item.product_name ?? '', contest: item.contest ?? '', value: Number(item.quota_value ?? 0), tarifa: Number(item.fee_value ?? 0), drawDate: item.draw_date ?? c.closing_date }));
+      });
+      return { key, date, opId, operator, dayTotal, dayTarifa, dayHouse, dayOperator, closings: items, allGames };
+    }).sort((a, b) => b.date.localeCompare(a.date));
+  }, [visible]);
+
   if (loading && !closings.length) return <div className="flex justify-center py-20"><Spinner /></div>;
   return <div>
-    <PageHeader title="Fechamento de Bolão" subtitle="Cadastro manual de bolões com divisão entre casa e operador, ou importação via comprovante/JSON"
+    <PageHeader title="Fechamento de Bolão" subtitle="Cadastro de bolões por operador com vários jogos por dia e divisão sobre a tarifa"
       action={<div className="flex flex-wrap gap-2 items-center">
         {isAdmin && <Select value={selectedBranch} onChange={setSelectedBranch} options={[{ value: '', label: 'Todas as filiais' }, ...branches.map(b => ({ value: b.id, label: b.name }))]} />}
         <Select value={viewMode} onChange={v => setViewMode(v as 'day' | 'month')} options={[{ value: 'day', label: 'Dia' }, { value: 'month', label: 'Mês' }]} />
@@ -456,33 +517,70 @@ export function FinancialBolaoClosing() {
       <Card className="p-4"><p>Parte da casa</p><strong className="text-brand-700">R$ {formatBRL(totalHouse)}</strong></Card>
       <Card className="p-4"><p>Parte do operador</p><strong className="text-accent-700">R$ {formatBRL(totalOperator)}</strong></Card>
     </div>
-    {!visible.length ? <Card><EmptyState icon={<FileJson size={42} />} title="Nenhum fechamento" description="Cadastre um bolão manualmente ou envie o comprovante." /> </Card> :
-      <div className="space-y-3">{visible.map(c => {
-        const cTotal = Number(c.total_value ?? 0);
-        const cHouse = Number(c.house_amount ?? 0);
-        const cOperator = Number(c.operator_amount ?? 0);
-        const isManual = !!(c.bolao_game && c.bolao_contest);
-        return <Card key={c.id} className="p-4">
-        <button className="w-full flex justify-between text-left" onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
-          <span><strong>{formatDateBR(c.closing_date)}</strong> · {c.operator?.name ?? 'Operador'} <Badge color={c.status === 'closed' ? 'blue' : 'amber'}>{c.status === 'closed' ? 'Fechado' : 'Aberto'}</Badge>{isManual && <Badge color="green">Manual</Badge>}</span>
-          <span>R$ {formatBRL(cTotal)} {expanded === c.id ? <ChevronDown className="inline" size={16} /> : <ChevronRight className="inline" size={16} />}</span>
+    {!grouped.length ? <Card><EmptyState icon={<FileJson size={42} />} title="Nenhum fechamento" description="Cadastre um bolão manualmente ou envie o comprovante." /> </Card> :
+      <div className="space-y-3">{grouped.map(group => {
+        const isExpanded = expanded === group.key;
+        const allClosed = group.closings.every(c => c.status === 'closed');
+        return <Card key={group.key} className="p-4">
+        <button className="w-full flex justify-between text-left" onClick={() => setExpanded(isExpanded ? null : group.key)}>
+          <span className="flex items-center gap-2 flex-wrap">
+            <strong>{formatDateBR(group.date)}</strong> · {group.operator?.name ?? 'Operador'}
+            <Badge color={allClosed ? 'blue' : 'amber'}>{allClosed ? 'Fechado' : 'Aberto'}</Badge>
+            <Badge color="slate">{group.allGames.length} jogo(s)</Badge>
+          </span>
+          <span className="flex items-center gap-2">
+            <span className="text-sm text-slate-500">{group.allGames.length} jogos · R$ {formatBRL(group.dayTotal)}</span>
+            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </span>
         </button>
-        {expanded === c.id && <div className="mt-4 space-y-3">
-          {isManual ? <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
-            <div><span className="text-slate-400">Jogo</span><p className="font-medium">{c.bolao_game}</p></div>
-            <div><span className="text-slate-400">Concurso</span><p className="font-medium">{c.bolao_contest}</p></div>
-            <div><span className="text-slate-400">Data do jogo</span><p className="font-medium">{c.bolao_date ? formatDateBR(c.bolao_date) : '—'}</p></div>
-            <div><span className="text-slate-400">Valor</span><p className="font-medium">R$ {formatBRL(Number(c.bolao_value ?? 0))}</p></div>
-            <div><span className="text-slate-400">Tarifa</span><p className="font-medium">R$ {formatBRL(Number(c.bolao_tarifa ?? 0))}</p></div>
-            <div><span className="text-slate-400">Valor bruto</span><p className="font-medium">R$ {formatBRL(Number(c.bolao_value ?? 0) + Number(c.bolao_tarifa ?? 0))}</p></div>
-            <div className="col-span-2 bg-brand-50 rounded-lg p-3"><span className="text-xs text-brand-600">Casa ({c.house_percentage ?? 0}% da tarifa)</span><p className="font-bold text-brand-700">R$ {formatBRL(cHouse)}</p></div>
-            <div className="col-span-2 bg-accent-50 rounded-lg p-3"><span className="text-xs text-accent-600">Operador ({c.operator_percentage ?? 0}%)</span><p className="font-bold text-accent-700">R$ {formatBRL(cOperator)}</p></div>
-          </div> : <pre className="bg-slate-50 rounded-lg p-3 overflow-auto text-xs max-h-80">{JSON.stringify(storedToJson(c), null, 2)}</pre>}
-          {(isAdmin || (profile?.role === 'supervisor' && c.branch_id === profile?.branch_id) || c.operator_id === profile?.id) && <div className="flex gap-2 flex-wrap justify-end">
-            <Button size="sm" variant="secondary" onClick={() => openEdit(c)}>Editar</Button>
-            <Button size="sm" variant="secondary" onClick={() => void toggle(c)}>{c.status === 'closed' ? <Unlock size={14} /> : <Lock size={14} />}{c.status === 'closed' ? 'Reabrir' : 'Fechar'}</Button>
-            <Button size="sm" variant="danger" onClick={() => void remove(c)}><Trash2 size={14} /> Excluir</Button>
-          </div>}
+        {isExpanded && <div className="mt-4 space-y-4">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-400 border-b border-slate-100">
+                  <th className="px-2 py-2 font-medium">Jogo</th>
+                  <th className="px-2 py-2 font-medium">Concurso</th>
+                  <th className="px-2 py-2 font-medium">Data sorteio</th>
+                  <th className="px-2 py-2 font-medium text-right">Valor</th>
+                  <th className="px-2 py-2 font-medium text-right">Tarifa</th>
+                  <th className="px-2 py-2 font-medium text-right">Bruto</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.allGames.map((g, i) => (
+                  <tr key={i} className="border-b border-slate-50">
+                    <td className="px-2 py-2 font-medium text-slate-900">{g.game || '—'}</td>
+                    <td className="px-2 py-2 text-slate-600">{g.contest || '—'}</td>
+                    <td className="px-2 py-2 text-slate-500">{g.drawDate ? formatDateBR(g.drawDate) : '—'}</td>
+                    <td className="px-2 py-2 text-right">R$ {formatBRL(g.value)}</td>
+                    <td className="px-2 py-2 text-right">R$ {formatBRL(g.tarifa)}</td>
+                    <td className="px-2 py-2 text-right font-medium">R$ {formatBRL(g.value + g.tarifa)}</td>
+                  </tr>
+                ))}
+                <tr className="bg-slate-50 font-semibold">
+                  <td className="px-2 py-2" colSpan={3}>Total do dia</td>
+                  <td className="px-2 py-2 text-right">R$ {formatBRL(group.allGames.reduce((s, g) => s + g.value, 0))}</td>
+                  <td className="px-2 py-2 text-right">R$ {formatBRL(group.dayTarifa)}</td>
+                  <td className="px-2 py-2 text-right">R$ {formatBRL(group.dayTotal)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="bg-brand-50 rounded-lg p-3 flex justify-between items-center"><span className="text-sm text-brand-600">Casa <span className="text-xs">(% da tarifa)</span></span><strong className="text-brand-700">R$ {formatBRL(group.dayHouse)}</strong></div>
+            <div className="bg-accent-50 rounded-lg p-3 flex justify-between items-center"><span className="text-sm text-accent-600">Operador <span className="text-xs">(% da tarifa)</span></span><strong className="text-accent-700">R$ {formatBRL(group.dayOperator)}</strong></div>
+          </div>
+          {group.closings.map(c => <div key={c.id} className="flex items-center justify-between border-t border-slate-100 pt-3">
+            <span className="text-xs text-slate-400">
+              {isManualClosing(c) ? <Badge color="green">Manual</Badge> : <Badge color="slate">Comprovante</Badge>}
+              {' '}R$ {formatBRL(Number(c.total_value ?? 0))}
+            </span>
+            {(isAdmin || (profile?.role === 'supervisor' && c.branch_id === profile?.branch_id) || c.operator_id === profile?.id) && <div className="flex gap-2">
+              <Button size="sm" variant="secondary" onClick={() => openEdit(c)}>Editar</Button>
+              <Button size="sm" variant="secondary" onClick={() => void toggle(c)}>{c.status === 'closed' ? <Unlock size={14} /> : <Lock size={14} />}{c.status === 'closed' ? 'Reabrir' : 'Fechar'}</Button>
+              <Button size="sm" variant="danger" onClick={() => void remove(c)}><Trash2 size={14} /> Excluir</Button>
+            </div>}
+          </div>)}
         </div>}
       </Card>})}</div>}
 
@@ -518,19 +616,28 @@ export function FinancialBolaoClosing() {
         </div>
 
         {tab === 'manual' ? <div className="space-y-4">
-          <Select label="Jogo / Produto" value={products.find(p => p.name === bolaoGame)?.id ?? ''} onChange={v => { const p = products.find(x => x.id === v); setBolaoGame(p?.name ?? ''); }} options={products.map(p => ({ value: p.id, label: p.name }))} placeholder="Selecione o jogo" />
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Input label="Concurso" value={bolaoContest} onChange={setBolaoContest} placeholder="Ex: 2500" />
-            <Input label="Valor do bolão (R$)" type="number" step="0.01" value={bolaoValue} onChange={setBolaoValue} placeholder="0,00" min={0} />
-            <Input label="Valor tarifa (R$)" type="number" step="0.01" value={bolaoTarifa} onChange={setBolaoTarifa} placeholder="0,00" min={0} />
+          <div className="space-y-2">
+            {manualGames.map((g, idx) => <div key={g.id} className="rounded-lg border border-slate-200 p-3 space-y-3 bg-slate-50/50">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-500">Jogo {idx + 1}</span>
+                {manualGames.length > 1 && <button onClick={() => removeGame(g.id)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>}
+              </div>
+              <Select label="Jogo / Produto" value={products.find(p => p.name === g.game)?.id ?? ''} onChange={v => { const p = products.find(x => x.id === v); updateGame(g.id, 'game', p?.name ?? ''); }} options={products.map(p => ({ value: p.id, label: p.name }))} placeholder="Selecione o jogo" />
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Input label="Concurso" value={g.contest} onChange={v => updateGame(g.id, 'contest', v)} placeholder="Ex: 2500" />
+                <Input label="Valor (R$)" type="number" step="0.01" value={g.value} onChange={v => updateGame(g.id, 'value', v)} placeholder="0,00" min={0} />
+                <Input label="Tarifa (R$)" type="number" step="0.01" value={g.tarifa} onChange={v => updateGame(g.id, 'tarifa', v)} placeholder="0,00" min={0} />
+              </div>
+            </div>)}
           </div>
+          <Button variant="secondary" onClick={addGame}><Plus size={16} /> Adicionar jogo</Button>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Percentual da casa (%)" type="number" step="0.01" value={housePct} onChange={setHousePct} min={0} max={100} />
             <Input label="Percentual do operador (%)" type="number" step="0.01" value={operatorPct} onChange={setOperatorPct} min={0} max={100} />
           </div>
-          {manualValueNum > 0 && tarifaNum > 0 && pctSum > 0 && <div className="rounded-lg border border-slate-200 p-4 space-y-2 bg-slate-50">
-            <div className="flex justify-between text-sm"><span className="text-slate-600">Valor bruto (valor + tarifa)</span><strong>R$ {formatBRL(grossValue)}</strong></div>
-            <div className="flex justify-between text-sm"><span className="text-slate-600">Soma das tarifas</span><strong>R$ {formatBRL(tarifaNum)}</strong></div>
+          {validManualGames.length > 0 && totalTarifa > 0 && pctSum > 0 && <div className="rounded-lg border border-slate-200 p-4 space-y-2 bg-slate-50">
+            <div className="flex justify-between text-sm"><span className="text-slate-600">Valor bruto (valor + tarifa de {validManualGames.length} jogo{validManualGames.length > 1 ? 's' : ''})</span><strong>R$ {formatBRL(grossValue)}</strong></div>
+            <div className="flex justify-between text-sm"><span className="text-slate-600">Soma das tarifas</span><strong>R$ {formatBRL(totalTarifa)}</strong></div>
             <div className="flex justify-between text-sm pt-2 border-t border-slate-200"><span className="text-brand-600">Casa ({housePctNum}% da tarifa)</span><strong className="text-brand-700">R$ {formatBRL(houseAmount)}</strong></div>
             <div className="flex justify-between text-sm"><span className="text-accent-600">Operador ({operatorPctNum}% da tarifa)</span><strong className="text-accent-700">R$ {formatBRL(operatorAmount)}</strong></div>
             {pctSum !== 100 && <p className="text-xs text-amber-600">A soma dos percentuais é {pctSum}% — o sistema usa a proporção entre os dois valores.</p>}
