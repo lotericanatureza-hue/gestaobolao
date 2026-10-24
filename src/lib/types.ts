@@ -317,6 +317,7 @@ export interface FinBolaoClosing {
   bolao_game?: string | null;
   bolao_contest?: string | null;
   bolao_value?: number | null;
+  bolao_tarifa?: number | null;
   house_percentage?: number | null;
   operator_percentage?: number | null;
   house_amount?: number;

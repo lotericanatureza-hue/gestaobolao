@@ -213,6 +213,7 @@ export function FinancialBolaoClosing() {
   const [bolaoGame, setBolaoGame] = useState('');
   const [bolaoContest, setBolaoContest] = useState('');
   const [bolaoValue, setBolaoValue] = useState('');
+  const [bolaoTarifa, setBolaoTarifa] = useState('');
   const [housePct, setHousePct] = useState('');
   const [operatorPct, setOperatorPct] = useState('');
 
@@ -258,7 +259,7 @@ export function FinancialBolaoClosing() {
     setOperatorId(canManageAll ? '' : profile?.id ?? '');
     setData(null); setJsonText(''); setSourceName(''); setOcrText(''); setNotes('');
     setStatus('open'); setError(''); setMessage('');
-    setBolaoDate(filterDate); setBolaoGame(''); setBolaoContest(''); setBolaoValue('');
+    setBolaoDate(filterDate); setBolaoGame(''); setBolaoContest(''); setBolaoValue(''); setBolaoTarifa('');
     setHousePct(config ? String(config.house_percentage) : '50');
     setOperatorPct(config ? String(config.operator_percentage) : '50');
     setTab('manual');
@@ -273,6 +274,7 @@ export function FinancialBolaoClosing() {
     setBolaoGame(closing.bolao_game ?? '');
     setBolaoContest(closing.bolao_contest ?? '');
     setBolaoValue(closing.bolao_value ? String(closing.bolao_value) : '');
+    setBolaoTarifa(closing.bolao_tarifa ? String(closing.bolao_tarifa) : '');
     setHousePct(closing.house_percentage != null ? String(closing.house_percentage) : config ? String(config.house_percentage) : '50');
     setOperatorPct(closing.operator_percentage != null ? String(closing.operator_percentage) : config ? String(config.operator_percentage) : '50');
     setTab('manual');
@@ -286,11 +288,13 @@ export function FinancialBolaoClosing() {
   };
 
   const manualValueNum = useMemo(() => numberBR(bolaoValue) || 0, [bolaoValue]);
+  const tarifaNum = useMemo(() => numberBR(bolaoTarifa) || 0, [bolaoTarifa]);
+  const grossValue = useMemo(() => manualValueNum + tarifaNum, [manualValueNum, tarifaNum]);
   const housePctNum = useMemo(() => Number(housePct) || 0, [housePct]);
   const operatorPctNum = useMemo(() => Number(operatorPct) || 0, [operatorPct]);
   const pctSum = housePctNum + operatorPctNum;
-  const houseAmount = useMemo(() => manualValueNum > 0 && pctSum > 0 ? (manualValueNum * housePctNum / pctSum) : 0, [manualValueNum, housePctNum, pctSum]);
-  const operatorAmount = useMemo(() => manualValueNum > 0 && pctSum > 0 ? (manualValueNum * operatorPctNum / pctSum) : 0, [manualValueNum, operatorPctNum, pctSum]);
+  const houseAmount = useMemo(() => tarifaNum > 0 && pctSum > 0 ? (tarifaNum * housePctNum / pctSum) : 0, [tarifaNum, housePctNum, pctSum]);
+  const operatorAmount = useMemo(() => tarifaNum > 0 && pctSum > 0 ? (tarifaNum * operatorPctNum / pctSum) : 0, [tarifaNum, operatorPctNum, pctSum]);
 
   const saveConfig = async () => {
     if (!isAdmin) return;
@@ -373,6 +377,7 @@ export function FinancialBolaoClosing() {
       if (!bolaoGame.trim()) { setError('Informe o jogo/produto do bolão.'); return; }
       if (!bolaoContest.trim()) { setError('Informe o número do concurso.'); return; }
       if (manualValueNum <= 0) { setError('Informe o valor do bolão.'); return; }
+      if (tarifaNum <= 0) { setError('Informe o valor da tarifa.'); return; }
       if (pctSum <= 0) { setError('Defina os percentuais da casa e do operador.'); return; }
       if (!/^\d{4}-\d{2}-\d{2}$/.test(bolaoDate)) { setError('Informe a data do jogo.'); return; }
     } else {
@@ -388,12 +393,12 @@ export function FinancialBolaoClosing() {
     if (tab === 'manual') {
       payload = {
         operator_id: selectedOperator, branch_id: branchId, closing_date: closingDate,
-        items: [], total_cotas: 0, total_value: manualValueNum, total_fee: 0,
+        items: [], total_cotas: 0, total_value: grossValue, total_fee: tarifaNum,
         pix_externals: editing?.pix_externals ?? [], total_pix_externals: editing?.total_pix_externals ?? 0,
         owed_amounts: editing?.owed_amounts ?? [], total_owed: editing?.total_owed ?? 0,
         notes: notes.trim() || null, status,
         bolao_date: bolaoDate, bolao_game: bolaoGame.trim(), bolao_contest: bolaoContest.trim(),
-        bolao_value: manualValueNum,
+        bolao_value: manualValueNum, bolao_tarifa: tarifaNum,
         house_percentage: housePctNum, operator_percentage: operatorPctNum,
         house_amount: houseAmount, operator_amount: operatorAmount,
         source_report_name: null, ocr_text: null,
@@ -463,12 +468,14 @@ export function FinancialBolaoClosing() {
           <span>R$ {formatBRL(cTotal)} {expanded === c.id ? <ChevronDown className="inline" size={16} /> : <ChevronRight className="inline" size={16} />}</span>
         </button>
         {expanded === c.id && <div className="mt-4 space-y-3">
-          {isManual ? <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+          {isManual ? <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-sm">
             <div><span className="text-slate-400">Jogo</span><p className="font-medium">{c.bolao_game}</p></div>
             <div><span className="text-slate-400">Concurso</span><p className="font-medium">{c.bolao_contest}</p></div>
             <div><span className="text-slate-400">Data do jogo</span><p className="font-medium">{c.bolao_date ? formatDateBR(c.bolao_date) : '—'}</p></div>
             <div><span className="text-slate-400">Valor</span><p className="font-medium">R$ {formatBRL(Number(c.bolao_value ?? 0))}</p></div>
-            <div className="col-span-2 bg-brand-50 rounded-lg p-3"><span className="text-xs text-brand-600">Casa ({c.house_percentage ?? 0}%)</span><p className="font-bold text-brand-700">R$ {formatBRL(cHouse)}</p></div>
+            <div><span className="text-slate-400">Tarifa</span><p className="font-medium">R$ {formatBRL(Number(c.bolao_tarifa ?? 0))}</p></div>
+            <div><span className="text-slate-400">Valor bruto</span><p className="font-medium">R$ {formatBRL(Number(c.bolao_value ?? 0) + Number(c.bolao_tarifa ?? 0))}</p></div>
+            <div className="col-span-2 bg-brand-50 rounded-lg p-3"><span className="text-xs text-brand-600">Casa ({c.house_percentage ?? 0}% da tarifa)</span><p className="font-bold text-brand-700">R$ {formatBRL(cHouse)}</p></div>
             <div className="col-span-2 bg-accent-50 rounded-lg p-3"><span className="text-xs text-accent-600">Operador ({c.operator_percentage ?? 0}%)</span><p className="font-bold text-accent-700">R$ {formatBRL(cOperator)}</p></div>
           </div> : <pre className="bg-slate-50 rounded-lg p-3 overflow-auto text-xs max-h-80">{JSON.stringify(storedToJson(c), null, 2)}</pre>}
           {(isAdmin || (profile?.role === 'supervisor' && c.branch_id === profile?.branch_id) || c.operator_id === profile?.id) && <div className="flex gap-2 flex-wrap justify-end">
@@ -512,18 +519,20 @@ export function FinancialBolaoClosing() {
 
         {tab === 'manual' ? <div className="space-y-4">
           <Select label="Jogo / Produto" value={products.find(p => p.name === bolaoGame)?.id ?? ''} onChange={v => { const p = products.find(x => x.id === v); setBolaoGame(p?.name ?? ''); }} options={products.map(p => ({ value: p.id, label: p.name }))} placeholder="Selecione o jogo" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Input label="Concurso" value={bolaoContest} onChange={setBolaoContest} placeholder="Ex: 2500" />
             <Input label="Valor do bolão (R$)" type="number" step="0.01" value={bolaoValue} onChange={setBolaoValue} placeholder="0,00" min={0} />
+            <Input label="Valor tarifa (R$)" type="number" step="0.01" value={bolaoTarifa} onChange={setBolaoTarifa} placeholder="0,00" min={0} />
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Input label="Percentual da casa (%)" type="number" step="0.01" value={housePct} onChange={setHousePct} min={0} max={100} />
             <Input label="Percentual do operador (%)" type="number" step="0.01" value={operatorPct} onChange={setOperatorPct} min={0} max={100} />
           </div>
-          {manualValueNum > 0 && pctSum > 0 && <div className="rounded-lg border border-slate-200 p-4 space-y-2 bg-slate-50">
-            <div className="flex justify-between text-sm"><span className="text-slate-600">Total do bolão</span><strong>R$ {formatBRL(manualValueNum)}</strong></div>
-            <div className="flex justify-between text-sm"><span className="text-brand-600">Casa ({housePctNum}%)</span><strong className="text-brand-700">R$ {formatBRL(houseAmount)}</strong></div>
-            <div className="flex justify-between text-sm"><span className="text-accent-600">Operador ({operatorPctNum}%)</span><strong className="text-accent-700">R$ {formatBRL(operatorAmount)}</strong></div>
+          {manualValueNum > 0 && tarifaNum > 0 && pctSum > 0 && <div className="rounded-lg border border-slate-200 p-4 space-y-2 bg-slate-50">
+            <div className="flex justify-between text-sm"><span className="text-slate-600">Valor bruto (valor + tarifa)</span><strong>R$ {formatBRL(grossValue)}</strong></div>
+            <div className="flex justify-between text-sm"><span className="text-slate-600">Soma das tarifas</span><strong>R$ {formatBRL(tarifaNum)}</strong></div>
+            <div className="flex justify-between text-sm pt-2 border-t border-slate-200"><span className="text-brand-600">Casa ({housePctNum}% da tarifa)</span><strong className="text-brand-700">R$ {formatBRL(houseAmount)}</strong></div>
+            <div className="flex justify-between text-sm"><span className="text-accent-600">Operador ({operatorPctNum}% da tarifa)</span><strong className="text-accent-700">R$ {formatBRL(operatorAmount)}</strong></div>
             {pctSum !== 100 && <p className="text-xs text-amber-600">A soma dos percentuais é {pctSum}% — o sistema usa a proporção entre os dois valores.</p>}
           </div>}
         </div> : <div className="space-y-4">
