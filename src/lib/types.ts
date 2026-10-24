@@ -313,8 +313,24 @@ export interface FinBolaoClosing {
   updated_at: string;
   source_report_name?: string | null;
   ocr_text?: string | null;
+  bolao_date?: string | null;
+  bolao_game?: string | null;
+  bolao_contest?: string | null;
+  bolao_value?: number | null;
+  house_percentage?: number | null;
+  operator_percentage?: number | null;
+  house_amount?: number;
+  operator_amount?: number;
   operator?: Profile;
   branch?: Branch;
+}
+
+export interface FinBolaoClosingConfig {
+  id: string;
+  house_percentage: number;
+  operator_percentage: number;
+  updated_by: string | null;
+  updated_at: string;
 }
 
 export interface FinLoan {

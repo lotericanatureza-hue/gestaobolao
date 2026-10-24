@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Camera, ChevronDown, ChevronRight, FileJson, Lock, Trash2, Unlock, Upload } from 'lucide-react';
+import { Camera, ChevronDown, ChevronRight, FileJson, Lock, Percent, Trash2, Unlock, Upload } from 'lucide-react';
 import { createWorker, PSM } from 'tesseract.js';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
@@ -7,12 +7,11 @@ import { PageHeader } from './Layout';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select, Spinner } from './ui';
 import { formatBRL, formatDateBR } from '../lib/format';
 import { preprocessImage } from '../lib/imageProcessing';
-import type { BolaoClosingItem, Branch, FinBolaoClosing, Profile } from '../lib/types';
+import type { BolaoClosingItem, Branch, FinBolaoClosing, FinBolaoClosingConfig, Profile } from '../lib/types';
 
-/** O JSON é a fonte de verdade. Nenhum campo é calculado a partir da quantidade C.T/C.V. */
 type Jogo = {
   concurso: string;
-  cotas: string; // C.T/C.V, como impresso no comprovante
+  cotas: string;
   valor_bolao: number;
   percentual_taxa: number;
   valor_taxa: number;
@@ -20,7 +19,7 @@ type Jogo = {
 };
 type Extracao = {
   esquema: 'caixa-bolao-v1';
-  data_referencia: string; // YYYY-MM-DD
+  data_referencia: string;
   revisao: string;
   operador_caixa: string;
   proprietario: string;
@@ -54,11 +53,6 @@ function parseDate(text: string): string {
   const m = text.match(/(?:DATA\s+DE\s+REFER[EÊ]NCIA[^\d]*)?(\d{2})\s*[/.\-]\s*(\d{2})\s*[/.\-]\s*(20\d{2})/i);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : today();
 }
-/**
- * Parser tolerante inspirado no primeiro componente (que reconhecia mais linhas).
- * A saída é exclusivamente JSON; a leitura não depende do formulário antigo.
- * Não inventa valores para linhas incompletas.
- */
 function parseCaixaText(text: string): Extracao {
   const clean = text.toUpperCase().replace(/[–—]/g, '-').replace(/\u00a0/g, ' ');
   const lines = clean.split(/\r?\n/).map(x => x.replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
@@ -81,7 +75,6 @@ function parseCaixaText(text: string): Extracao {
       }
       continue;
     }
-    // A primeira versão aceitava linhas parcialmente reconhecidas e separava tokens.
     const normalized = line.replace(/^(\+?[A-Z][A-Z0-9]*)\s*-\s*(\d{2,6})/, '$1-$2');
     const match = normalized.match(/^(\+?[A-Z][A-Z0-9]*)(?:-([0-9]{2,6}))?\s+(\d{1,3}\s*\/\s*\d{1,3})\s+(.+)$/);
     if (!match || !match[2]) continue;
@@ -97,13 +90,11 @@ function parseCaixaText(text: string): Extracao {
     if (![v, pct, fee].every(Number.isFinite)) continue;
     games.push({ concurso: `${match[1]}-${match[2]}`, cotas: match[3].replace(/\s/g, ''), valor_bolao: v, percentual_taxa: pct, valor_taxa: fee, secao: section });
   }
-  // Recuperação de linhas coladas pelo OCR, sem duplicar os registros já lidos.
   const compact = [...clean.matchAll(globalRow)].map(m => ({
     concurso: m[1], cotas: m[2].replace(/\s/g, ''),
     valor_bolao: numberBR(m[3]), percentual_taxa: numberBR(m[4]), valor_taxa: numberBR(m[5]),
     secao: 'com_tarifa' as const,
   })).filter(j => [j.valor_bolao, j.percentual_taxa, j.valor_taxa].every(Number.isFinite));
-  // Mantém a ordem e a multiplicidade, inclusive apostas idênticas.
   const chosen = compact.length > games.length ? compact : games;
   const revision = clean.match(/\bREV\s+([\d.\-]+)/);
   const operator = clean.match(/\bOPERADOR\s*:\s*([A-Z0-9]+)/);
@@ -113,7 +104,6 @@ function parseCaixaText(text: string): Extracao {
     operador_caixa: operator?.[1] ?? '', proprietario: owner?.[1]?.trim() ?? '',
   }, { cotas: printedQuota, taxas: printedFee }, chosen === compact ? [] : warnings);
 }
-/** Aceita tanto JSON completo quanto o JSON simplificado da extração da foto. */
 function parseJsonInput(raw: string): Extracao {
   const obj: unknown = JSON.parse(raw);
   if (!obj || typeof obj !== 'object') throw new Error('O conteúdo precisa ser um objeto JSON.');
@@ -153,7 +143,6 @@ function validation(data: Extracao): string[] {
   if (data.conferencia.total_impresso_taxas !== null && money(data.resumo.valor_total_taxas) !== money(data.conferencia.total_impresso_taxas)) errors.push('Total das taxas diferente do comprovante.');
   for (const [i, j] of data.jogos.entries()) {
     if (j.secao === 'sem_tarifa' && j.valor_taxa !== 0) errors.push(`Jogo ${i + 1}: seção sem tarifa possui taxa.`);
-    // Caixa pode truncar um centavo; diferenças maiores devem ser revisadas.
     if (Math.abs(money(j.valor_bolao * j.percentual_taxa / 100) - money(j.valor_taxa)) > 2) errors.push(`Jogo ${i + 1}: tarifa inconsistente.`);
   }
   return errors;
@@ -193,6 +182,7 @@ export function FinancialBolaoClosing() {
   const [closings, setClosings] = useState<FinBolaoClosing[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [operators, setOperators] = useState<Profile[]>([]);
+  const [products, setProducts] = useState<{ id: string; name: string; slug: string }[]>([]);
   const [selectedBranch, setSelectedBranch] = useState('');
   const [filterDate, setFilterDate] = useState(today());
   const [viewMode, setViewMode] = useState<'day' | 'month'>('day');
@@ -213,11 +203,35 @@ export function FinancialBolaoClosing() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [configOpen, setConfigOpen] = useState(false);
+  const [config, setConfig] = useState<FinBolaoClosingConfig | null>(null);
+  const [configHouse, setConfigHouse] = useState(50);
+  const [configOperator, setConfigOperator] = useState(50);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [tab, setTab] = useState<'manual' | 'json'>('manual');
+  const [bolaoDate, setBolaoDate] = useState(today());
+  const [bolaoGame, setBolaoGame] = useState('');
+  const [bolaoContest, setBolaoContest] = useState('');
+  const [bolaoValue, setBolaoValue] = useState('');
+  const [housePct, setHousePct] = useState('');
+  const [operatorPct, setOperatorPct] = useState('');
 
   useEffect(() => {
     void supabase.from('branches').select('*').order('name').then(({ data: rows }) => setBranches((rows ?? []) as Branch[]));
+    void supabase.from('products').select('id, name, slug').eq('active', true).order('name').then(({ data: rows }) => setProducts((rows ?? []) as { id: string; name: string; slug: string }[]));
     setSelectedBranch(isAdmin ? '' : profile?.branch_id ?? '');
+    void loadConfig();
   }, [isAdmin, profile?.branch_id]);
+
+  const loadConfig = useCallback(async () => {
+    const { data: rows } = await supabase.from('fin_bolao_closing_config').select('*').limit(1).maybeSingle();
+    if (rows) {
+      setConfig(rows as FinBolaoClosingConfig);
+      setConfigHouse(Number(rows.house_percentage));
+      setConfigOperator(Number(rows.operator_percentage));
+    }
+  }, []);
+
   const refresh = useCallback(async () => {
     setLoading(true);
     let query = supabase.from('fin_bolao_closing').select('*, operator:profiles(*), branch:branches(*)').order('closing_date', { ascending: false });
@@ -243,21 +257,59 @@ export function FinancialBolaoClosing() {
     setEditing(null); setClosingDate(filterDate); setDrawDate(filterDate);
     setOperatorId(canManageAll ? '' : profile?.id ?? '');
     setData(null); setJsonText(''); setSourceName(''); setOcrText(''); setNotes('');
-    setStatus('open'); setError(''); setMessage(''); setModalOpen(true);
+    setStatus('open'); setError(''); setMessage('');
+    setBolaoDate(filterDate); setBolaoGame(''); setBolaoContest(''); setBolaoValue('');
+    setHousePct(config ? String(config.house_percentage) : '50');
+    setOperatorPct(config ? String(config.operator_percentage) : '50');
+    setTab('manual');
+    setModalOpen(true);
   };
   const openEdit = (closing: FinBolaoClosing) => {
     setEditing(closing); setClosingDate(closing.closing_date);
     setDrawDate(closing.items?.[0]?.draw_date ?? closing.closing_date);
     setOperatorId(closing.operator_id); setNotes(closing.notes ?? ''); setStatus(closing.status);
     setSourceName(closing.source_report_name ?? ''); setOcrText(closing.ocr_text ?? '');
+    setBolaoDate(closing.bolao_date ?? closing.closing_date);
+    setBolaoGame(closing.bolao_game ?? '');
+    setBolaoContest(closing.bolao_contest ?? '');
+    setBolaoValue(closing.bolao_value ? String(closing.bolao_value) : '');
+    setHousePct(closing.house_percentage != null ? String(closing.house_percentage) : config ? String(config.house_percentage) : '50');
+    setOperatorPct(closing.operator_percentage != null ? String(closing.operator_percentage) : config ? String(config.operator_percentage) : '50');
+    setTab('manual');
     let restored = storedToJson(closing);
     try {
       const previous = JSON.parse(closing.ocr_text ?? '{}');
       if (previous.extracao?.jogos) restored = parseJsonInput(JSON.stringify(previous.extracao));
     } catch { /* Fechamentos antigos podem guardar texto OCR simples. */ }
     setData(restored); setJsonText(JSON.stringify(restored, null, 2));
-    setError(''); setMessage('Dados recuperados. Para fechar, confira os totais impressos no JSON.'); setModalOpen(true);
+    setError(''); setMessage(''); setModalOpen(true);
   };
+
+  const manualValueNum = useMemo(() => numberBR(bolaoValue) || 0, [bolaoValue]);
+  const housePctNum = useMemo(() => Number(housePct) || 0, [housePct]);
+  const operatorPctNum = useMemo(() => Number(operatorPct) || 0, [operatorPct]);
+  const pctSum = housePctNum + operatorPctNum;
+  const houseAmount = useMemo(() => manualValueNum > 0 && pctSum > 0 ? (manualValueNum * housePctNum / pctSum) : 0, [manualValueNum, housePctNum, pctSum]);
+  const operatorAmount = useMemo(() => manualValueNum > 0 && pctSum > 0 ? (manualValueNum * operatorPctNum / pctSum) : 0, [manualValueNum, operatorPctNum, pctSum]);
+
+  const saveConfig = async () => {
+    if (!isAdmin) return;
+    if (configHouse < 0 || configOperator < 0) { setError('Percentuais não podem ser negativos.'); return; }
+    setConfigSaving(true);
+    const payload = { house_percentage: configHouse, operator_percentage: configOperator, updated_by: profile?.id, updated_at: new Date().toISOString() };
+    if (config) {
+      await supabase.from('fin_bolao_closing_config').update(payload).eq('id', config.id);
+    } else {
+      const { data: created } = await supabase.from('fin_bolao_closing_config').insert(payload).select('*').maybeSingle();
+      if (created) setConfig(created as FinBolaoClosingConfig);
+    }
+    setConfigSaving(false);
+    setConfigOpen(false);
+    setHousePct(String(configHouse));
+    setOperatorPct(String(configOperator));
+    await loadConfig();
+  };
+
   const importJson = () => {
     try {
       const parsed = parseJsonInput(jsonText);
@@ -295,7 +347,7 @@ export function FinancialBolaoClosing() {
         const parsed = best.extracted;
         metadata = { ...metadata, data_referencia: parsed.data_referencia, revisao: parsed.revisao || metadata.revisao,
           operador_caixa: parsed.operador_caixa || metadata.operador_caixa, proprietario: parsed.proprietario || metadata.proprietario };
-        allGames = allGames.concat(parsed.jogos); // fotos distintas são tratadas como relatórios distintos
+        allGames = allGames.concat(parsed.jogos);
         warnings.push(...parsed.conferencia.avisos.map(a => `${file.name}: ${a}`));
         if (parsed.conferencia.total_impresso_cotas !== null) { quotaSeen = true; printedQuota += money(parsed.conferencia.total_impresso_cotas); }
         if (parsed.conferencia.total_impresso_taxas !== null) { feeSeen = true; printedFee += money(parsed.conferencia.total_impresso_taxas); }
@@ -309,33 +361,60 @@ export function FinancialBolaoClosing() {
       setSourceName(files.map(f => f.name).join(', '));
       setMessage(`${extracted.jogos.length} jogos reconhecidos. Revise o JSON e os totais antes de fechar.`);
       if (!allGames.length) setError('Nenhum jogo reconhecido. Corrija o JSON manualmente ou envie uma foto mais nítida.');
+      setTab('json');
     } catch (e) { setError(e instanceof Error ? e.message : 'Falha ao ler as fotos.'); }
     finally { if (worker) await worker.terminate(); setBusy(false); }
   };
   const issues = useMemo(() => data ? validation(data) : [], [data]);
+
   const save = async () => {
     if (busy) return;
-    let parsed: Extracao;
-    try { parsed = parseJsonInput(jsonText); } catch (e) { setError(e instanceof Error ? e.message : 'JSON inválido.'); return; }
-    const problems = validation(parsed);
-    if (problems.length) { setData(parsed); setError(`Não é possível salvar: ${problems.join(' | ')}`); return; }
+    if (tab === 'manual') {
+      if (!bolaoGame.trim()) { setError('Informe o jogo/produto do bolão.'); return; }
+      if (!bolaoContest.trim()) { setError('Informe o número do concurso.'); return; }
+      if (manualValueNum <= 0) { setError('Informe o valor do bolão.'); return; }
+      if (pctSum <= 0) { setError('Defina os percentuais da casa e do operador.'); return; }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(bolaoDate)) { setError('Informe a data do jogo.'); return; }
+    } else {
+      if (!data || issues.length > 0) { setError('Valide o JSON antes de salvar.'); return; }
+    }
     const selectedOperator = canManageAll ? operatorId : profile?.id ?? '';
     const operator = operators.find(p => p.id === selectedOperator);
     const branchId = operator?.branch_id ?? (isAdmin ? selectedBranch : profile?.branch_id) ?? '';
     if (!selectedOperator || !branchId) { setError('Selecione um operador vinculado a uma filial.'); return; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(closingDate) || !/^\d{4}-\d{2}-\d{2}$/.test(drawDate)) { setError('Informe as datas do fechamento e sorteio.'); return; }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(closingDate)) { setError('Informe a data do fechamento.'); return; }
     setBusy(true); setError('');
-    const payload = {
-      operator_id: selectedOperator, branch_id: branchId, closing_date: closingDate,
-      items: toStored(parsed, drawDate) as unknown as Record<string, unknown>[],
-      total_cotas: parsed.jogos.reduce((s, j) => s + Number(j.cotas.split('/')[0]), 0),
-      total_value: parsed.resumo.valor_total_com_taxas, total_fee: parsed.resumo.valor_total_taxas,
-      pix_externals: editing?.pix_externals ?? [], total_pix_externals: editing?.total_pix_externals ?? 0,
-      owed_amounts: editing?.owed_amounts ?? [], total_owed: editing?.total_owed ?? 0,
-      notes: notes.trim() || null, status, source_report_name: sourceName || null,
-      // Guarda o JSON validado como fonte de verdade, sem migração de banco.
-      ocr_text: JSON.stringify({ extracao: parsed, texto_original: ocrText }),
-    };
+    let payload: Record<string, unknown>;
+    if (tab === 'manual') {
+      payload = {
+        operator_id: selectedOperator, branch_id: branchId, closing_date: closingDate,
+        items: [], total_cotas: 0, total_value: manualValueNum, total_fee: 0,
+        pix_externals: editing?.pix_externals ?? [], total_pix_externals: editing?.total_pix_externals ?? 0,
+        owed_amounts: editing?.owed_amounts ?? [], total_owed: editing?.total_owed ?? 0,
+        notes: notes.trim() || null, status,
+        bolao_date: bolaoDate, bolao_game: bolaoGame.trim(), bolao_contest: bolaoContest.trim(),
+        bolao_value: manualValueNum,
+        house_percentage: housePctNum, operator_percentage: operatorPctNum,
+        house_amount: houseAmount, operator_amount: operatorAmount,
+        source_report_name: null, ocr_text: null,
+      };
+    } else {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(drawDate)) { setError('Informe a data do sorteio.'); setBusy(false); return; }
+      const parsed = data as Extracao;
+      payload = {
+        operator_id: selectedOperator, branch_id: branchId, closing_date: closingDate,
+        items: toStored(parsed, drawDate) as unknown as Record<string, unknown>[],
+        total_cotas: parsed.jogos.reduce((s, j) => s + Number(j.cotas.split('/')[0]), 0),
+        total_value: parsed.resumo.valor_total_com_taxas, total_fee: parsed.resumo.valor_total_taxas,
+        pix_externals: editing?.pix_externals ?? [], total_pix_externals: editing?.total_pix_externals ?? 0,
+        owed_amounts: editing?.owed_amounts ?? [], total_owed: editing?.total_owed ?? 0,
+        notes: notes.trim() || null, status, source_report_name: sourceName || null,
+        ocr_text: JSON.stringify({ extracao: parsed, texto_original: ocrText }),
+        bolao_date: drawDate, bolao_game: '', bolao_contest: '', bolao_value: null,
+        house_percentage: null, operator_percentage: null,
+        house_amount: 0, operator_amount: 0,
+      };
+    }
     const result = editing ? await supabase.from('fin_bolao_closing').update(payload).eq('id', editing.id)
       : await supabase.from('fin_bolao_closing').insert(payload);
     setBusy(false);
@@ -353,69 +432,127 @@ export function FinancialBolaoClosing() {
   };
   const visible = closings.filter(c => viewMode === 'day' ? c.closing_date === filterDate : c.closing_date.startsWith(month));
   const total = visible.reduce((s, c) => s + Number(c.total_value ?? 0), 0);
-  const fees = visible.reduce((s, c) => s + Number(c.total_fee ?? 0), 0);
+  const totalHouse = visible.reduce((s, c) => s + Number(c.house_amount ?? 0), 0);
+  const totalOperator = visible.reduce((s, c) => s + Number(c.operator_amount ?? 0), 0);
   if (loading && !closings.length) return <div className="flex justify-center py-20"><Spinner /></div>;
   return <div>
-    <PageHeader title="Fechamento de Bolão — JSON" subtitle="Extração estruturada de comprovantes Caixa com conferência obrigatória dos totais"
+    <PageHeader title="Fechamento de Bolão" subtitle="Cadastro manual de bolões com divisão entre casa e operador, ou importação via comprovante/JSON"
       action={<div className="flex flex-wrap gap-2 items-center">
         {isAdmin && <Select value={selectedBranch} onChange={setSelectedBranch} options={[{ value: '', label: 'Todas as filiais' }, ...branches.map(b => ({ value: b.id, label: b.name }))]} />}
         <Select value={viewMode} onChange={v => setViewMode(v as 'day' | 'month')} options={[{ value: 'day', label: 'Dia' }, { value: 'month', label: 'Mês' }]} />
         {viewMode === 'day' ? <Input type="date" value={filterDate} onChange={setFilterDate} /> : <input type="month" value={month} onChange={e => setMonth(e.target.value)} className="rounded-lg border p-2" />}
+        {isAdmin && <Button variant="secondary" onClick={() => { setConfigHouse(config ? Number(config.house_percentage) : 50); setConfigOperator(config ? Number(config.operator_percentage) : 50); setConfigOpen(true); }}><Percent size={16} /> Percentuais</Button>}
         <Button onClick={openNew}><Camera size={17} /> Novo fechamento</Button>
       </div>} />
-    {error && !modalOpen && <p className="p-3 bg-red-50 text-red-700 rounded-lg mb-4">{error}</p>}
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+    {error && !modalOpen && !configOpen && <p className="p-3 bg-red-50 text-red-700 rounded-lg mb-4">{error}</p>}
+    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-5">
       <Card className="p-4"><p>Fechamentos</p><strong>{visible.length}</strong></Card>
-      <Card className="p-4"><p>Bolões sem taxas</p><strong>R$ {formatBRL(total - fees)}</strong></Card>
-      <Card className="p-4"><p>Taxas / Total</p><strong>R$ {formatBRL(fees)} / R$ {formatBRL(total)}</strong></Card>
+      <Card className="p-4"><p>Total geral</p><strong>R$ {formatBRL(total)}</strong></Card>
+      <Card className="p-4"><p>Parte da casa</p><strong className="text-brand-700">R$ {formatBRL(totalHouse)}</strong></Card>
+      <Card className="p-4"><p>Parte do operador</p><strong className="text-accent-700">R$ {formatBRL(totalOperator)}</strong></Card>
     </div>
-    {!visible.length ? <Card><EmptyState icon={<FileJson size={42} />} title="Nenhum fechamento" description="Envie o comprovante ou cole o JSON extraído." /></Card> :
-      <div className="space-y-3">{visible.map(c => <Card key={c.id} className="p-4">
+    {!visible.length ? <Card><EmptyState icon={<FileJson size={42} />} title="Nenhum fechamento" description="Cadastre um bolão manualmente ou envie o comprovante." /> </Card> :
+      <div className="space-y-3">{visible.map(c => {
+        const cTotal = Number(c.total_value ?? 0);
+        const cHouse = Number(c.house_amount ?? 0);
+        const cOperator = Number(c.operator_amount ?? 0);
+        const isManual = !!(c.bolao_game && c.bolao_contest);
+        return <Card key={c.id} className="p-4">
         <button className="w-full flex justify-between text-left" onClick={() => setExpanded(expanded === c.id ? null : c.id)}>
-          <span><strong>{formatDateBR(c.closing_date)}</strong> · {c.operator?.name ?? 'Operador'} <Badge color={c.status === 'closed' ? 'blue' : 'amber'}>{c.status === 'closed' ? 'Fechado' : 'Aberto'}</Badge></span>
-          <span>R$ {formatBRL(Number(c.total_value))} {expanded === c.id ? <ChevronDown className="inline" size={16} /> : <ChevronRight className="inline" size={16} />}</span>
+          <span><strong>{formatDateBR(c.closing_date)}</strong> · {c.operator?.name ?? 'Operador'} <Badge color={c.status === 'closed' ? 'blue' : 'amber'}>{c.status === 'closed' ? 'Fechado' : 'Aberto'}</Badge>{isManual && <Badge color="green">Manual</Badge>}</span>
+          <span>R$ {formatBRL(cTotal)} {expanded === c.id ? <ChevronDown className="inline" size={16} /> : <ChevronRight className="inline" size={16} />}</span>
         </button>
         {expanded === c.id && <div className="mt-4 space-y-3">
-          <pre className="bg-slate-50 rounded-lg p-3 overflow-auto text-xs max-h-80">{JSON.stringify(storedToJson(c), null, 2)}</pre>
+          {isManual ? <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+            <div><span className="text-slate-400">Jogo</span><p className="font-medium">{c.bolao_game}</p></div>
+            <div><span className="text-slate-400">Concurso</span><p className="font-medium">{c.bolao_contest}</p></div>
+            <div><span className="text-slate-400">Data do jogo</span><p className="font-medium">{c.bolao_date ? formatDateBR(c.bolao_date) : '—'}</p></div>
+            <div><span className="text-slate-400">Valor</span><p className="font-medium">R$ {formatBRL(Number(c.bolao_value ?? 0))}</p></div>
+            <div className="col-span-2 bg-brand-50 rounded-lg p-3"><span className="text-xs text-brand-600">Casa ({c.house_percentage ?? 0}%)</span><p className="font-bold text-brand-700">R$ {formatBRL(cHouse)}</p></div>
+            <div className="col-span-2 bg-accent-50 rounded-lg p-3"><span className="text-xs text-accent-600">Operador ({c.operator_percentage ?? 0}%)</span><p className="font-bold text-accent-700">R$ {formatBRL(cOperator)}</p></div>
+          </div> : <pre className="bg-slate-50 rounded-lg p-3 overflow-auto text-xs max-h-80">{JSON.stringify(storedToJson(c), null, 2)}</pre>}
           {(isAdmin || (profile?.role === 'supervisor' && c.branch_id === profile?.branch_id) || c.operator_id === profile?.id) && <div className="flex gap-2 flex-wrap justify-end">
-            <Button size="sm" variant="secondary" onClick={() => openEdit(c)}>Editar JSON</Button>
+            <Button size="sm" variant="secondary" onClick={() => openEdit(c)}>Editar</Button>
             <Button size="sm" variant="secondary" onClick={() => void toggle(c)}>{c.status === 'closed' ? <Unlock size={14} /> : <Lock size={14} />}{c.status === 'closed' ? 'Reabrir' : 'Fechar'}</Button>
             <Button size="sm" variant="danger" onClick={() => void remove(c)}><Trash2 size={14} /> Excluir</Button>
           </div>}
         </div>}
-      </Card>)}</div>}
-    <Modal open={modalOpen} onClose={() => !busy && setModalOpen(false)} title={editing ? 'Editar fechamento em JSON' : 'Novo fechamento em JSON'} maxWidth="max-w-6xl">
+      </Card>})}</div>}
+
+    <Modal open={configOpen} onClose={() => setConfigOpen(false)} title="Configurar percentuais padrão">
       <div className="space-y-4">
-        <div className="flex flex-wrap gap-3 items-center">
-          <label className="cursor-pointer rounded-lg bg-blue-700 text-white px-4 py-2 text-sm flex gap-2 items-center"><Upload size={16} /> {busy ? 'Lendo...' : 'Fotografar / enviar comprovante'}
-            <input type="file" accept="image/*" capture="environment" multiple className="sr-only" disabled={busy} onChange={e => { const f = Array.from(e.target.files ?? []); if (f.length) void runOcr(f); e.target.value = ''; }} />
-          </label>
-          <label className="cursor-pointer rounded-lg border px-4 py-2 text-sm">Importar arquivo .json
-            <input type="file" accept=".json,application/json" className="sr-only" disabled={busy} onChange={async e => { const f = e.target.files?.[0]; if (f) { setJsonText(await f.text()); setData(null); setMessage('Clique em Validar JSON.'); } e.target.value = ''; }} />
-          </label>
+        <p className="text-sm text-slate-600">Defina o percentual padrão da casa e do operador. Esses valores são usados como sugestão em novos fechamentos manuais, mas podem ser ajustados em cada fechamento.</p>
+        <div className="grid grid-cols-2 gap-4">
+          <Input label="Percentual da casa (%)" type="number" value={configHouse} onChange={v => setConfigHouse(Number(v))} min={0} max={100} step="0.01" />
+          <Input label="Percentual do operador (%)" type="number" value={configOperator} onChange={v => setConfigOperator(Number(v))} min={0} max={100} step="0.01" />
         </div>
-        <p className="text-sm text-slate-600">O OCR gera JSON diretamente a partir do padrão <strong>RESUMO DE BOLÃO</strong>. Não há formulário linha a linha. Revise o JSON antes de salvar; fotografias podem conter erros de reconhecimento.</p>
-        <label className="block text-sm font-medium">JSON extraído / editável
-          <textarea className="mt-2 w-full min-h-72 rounded-lg border border-slate-300 p-3 font-mono text-xs" spellCheck={false} value={jsonText} onChange={e => { setJsonText(e.target.value); setData(null); setMessage('JSON alterado: valide novamente.'); }} placeholder='{"data_referencia":"2026-10-21","jogos":[...],"resumo":{...}}' />
-        </label>
-        <Button variant="secondary" onClick={importJson} disabled={busy}><FileJson size={16} /> Validar JSON</Button>
-        {message && <p className="text-sm text-slate-600">{message}</p>}
-        {data && <div className="rounded-lg border p-4 space-y-2">
-          <p><strong>{data.resumo.quantidade_boloes} bolões</strong> · Cotas: <strong>R$ {formatBRL(data.resumo.valor_total_cotas)}</strong> · Taxas: <strong>R$ {formatBRL(data.resumo.valor_total_taxas)}</strong> · Total: <strong>R$ {formatBRL(data.resumo.valor_total_com_taxas)}</strong></p>
-          <p className="text-xs">Impresso no comprovante — cotas: {data.conferencia.total_impresso_cotas === null ? 'não encontrado' : `R$ ${formatBRL(data.conferencia.total_impresso_cotas)}`} · taxas: {data.conferencia.total_impresso_taxas === null ? 'não encontrado' : `R$ ${formatBRL(data.conferencia.total_impresso_taxas)}`}</p>
-          {issues.length ? <div className="text-sm text-red-700"><strong>Conferência pendente:</strong><ul className="list-disc pl-5">{issues.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : <p className="text-sm text-green-700 font-semibold">Totais conferidos. JSON pronto para fechamento.</p>}
-        </div>}
+        <div className="bg-slate-50 rounded-lg p-3 text-sm text-slate-600">
+          Soma: <strong>{(configHouse + configOperator).toFixed(2)}%</strong>
+          {configHouse + configOperator !== 100 && <span className="text-amber-600 ml-2">A soma não precisa ser 100% — o sistema usa a proporção entre os dois.</span>}
+        </div>
+        {error && <p className="rounded-lg bg-red-50 text-red-700 p-3 text-sm">{error}</p>}
+        <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setConfigOpen(false)}>Cancelar</Button><Button onClick={() => void saveConfig()} disabled={configSaving}>{configSaving ? 'Salvando...' : 'Salvar'}</Button></div>
+      </div>
+    </Modal>
+
+    <Modal open={modalOpen} onClose={() => !busy && setModalOpen(false)} title={editing ? 'Editar fechamento' : 'Novo fechamento'} maxWidth="max-w-4xl">
+      <div className="space-y-4">
+        <div className="flex gap-2 border-b border-slate-200">
+          <button className={`px-4 py-2 text-sm font-medium ${tab === 'manual' ? 'text-brand-700 border-b-2 border-brand-600' : 'text-slate-500'}`} onClick={() => setTab('manual')}>Cadastro manual</button>
+          <button className={`px-4 py-2 text-sm font-medium ${tab === 'json' ? 'text-brand-700 border-b-2 border-brand-600' : 'text-slate-500'}`} onClick={() => setTab('json')}>Comprovante / JSON</button>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <Input label="Data do fechamento" type="date" value={closingDate} onChange={setClosingDate} />
-          <Input label="Data do sorteio (todos os jogos)" type="date" value={drawDate} onChange={setDrawDate} />
-          {canManageAll ? <Select label="Operador" value={operatorId} onChange={setOperatorId} options={operators.map(o => ({ value: o.id, label: o.name }))} placeholder="Selecione o operador" /> : <p className="text-sm">Operador: {profile?.name}</p>}
+          {tab === 'manual'
+            ? <Input label="Data do jogo" type="date" value={bolaoDate} onChange={setBolaoDate} />
+            : <Input label="Data do sorteio (todos os jogos)" type="date" value={drawDate} onChange={setDrawDate} />}
+          {canManageAll ? <Select label="Operador" value={operatorId} onChange={setOperatorId} options={operators.map(o => ({ value: o.id, label: o.name }))} placeholder="Selecione o operador" /> : <p className="text-sm"><span className="block text-sm font-medium text-slate-700 mb-1.5">Operador</span>{profile?.name}</p>}
         </div>
+
+        {tab === 'manual' ? <div className="space-y-4">
+          <Select label="Jogo / Produto" value={products.find(p => p.name === bolaoGame)?.id ?? ''} onChange={v => { const p = products.find(x => x.id === v); setBolaoGame(p?.name ?? ''); }} options={products.map(p => ({ value: p.id, label: p.name }))} placeholder="Selecione o jogo" />
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input label="Concurso" value={bolaoContest} onChange={setBolaoContest} placeholder="Ex: 2500" />
+            <Input label="Valor do bolão (R$)" type="number" step="0.01" value={bolaoValue} onChange={setBolaoValue} placeholder="0,00" min={0} />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Input label="Percentual da casa (%)" type="number" step="0.01" value={housePct} onChange={setHousePct} min={0} max={100} />
+            <Input label="Percentual do operador (%)" type="number" step="0.01" value={operatorPct} onChange={setOperatorPct} min={0} max={100} />
+          </div>
+          {manualValueNum > 0 && pctSum > 0 && <div className="rounded-lg border border-slate-200 p-4 space-y-2 bg-slate-50">
+            <div className="flex justify-between text-sm"><span className="text-slate-600">Total do bolão</span><strong>R$ {formatBRL(manualValueNum)}</strong></div>
+            <div className="flex justify-between text-sm"><span className="text-brand-600">Casa ({housePctNum}%)</span><strong className="text-brand-700">R$ {formatBRL(houseAmount)}</strong></div>
+            <div className="flex justify-between text-sm"><span className="text-accent-600">Operador ({operatorPctNum}%)</span><strong className="text-accent-700">R$ {formatBRL(operatorAmount)}</strong></div>
+            {pctSum !== 100 && <p className="text-xs text-amber-600">A soma dos percentuais é {pctSum}% — o sistema usa a proporção entre os dois valores.</p>}
+          </div>}
+        </div> : <div className="space-y-4">
+          <div className="flex flex-wrap gap-3 items-center">
+            <label className="cursor-pointer rounded-lg bg-blue-700 text-white px-4 py-2 text-sm flex gap-2 items-center"><Upload size={16} /> {busy ? 'Lendo...' : 'Fotografar / enviar comprovante'}
+              <input type="file" accept="image/*" capture="environment" multiple className="sr-only" disabled={busy} onChange={e => { const f = Array.from(e.target.files ?? []); if (f.length) void runOcr(f); e.target.value = ''; }} />
+            </label>
+            <label className="cursor-pointer rounded-lg border px-4 py-2 text-sm">Importar arquivo .json
+              <input type="file" accept=".json,application/json" className="sr-only" disabled={busy} onChange={async e => { const f = e.target.files?.[0]; if (f) { setJsonText(await f.text()); setData(null); setMessage('Clique em Validar JSON.'); } e.target.value = ''; }} />
+            </label>
+          </div>
+          <p className="text-sm text-slate-600">O OCR gera JSON a partir do padrão <strong>RESUMO DE BOLÃO</strong>. Revise o JSON antes de salvar; fotografias podem conter erros de reconhecimento.</p>
+          <label className="block text-sm font-medium">JSON extraído / editável
+            <textarea className="mt-2 w-full min-h-72 rounded-lg border border-slate-300 p-3 font-mono text-xs" spellCheck={false} value={jsonText} onChange={e => { setJsonText(e.target.value); setData(null); setMessage('JSON alterado: valide novamente.'); }} placeholder='{"data_referencia":"2026-10-21","jogos":[...],"resumo":{...}}' />
+          </label>
+          <Button variant="secondary" onClick={importJson} disabled={busy}><FileJson size={16} /> Validar JSON</Button>
+          {message && <p className="text-sm text-slate-600">{message}</p>}
+          {data && <div className="rounded-lg border p-4 space-y-2">
+            <p><strong>{data.resumo.quantidade_boloes} bolões</strong> · Cotas: <strong>R$ {formatBRL(data.resumo.valor_total_cotas)}</strong> · Taxas: <strong>R$ {formatBRL(data.resumo.valor_total_taxas)}</strong> · Total: <strong>R$ {formatBRL(data.resumo.valor_total_com_taxas)}</strong></p>
+            <p className="text-xs">Impresso no comprovante — cotas: {data.conferencia.total_impresso_cotas === null ? 'não encontrado' : `R$ ${formatBRL(data.conferencia.total_impresso_cotas)}`} · taxas: {data.conferencia.total_impresso_taxas === null ? 'não encontrado' : `R$ ${formatBRL(data.conferencia.total_impresso_taxas)}`}</p>
+            {issues.length ? <div className="text-sm text-red-700"><strong>Conferência pendente:</strong><ul className="list-disc pl-5">{issues.map((x, i) => <li key={i}>{x}</li>)}</ul></div> : <p className="text-sm text-green-700 font-semibold">Totais conferidos. JSON pronto para fechamento.</p>}
+          </div>}
+        </div>}
+
         <Input label="Observações" value={notes} onChange={setNotes} />
         <Select label="Status" value={status} onChange={v => setStatus(v as 'open' | 'closed')} options={[{ value: 'open', label: 'Aberto' }, { value: 'closed', label: 'Fechado' }]} />
         {error && <p className="rounded-lg bg-red-50 text-red-700 p-3 text-sm">{error}</p>}
-        <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setModalOpen(false)} disabled={busy}>Cancelar</Button><Button onClick={() => void save()} disabled={busy || !data || issues.length > 0}>{busy ? 'Processando...' : 'Salvar fechamento'}</Button></div>
+        <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setModalOpen(false)} disabled={busy}>Cancelar</Button><Button onClick={() => void save()} disabled={busy || (tab === 'json' && (!data || issues.length > 0))}>{busy ? 'Processando...' : 'Salvar fechamento'}</Button></div>
       </div>
     </Modal>
   </div>;
 }
-
