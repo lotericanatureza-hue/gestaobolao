@@ -334,6 +334,22 @@ export interface FinBolaoClosingConfig {
   updated_at: string;
 }
 
+export interface FinBolaoGeral {
+  id: string;
+  branch_id: string;
+  bolao_date: string;
+  modality: string;
+  contest: string;
+  bolao_value: number;
+  fee_percentage: number;
+  fee_value: number;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  branch?: Branch;
+}
+
 export interface FinLoan {
   id: string;
   from_branch_id: string;

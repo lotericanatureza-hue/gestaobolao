@@ -6,7 +6,7 @@ import { Badge } from './ui';
 
 export type AdminView = 'dashboard' | 'branches' | 'products' | 'allocations' | 'create-bolao' | 'bolao-allocations' | 'users';
 export type OperatorView = 'stock' | 'sales' | 'manage';
-export type FinancialView = 'fin-dashboard' | 'fin-bills' | 'fin-categories' | 'fin-daily' | 'fin-closing' | 'fin-employees' | 'fin-loans' | 'fin-bolao-closing';
+export type FinancialView = 'fin-dashboard' | 'fin-bills' | 'fin-categories' | 'fin-daily' | 'fin-closing' | 'fin-employees' | 'fin-loans' | 'fin-bolao-closing' | 'fin-bolao-geral';
 
 export interface NavItem {
   id: string;

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse, Wallet, Receipt, Tag, CalendarCheck, BookX, UserCog, HandCoins, CheckCircle } from 'lucide-react';
+import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse, Wallet, Receipt, Tag, CalendarCheck, BookX, UserCog, HandCoins, CheckCircle, FileSpreadsheet } from 'lucide-react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
 import { Layout, AdminView, OperatorView, FinancialView, NavItem } from './components/Layout';
@@ -22,6 +22,7 @@ import { FinancialCashClosing } from './components/FinancialCashClosing';
 import { FinancialEmployees } from './components/FinancialEmployees';
 import { FinancialLoans } from './components/FinancialLoans';
 import { FinancialBolaoClosing } from './components/FinancialBolaoClosing';
+import { FinancialBolaoGeral } from './components/FinancialBolaoGeral';
 import { ResetPassword, UpdatePassword } from './components/ResetPassword';
 
 function AppContent() {
@@ -78,7 +79,7 @@ function AppContent() {
     setArea((prev) => {
       const next = prev === 'bolao' ? 'financial' : 'bolao';
       if (next === 'financial' && !isAdmin && !isSupervisor) {
-        setFinView('fin-bolao-closing');
+        setFinView('fin-bolao-geral');
       }
       return next;
     });
@@ -96,11 +97,13 @@ function AppContent() {
           { id: 'fin-daily', label: 'Controle Diário', icon: <CalendarCheck size={18} /> },
           { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
           { id: 'fin-bolao-closing', label: 'Fechamento Bolão', icon: <Ticket size={18} /> },
+          { id: 'fin-bolao-geral', label: 'Bolão Geral', icon: <FileSpreadsheet size={18} /> },
           { id: 'fin-loans', label: 'Empréstimos', icon: <HandCoins size={18} /> },
           { id: 'fin-employees', label: 'Funcionários', icon: <UserCog size={18} /> },
         ]
       : [
           { id: 'fin-bolao-closing', label: 'Fechamento Bolão', icon: <Ticket size={18} /> },
+          { id: 'fin-bolao-geral', label: 'Bolão Geral', icon: <FileSpreadsheet size={18} /> },
           { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
         ];
     return (
@@ -111,6 +114,7 @@ function AppContent() {
         {finView === 'fin-daily' && (isAdmin || isSupervisor) && <FinancialDailyControl />}
         {finView === 'fin-closing' && <FinancialCashClosing />}
         {finView === 'fin-bolao-closing' && <FinancialBolaoClosing />}
+        {finView === 'fin-bolao-geral' && <FinancialBolaoGeral />}
         {finView === 'fin-loans' && (isAdmin || isSupervisor) && <FinancialLoans />}
         {finView === 'fin-employees' && (isAdmin || isSupervisor) && <FinancialEmployees />}
       </Layout>
