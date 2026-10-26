@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Camera, ChevronDown, ChevronRight, FileJson, Lock, Percent, Plus, Trash2, Unlock, Upload } from 'lucide-react';
+import { Building2, Calendar, Camera, ChevronDown, ChevronRight, FileJson, Lock, Percent, Plus, Trash2, Unlock, Upload, User } from 'lucide-react';
 import { createWorker, PSM } from 'tesseract.js';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
@@ -228,7 +228,9 @@ export function FinancialBolaoClosing() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FinBolaoClosing | null>(null);
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const [expandedBranch, setExpandedBranch] = useState<string | null>(null);
+  const [expandedOperator, setExpandedOperator] = useState<string | null>(null);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [closingDate, setClosingDate] = useState(today());
   const [drawDate, setDrawDate] = useState(today());
   const [operatorId, setOperatorId] = useState('');
@@ -478,27 +480,44 @@ export function FinancialBolaoClosing() {
   const totalHouse = visible.reduce((s, c) => s + Number(c.house_amount ?? 0), 0);
   const totalOperator = visible.reduce((s, c) => s + Number(c.operator_amount ?? 0), 0);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, FinBolaoClosing[]>();
+  type DayGroup = { date: string; closings: FinBolaoClosing[]; total: number; tarifa: number; house: number; operator: number; games: { game: string; contest: string; value: number; tarifa: number; drawDate: string }[] };
+  type OperatorGroup = { operatorId: string; operator: Profile | null; days: DayGroup[]; total: number; tarifa: number; house: number; operatorAmount: number; count: number };
+  type BranchGroup = { branchId: string; branch: Branch | null; operators: OperatorGroup[]; total: number; house: number; operatorAmount: number; count: number };
+
+  const byBranch = useMemo<BranchGroup[]>(() => {
+    const branchesMap = new Map<string, BranchGroup>();
     for (const c of visible) {
-      const key = `${c.closing_date}__${c.operator_id}`;
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(c);
+      let bg = branchesMap.get(c.branch_id);
+      if (!bg) { bg = { branchId: c.branch_id, branch: (c.branch as Branch | null) ?? null, operators: [], total: 0, house: 0, operatorAmount: 0, count: 0 }; branchesMap.set(c.branch_id, bg); }
+      bg.total += Number(c.total_value ?? 0);
+      bg.house += Number(c.house_amount ?? 0);
+      bg.operatorAmount += Number(c.operator_amount ?? 0);
+      bg.count += 1;
+      let og = bg.operators.find(o => o.operatorId === c.operator_id);
+      if (!og) { og = { operatorId: c.operator_id, operator: (c.operator as Profile | null) ?? null, days: [], total: 0, tarifa: 0, house: 0, operatorAmount: 0, count: 0 }; bg.operators.push(og); }
+      og.total += Number(c.total_value ?? 0);
+      og.tarifa += Number(c.total_fee ?? 0);
+      og.house += Number(c.house_amount ?? 0);
+      og.operatorAmount += Number(c.operator_amount ?? 0);
+      og.count += 1;
+      let dg = og.days.find(d => d.date === c.closing_date);
+      if (!dg) { dg = { date: c.closing_date, closings: [], total: 0, tarifa: 0, house: 0, operator: 0, games: [] }; og.days.push(dg); }
+      dg.closings.push(c);
+      dg.total += Number(c.total_value ?? 0);
+      dg.tarifa += Number(c.total_fee ?? 0);
+      dg.house += Number(c.house_amount ?? 0);
+      dg.operator += Number(c.operator_amount ?? 0);
+      if (isManualClosing(c)) dg.games.push(...closingToManualGames(c).map(g => ({ game: g.game, contest: g.contest, value: numberBR(g.value) || 0, tarifa: numberBR(g.tarifa) || 0, drawDate: c.bolao_date ?? c.closing_date })));
+      else dg.games.push(...(c.items ?? []).map(item => ({ game: item.modality ?? item.product_name ?? '', contest: item.contest ?? '', value: Number(item.quota_value ?? 0), tarifa: Number(item.fee_value ?? 0), drawDate: item.draw_date ?? c.closing_date })));
     }
-    return Array.from(map.entries()).map(([key, items]) => {
-      const [date, opId] = key.split('__');
-      const operator = items[0]?.operator;
-      const dayTotal = items.reduce((s, c) => s + Number(c.total_value ?? 0), 0);
-      const dayTarifa = items.reduce((s, c) => s + Number(c.total_fee ?? 0), 0);
-      const dayHouse = items.reduce((s, c) => s + Number(c.house_amount ?? 0), 0);
-      const dayOperator = items.reduce((s, c) => s + Number(c.operator_amount ?? 0), 0);
-      const allGames = items.flatMap(c => {
-        if (isManualClosing(c)) return closingToManualGames(c).map(g => ({ game: g.game, contest: g.contest, value: numberBR(g.value) || 0, tarifa: numberBR(g.tarifa) || 0, drawDate: c.bolao_date ?? c.closing_date }));
-        return (c.items ?? []).map(item => ({ game: item.modality ?? item.product_name ?? '', contest: item.contest ?? '', value: Number(item.quota_value ?? 0), tarifa: Number(item.fee_value ?? 0), drawDate: item.draw_date ?? c.closing_date }));
-      });
-      return { key, date, opId, operator, dayTotal, dayTarifa, dayHouse, dayOperator, closings: items, allGames };
-    }).sort((a, b) => b.date.localeCompare(a.date));
+    for (const bg of branchesMap.values()) {
+      bg.operators.sort((a, b) => (a.operator?.name ?? '').localeCompare(b.operator?.name ?? ''));
+      for (const og of bg.operators) og.days.sort((a, b) => b.date.localeCompare(a.date));
+    }
+    return Array.from(branchesMap.values()).sort((a, b) => (a.branch?.name ?? '').localeCompare(b.branch?.name ?? ''));
   }, [visible]);
+
+  const multiBranch = isAdmin && !selectedBranch;
 
   if (loading && !closings.length) return <div className="flex justify-center py-20"><Spinner /></div>;
   return <div>
@@ -517,72 +536,128 @@ export function FinancialBolaoClosing() {
       <Card className="p-4"><p>Parte da casa</p><strong className="text-brand-700">R$ {formatBRL(totalHouse)}</strong></Card>
       <Card className="p-4"><p>Parte do operador</p><strong className="text-accent-700">R$ {formatBRL(totalOperator)}</strong></Card>
     </div>
-    {!grouped.length ? <Card><EmptyState icon={<FileJson size={42} />} title="Nenhum fechamento" description="Cadastre um bolão manualmente ou envie o comprovante." /> </Card> :
-      <div className="space-y-3">{grouped.map(group => {
-        const isExpanded = expanded === group.key;
-        const allClosed = group.closings.every(c => c.status === 'closed');
-        return <Card key={group.key} className="p-4">
-        <button className="w-full flex justify-between text-left" onClick={() => setExpanded(isExpanded ? null : group.key)}>
-          <span className="flex items-center gap-2 flex-wrap">
-            <strong>{formatDateBR(group.date)}</strong> · {group.operator?.name ?? 'Operador'}
-            <Badge color={allClosed ? 'blue' : 'amber'}>{allClosed ? 'Fechado' : 'Aberto'}</Badge>
-            <Badge color="slate">{group.allGames.length} jogo(s)</Badge>
-          </span>
-          <span className="flex items-center gap-2">
-            <span className="text-sm text-slate-500">{group.allGames.length} jogos · R$ {formatBRL(group.dayTotal)}</span>
-            {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </span>
-        </button>
-        {isExpanded && <div className="mt-4 space-y-4">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-slate-400 border-b border-slate-100">
-                  <th className="px-2 py-2 font-medium">Jogo</th>
-                  <th className="px-2 py-2 font-medium">Concurso</th>
-                  <th className="px-2 py-2 font-medium">Data sorteio</th>
-                  <th className="px-2 py-2 font-medium text-right">Valor</th>
-                  <th className="px-2 py-2 font-medium text-right">Tarifa</th>
-                  <th className="px-2 py-2 font-medium text-right">Bruto</th>
-                </tr>
-              </thead>
-              <tbody>
-                {group.allGames.map((g, i) => (
-                  <tr key={i} className="border-b border-slate-50">
-                    <td className="px-2 py-2 font-medium text-slate-900">{g.game || '—'}</td>
-                    <td className="px-2 py-2 text-slate-600">{g.contest || '—'}</td>
-                    <td className="px-2 py-2 text-slate-500">{g.drawDate ? formatDateBR(g.drawDate) : '—'}</td>
-                    <td className="px-2 py-2 text-right">R$ {formatBRL(g.value)}</td>
-                    <td className="px-2 py-2 text-right">R$ {formatBRL(g.tarifa)}</td>
-                    <td className="px-2 py-2 text-right font-medium">R$ {formatBRL(g.value + g.tarifa)}</td>
-                  </tr>
-                ))}
-                <tr className="bg-slate-50 font-semibold">
-                  <td className="px-2 py-2" colSpan={3}>Total do dia</td>
-                  <td className="px-2 py-2 text-right">R$ {formatBRL(group.allGames.reduce((s, g) => s + g.value, 0))}</td>
-                  <td className="px-2 py-2 text-right">R$ {formatBRL(group.dayTarifa)}</td>
-                  <td className="px-2 py-2 text-right">R$ {formatBRL(group.dayTotal)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="bg-brand-50 rounded-lg p-3 flex justify-between items-center"><span className="text-sm text-brand-600">Casa <span className="text-xs">(% da tarifa)</span></span><strong className="text-brand-700">R$ {formatBRL(group.dayHouse)}</strong></div>
-            <div className="bg-accent-50 rounded-lg p-3 flex justify-between items-center"><span className="text-sm text-accent-600">Operador <span className="text-xs">(% da tarifa)</span></span><strong className="text-accent-700">R$ {formatBRL(group.dayOperator)}</strong></div>
-          </div>
-          {group.closings.map(c => <div key={c.id} className="flex items-center justify-between border-t border-slate-100 pt-3">
-            <span className="text-xs text-slate-400">
-              {isManualClosing(c) ? <Badge color="green">Manual</Badge> : <Badge color="slate">Comprovante</Badge>}
-              {' '}R$ {formatBRL(Number(c.total_value ?? 0))}
-            </span>
-            {(isAdmin || (profile?.role === 'supervisor' && c.branch_id === profile?.branch_id) || c.operator_id === profile?.id) && <div className="flex gap-2">
-              <Button size="sm" variant="secondary" onClick={() => openEdit(c)}>Editar</Button>
-              <Button size="sm" variant="secondary" onClick={() => void toggle(c)}>{c.status === 'closed' ? <Unlock size={14} /> : <Lock size={14} />}{c.status === 'closed' ? 'Reabrir' : 'Fechar'}</Button>
-              <Button size="sm" variant="danger" onClick={() => void remove(c)}><Trash2 size={14} /> Excluir</Button>
+    {!byBranch.length ? <Card><EmptyState icon={<FileJson size={42} />} title="Nenhum fechamento" description="Cadastre um bolão manualmente ou envie o comprovante." /> </Card> :
+      <div className="space-y-4">{byBranch.map(bg => {
+        const branchKey = bg.branchId;
+        const branchOpen = expandedBranch === branchKey;
+        const renderOperators = () => bg.operators.map(og => {
+          const opKey = `${branchKey}__${og.operatorId}`;
+          const opOpen = expandedOperator === opKey;
+          const allClosed = og.days.every(d => d.closings.every(c => c.status === 'closed'));
+          return <Card key={opKey} className="overflow-hidden">
+            <button className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-50 transition-colors" onClick={() => setExpandedOperator(opOpen ? null : opKey)}>
+              <span className="flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><User size={20} /></span>
+                <span>
+                  <strong className="flex items-center gap-2 flex-wrap">{og.operator?.name ?? 'Operador'} <Badge color={allClosed ? 'blue' : 'amber'}>{allClosed ? 'Fechado' : 'Aberto'}</Badge></strong>
+                  <span className="text-xs text-slate-400 flex items-center gap-3 mt-0.5">
+                    <span className="text-slate-700 font-semibold">Total: R$ {formatBRL(og.total)}</span>
+                    <span className="text-brand-600">Casa: R$ {formatBRL(og.house)}</span>
+                    <span className="text-accent-600">Operador: R$ {formatBRL(og.operatorAmount)}</span>
+                  </span>
+                </span>
+              </span>
+              <span className="flex items-center gap-2">
+                <Badge color="slate">{og.days.length} dia(s)</Badge>
+                {opOpen ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+              </span>
+            </button>
+            {opOpen && <div className="border-t border-slate-100 p-4 space-y-2">
+              {og.days.map(dg => {
+                const dayKey = `${opKey}__${dg.date}`;
+                const dayOpen = expandedDay === dayKey;
+                const dayAllClosed = dg.closings.every(c => c.status === 'closed');
+                return <div key={dayKey} className={`rounded-lg border ${dayAllClosed ? 'bg-slate-50 border-slate-200' : 'bg-amber-50 border-amber-200'}`}>
+                  <button className="w-full flex items-center justify-between p-3 text-left hover:bg-slate-100 transition-colors rounded-lg" onClick={() => setExpandedDay(dayOpen ? null : dayKey)}>
+                    <span className="flex items-center gap-3">
+                      {dayAllClosed ? <Badge color="blue"><Lock size={12} className="mr-1" /> Fechado</Badge> : <Badge color="amber"><Unlock size={12} className="mr-1" /> Aberto</Badge>}
+                      <span className="text-sm font-medium text-slate-700 flex items-center gap-1.5"><Calendar size={14} /> {formatDateBR(dg.date)}</span>
+                      <Badge color="slate">{dg.games.length} jogo(s)</Badge>
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm text-slate-500">R$ {formatBRL(dg.total)}</span>
+                      {dayOpen ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
+                    </span>
+                  </button>
+                  {dayOpen && <div className="px-3 pb-3 space-y-3">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-slate-400 border-b border-slate-100">
+                            <th className="px-2 py-2 font-medium">Jogo</th>
+                            <th className="px-2 py-2 font-medium">Concurso</th>
+                            <th className="px-2 py-2 font-medium">Data sorteio</th>
+                            <th className="px-2 py-2 font-medium text-right">Valor</th>
+                            <th className="px-2 py-2 font-medium text-right">Tarifa</th>
+                            <th className="px-2 py-2 font-medium text-right">Bruto</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {dg.games.map((g, i) => (
+                            <tr key={i} className="border-b border-slate-50">
+                              <td className="px-2 py-2 font-medium text-slate-900">{g.game || '—'}</td>
+                              <td className="px-2 py-2 text-slate-600">{g.contest || '—'}</td>
+                              <td className="px-2 py-2 text-slate-500">{g.drawDate ? formatDateBR(g.drawDate) : '—'}</td>
+                              <td className="px-2 py-2 text-right">R$ {formatBRL(g.value)}</td>
+                              <td className="px-2 py-2 text-right">R$ {formatBRL(g.tarifa)}</td>
+                              <td className="px-2 py-2 text-right font-medium">R$ {formatBRL(g.value + g.tarifa)}</td>
+                            </tr>
+                          ))}
+                          <tr className="bg-slate-100/60 font-semibold">
+                            <td className="px-2 py-2" colSpan={3}>Total do dia</td>
+                            <td className="px-2 py-2 text-right">R$ {formatBRL(dg.games.reduce((s, g) => s + g.value, 0))}</td>
+                            <td className="px-2 py-2 text-right">R$ {formatBRL(dg.tarifa)}</td>
+                            <td className="px-2 py-2 text-right">R$ {formatBRL(dg.total)}</td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="bg-brand-50 rounded-lg p-3 flex justify-between items-center"><span className="text-sm text-brand-600">Casa <span className="text-xs">(% da tarifa)</span></span><strong className="text-brand-700">R$ {formatBRL(dg.house)}</strong></div>
+                      <div className="bg-accent-50 rounded-lg p-3 flex justify-between items-center"><span className="text-sm text-accent-600">Operador <span className="text-xs">(% da tarifa)</span></span><strong className="text-accent-700">R$ {formatBRL(dg.operator)}</strong></div>
+                    </div>
+                    {dg.closings.map(c => <div key={c.id} className="flex items-center justify-between border-t border-slate-200 pt-3">
+                      <span className="text-xs text-slate-400">
+                        {isManualClosing(c) ? <Badge color="green">Manual</Badge> : <Badge color="slate">Comprovante</Badge>}
+                        {' '}R$ {formatBRL(Number(c.total_value ?? 0))}
+                      </span>
+                      {(isAdmin || (profile?.role === 'supervisor' && c.branch_id === profile?.branch_id) || c.operator_id === profile?.id) && <div className="flex gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => openEdit(c)}>Editar</Button>
+                        <Button size="sm" variant="secondary" onClick={() => void toggle(c)}>{c.status === 'closed' ? <Unlock size={14} /> : <Lock size={14} />}{c.status === 'closed' ? 'Reabrir' : 'Fechar'}</Button>
+                        <Button size="sm" variant="danger" onClick={() => void remove(c)}><Trash2 size={14} /> Excluir</Button>
+                      </div>}
+                    </div>)}
+                  </div>}
+                </div>;
+              })}
             </div>}
-          </div>)}
-        </div>}
-      </Card>})}</div>}
+          </Card>;
+        });
+
+        if (multiBranch) {
+          return <Card key={branchKey} className="overflow-hidden">
+            <button className="w-full flex items-center justify-between p-4 text-left hover:bg-slate-50 transition-colors" onClick={() => setExpandedBranch(branchOpen ? null : branchKey)}>
+              <span className="flex items-center gap-3">
+                <span className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center"><Building2 size={20} /></span>
+                <span>
+                  <strong>{bg.branch?.name ?? 'Sem filial'}</strong>
+                  <span className="text-xs text-slate-400 flex items-center gap-3 mt-0.5">
+                    <span className="text-slate-700 font-semibold">Total: R$ {formatBRL(bg.total)}</span>
+                    <span className="text-brand-600">Casa: R$ {formatBRL(bg.house)}</span>
+                    <span className="text-accent-600">Operador: R$ {formatBRL(bg.operatorAmount)}</span>
+                  </span>
+                </span>
+              </span>
+              <span className="flex items-center gap-2">
+                <Badge color="slate">{bg.operators.length} operador(es)</Badge>
+                {branchOpen ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
+              </span>
+            </button>
+            {branchOpen && <div className="border-t border-slate-100 p-4 space-y-3">{renderOperators()}</div>}
+          </Card>;
+        }
+        return <div key={branchKey} className="space-y-3">{renderOperators()}</div>;
+      })}</div>}
 
     <Modal open={configOpen} onClose={() => setConfigOpen(false)} title="Configurar percentuais padrão">
       <div className="space-y-4">
