@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Building2, Calendar, ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Plus, Trash2, Ticket, TrendingDown, TrendingUp, DollarSign, Megaphone, Banknote, HandCoins, Smartphone, Trophy, BarChart3 } from 'lucide-react';
+import { Building2, Calendar, ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Plus, Trash2, Ticket, TrendingDown, TrendingUp, DollarSign, Megaphone, Banknote, HandCoins, Smartphone, Trophy, Info, CalendarDays } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -10,9 +10,13 @@ import type { Branch, FinBolaoGeral } from '../lib/types';
 const today = () => new Date().toLocaleDateString('en-CA');
 const currentMonth = () => today().slice(0, 7);
 
+type EntryPeriod = 'daily' | 'monthly';
+
 type Entry = {
   id: string;
+  period: EntryPeriod;
   bolao_date: string;
+  bolao_month: string;
   modality: string;
   contest: string;
   bolao_value: string;
@@ -31,7 +35,9 @@ type Entry = {
 
 const emptyEntry = (): Entry => ({
   id: crypto.randomUUID(),
+  period: 'daily',
   bolao_date: today(),
+  bolao_month: currentMonth(),
   modality: '',
   contest: '',
   bolao_value: '',
@@ -68,102 +74,21 @@ interface SummaryCardProps {
   icon: React.ReactNode;
   label: string;
   value: number;
-  color: string;
+  isCurrency: boolean;
+  gradient: string;
+  iconBg: string;
+  accentText: string;
 }
 
-function SummaryCard({ icon, label, value, color }: SummaryCardProps) {
+function SummaryCard({ icon, label, value, isCurrency, gradient, iconBg, accentText }: SummaryCardProps) {
   return (
-    <Card className="p-4">
-      <div className="flex items-center gap-3 mb-2">
-        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${color}`}>{icon}</div>
-        <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">{label}</p>
+    <div className={`relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 transition-all duration-300 hover:shadow-lg hover:shadow-slate-200/50 hover:-translate-y-0.5`}>
+      <div className={`absolute inset-x-0 top-0 h-1 ${gradient}`} />
+      <div className="flex items-start justify-between mb-3">
+        <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${iconBg}`}>{icon}</div>
       </div>
-      <p className="text-lg font-bold text-slate-900">R$ {formatBRL(value)}</p>
-    </Card>
-  );
-}
-
-type ChartPoint = {
-  date: string;
-  label: string;
-  vendaDinheiro: number;
-  valorPix: number;
-  vendaMarketing: number;
-  prejuizo: number;
-};
-
-type ChartSeries = {
-  key: 'vendaDinheiro' | 'valorPix' | 'vendaMarketing' | 'prejuizo';
-  label: string;
-  color: string;
-};
-
-const CHART_SERIES: ChartSeries[] = [
-  { key: 'vendaDinheiro', label: 'Venda Dinheiro', color: '#10b981' },
-  { key: 'valorPix', label: 'Valor Pix', color: '#3b63f6' },
-  { key: 'vendaMarketing', label: 'Venda Marketing', color: '#f97316' },
-  { key: 'prejuizo', label: 'Prejuízo', color: '#ef4444' },
-];
-
-function TrendChart({ data }: { data: ChartPoint[] }) {
-  const W = 760;
-  const H = 260;
-  const padL = 64;
-  const padR = 16;
-  const padT = 16;
-  const padB = 40;
-  const plotW = W - padL - padR;
-  const plotH = H - padT - padB;
-
-  const maxVal = Math.max(1, ...data.flatMap(d => [d.vendaDinheiro, d.valorPix, d.vendaMarketing, d.prejuizo]));
-  const n = data.length;
-  const groupW = n > 0 ? plotW / n : plotW;
-  const barW = Math.min(14, (groupW - 6) / CHART_SERIES.length);
-  const gap = barW + 2;
-
-  const ticks = 4;
-  const tickVals = Array.from({ length: ticks + 1 }, (_, i) => (maxVal * i) / ticks);
-
-  const xForGroup = (i: number) => padL + i * groupW + groupW / 2;
-  const yForVal = (v: number) => padT + plotH - (v / maxVal) * plotH;
-
-  return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 480 }} preserveAspectRatio="xMidYMid meet">
-        {/* Grid lines + Y labels */}
-        {tickVals.map((tv, i) => {
-          const y = yForVal(tv);
-          return (
-            <g key={i}>
-              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e2e8f0" strokeWidth={1} />
-              <text x={padL - 8} y={y + 4} textAnchor="end" fontSize={10} fill="#94a3b8">R$ {formatBRL(tv)}</text>
-            </g>
-          );
-        })}
-        {/* Bars + X labels */}
-        {data.map((d, i) => {
-          const cx = xForGroup(i);
-          const startX = cx - (gap * CHART_SERIES.length) / 2 + 1;
-          return (
-            <g key={d.date}>
-              {CHART_SERIES.map((s, si) => {
-                const v = d[s.key];
-                const h = (v / maxVal) * plotH;
-                const x = startX + si * gap;
-                const y = padT + plotH - h;
-                return v > 0 ? (
-                  <rect key={s.key} x={x} y={y} width={barW} height={h} rx={2} fill={s.color} opacity={0.85}>
-                    <title>{`${s.label} — ${d.label}: R$ ${formatBRL(v)}`}</title>
-                  </rect>
-                ) : null;
-              })}
-              <text x={cx} y={H - padB + 16} textAnchor="middle" fontSize={10} fill="#64748b">{d.label}</text>
-            </g>
-          );
-        })}
-        {/* X axis baseline */}
-        <line x1={padL} y1={padT + plotH} x2={W - padR} y2={padT + plotH} stroke="#cbd5e1" strokeWidth={1.5} />
-      </svg>
+      <p className="text-slate-400 text-xs font-medium uppercase tracking-wide mb-1">{label}</p>
+      <p className={`text-xl font-bold ${accentText}`}>{isCurrency ? `R$ ${formatBRL(value)}` : String(value)}</p>
     </div>
   );
 }
@@ -187,6 +112,7 @@ export function FinancialBolaoGeral() {
   const [error, setError] = useState('');
   const [expandedBranch, setExpandedBranch] = useState<string | null>(null);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [showAddInfo, setShowAddInfo] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     void supabase.from('branches').select('*').order('name').then(({ data }) => setBranches((data ?? []) as Branch[]));
@@ -303,40 +229,24 @@ export function FinancialBolaoGeral() {
     return Array.from(map.values()).sort((a, b) => (a.branch?.name ?? '').localeCompare(b.branch?.name ?? ''));
   }, [filtered]);
 
-  const chartData = useMemo<ChartPoint[]>(() => {
-    const map = new Map<string, ChartPoint>();
-    for (const r of filtered) {
-      let p = map.get(r.bolao_date);
-      if (!p) {
-        p = {
-          date: r.bolao_date,
-          label: formatDateBR(r.bolao_date, { day: '2-digit', month: '2-digit' }),
-          vendaDinheiro: 0, valorPix: 0, vendaMarketing: 0, prejuizo: 0,
-        };
-        map.set(r.bolao_date, p);
-      }
-      p.vendaDinheiro += Number(r.venda_dinheiro ?? 0);
-      p.valorPix += Number(r.valor_pix ?? 0);
-      p.vendaMarketing += Number(r.venda_marketing ?? 0);
-      p.prejuizo += Number(r.prejuizo ?? 0);
-    }
-    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
-  }, [filtered]);
-
   const multiBranch = isAdmin && !selectedBranch;
 
   const openNew = () => {
     setEditing(null);
     setEntries([emptyEntry()]);
+    setShowAddInfo({});
     setModalBranch(selectedBranch || profile?.branch_id || '');
     setError('');
     setModalOpen(true);
   };
   const openEdit = (r: FinBolaoGeral) => {
     setEditing(r);
+    const eId = r.id;
     setEntries([{
       id: r.id,
+      period: 'daily',
       bolao_date: r.bolao_date,
+      bolao_month: r.bolao_date.slice(0, 7),
       modality: r.modality,
       contest: r.contest,
       bolao_value: r.bolao_value ? maskBRL(String(money(Number(r.bolao_value)))) : '',
@@ -352,6 +262,7 @@ export function FinancialBolaoGeral() {
       valor_pix: Number(r.valor_pix) ? maskBRL(String(money(Number(r.valor_pix)))) : '',
       notes: r.notes ?? '',
     }]);
+    setShowAddInfo({ [eId]: true });
     setModalBranch(r.branch_id);
     setError('');
     setModalOpen(true);
@@ -360,6 +271,7 @@ export function FinancialBolaoGeral() {
   const addEntry = () => setEntries(es => [...es, emptyEntry()]);
   const removeEntry = (id: string) => setEntries(es => es.length > 1 ? es.filter(e => e.id !== id) : es);
   const updateEntry = (id: string, field: keyof Entry, v: string) => setEntries(es => es.map(e => e.id === id ? { ...e, [field]: v } : e));
+  const toggleAddInfo = (id: string) => setShowAddInfo(s => ({ ...s, [id]: !s[id] }));
 
   const recalcFee = (e: Entry): string => {
     const val = parseBRL(e.bolao_value);
@@ -368,9 +280,14 @@ export function FinancialBolaoGeral() {
     return maskBRL(String(money(val * pct / 100)));
   };
 
+  const entryDate = (e: Entry): string => e.period === 'monthly' ? `${e.bolao_month}-01` : e.bolao_date;
+
   const validEntries = useMemo(() => entries.filter(e => {
     const val = parseBRL(e.bolao_value);
-    return e.modality.trim() && e.contest.trim() && val > 0 && /^\d{4}-\d{2}-\d{2}$/.test(e.bolao_date);
+    const dateOk = e.period === 'monthly'
+      ? /^\d{4}-\d{2}$/.test(e.bolao_month)
+      : /^\d{4}-\d{2}-\d{2}$/.test(e.bolao_date);
+    return e.modality.trim() && e.contest.trim() && val > 0 && dateOk;
   }), [entries]);
 
   const save = async () => {
@@ -383,7 +300,7 @@ export function FinancialBolaoGeral() {
       if (editing) {
         const e = validEntries[0];
         const payload = {
-          branch_id: modalBranch, bolao_date: e.bolao_date, modality: e.modality.trim(), contest: e.contest.trim(),
+          branch_id: modalBranch, bolao_date: entryDate(e), modality: e.modality.trim(), contest: e.contest.trim(),
           bolao_value: parseBRL(e.bolao_value), fee_percentage: Number(e.fee_percentage) || 0,
           fee_value: parseBRL(e.fee_value || recalcFee(e)),
           prejuizo: parseBRL(e.prejuizo), comissao: parseBRL(e.comissao), premiacao: parseBRL(e.premiacao),
@@ -395,7 +312,7 @@ export function FinancialBolaoGeral() {
         if (err) throw new Error(err.message);
       } else {
         const payload = validEntries.map(e => ({
-          branch_id: modalBranch, bolao_date: e.bolao_date, modality: e.modality.trim(), contest: e.contest.trim(),
+          branch_id: modalBranch, bolao_date: entryDate(e), modality: e.modality.trim(), contest: e.contest.trim(),
           bolao_value: parseBRL(e.bolao_value), fee_percentage: Number(e.fee_percentage) || 0,
           fee_value: parseBRL(e.fee_value || recalcFee(e)),
           prejuizo: parseBRL(e.prejuizo), comissao: parseBRL(e.comissao), premiacao: parseBRL(e.premiacao),
@@ -443,41 +360,21 @@ export function FinancialBolaoGeral() {
 
       {error && !modalOpen && <p className="p-3 bg-red-50 text-red-700 rounded-lg mb-4">{error}</p>}
 
-      {/* Summary cards — reformulated */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
-        <SummaryCard icon={<FileSpreadsheet size={18} />} label="Bolões" value={qtd} color="bg-slate-100 text-slate-600" />
-        <SummaryCard icon={<DollarSign size={18} />} label="Total Geral" value={totals.bolaoValue} color="bg-brand-50 text-brand-600" />
-        <SummaryCard icon={<DollarSign size={18} />} label="Total Comissão" value={totals.comissao || totals.feeValue} color="bg-accent-50 text-accent-600" />
-        <SummaryCard icon={<DollarSign size={18} />} label="Total Bruto" value={totalBruto} color="bg-slate-100 text-slate-700" />
-        <SummaryCard icon={<TrendingDown size={18} />} label="Prejuízo" value={totals.prejuizo} color="bg-red-50 text-red-600" />
-        <SummaryCard icon={<Trophy size={18} />} label="Premiação" value={totals.premiacao} color="bg-emerald-50 text-emerald-600" />
-        <SummaryCard icon={<Megaphone size={18} />} label="Venda Marketing" value={totals.vendaMarketing} color="bg-brand-50 text-brand-600" />
-        <SummaryCard icon={<Banknote size={18} />} label="Venda Dinheiro" value={totals.vendaDinheiro} color="bg-emerald-50 text-emerald-600" />
-        <SummaryCard icon={<HandCoins size={18} />} label="Fiado" value={totals.fiado} color="bg-amber-50 text-amber-600" />
-        <SummaryCard icon={<Smartphone size={18} />} label="Valor Pix" value={totals.valorPix} color="bg-brand-50 text-brand-600" />
-        <SummaryCard icon={<TrendingUp size={18} />} label="Total Vendas" value={totalVendas} color="bg-emerald-50 text-emerald-600" />
-        <SummaryCard icon={<TrendingUp size={18} />} label="Resultado" value={resultado} color={resultado >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'} />
+      {/* Summary cards — redesigned */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 mb-6">
+        <SummaryCard icon={<FileSpreadsheet size={20} />} label="Bolões" value={qtd} isCurrency={false} gradient="bg-gradient-to-r from-slate-300 to-slate-400" iconBg="bg-slate-100 text-slate-600" accentText="text-slate-900" />
+        <SummaryCard icon={<DollarSign size={20} />} label="Total Geral" value={totals.bolaoValue} isCurrency gradient="bg-gradient-to-r from-brand-400 to-brand-600" iconBg="bg-brand-50 text-brand-600" accentText="text-brand-700" />
+        <SummaryCard icon={<DollarSign size={20} />} label="Comissão" value={totals.comissao || totals.feeValue} isCurrency gradient="bg-gradient-to-r from-accent-400 to-accent-600" iconBg="bg-accent-50 text-accent-600" accentText="text-accent-700" />
+        <SummaryCard icon={<DollarSign size={20} />} label="Total Bruto" value={totalBruto} isCurrency gradient="bg-gradient-to-r from-slate-400 to-slate-600" iconBg="bg-slate-100 text-slate-700" accentText="text-slate-800" />
+        <SummaryCard icon={<TrendingDown size={20} />} label="Prejuízo" value={totals.prejuizo} isCurrency gradient="bg-gradient-to-r from-red-400 to-red-600" iconBg="bg-red-50 text-red-600" accentText="text-red-700" />
+        <SummaryCard icon={<Trophy size={20} />} label="Premiação" value={totals.premiacao} isCurrency gradient="bg-gradient-to-r from-emerald-400 to-emerald-600" iconBg="bg-emerald-50 text-emerald-600" accentText="text-emerald-700" />
+        <SummaryCard icon={<Megaphone size={20} />} label="Venda Marketing" value={totals.vendaMarketing} isCurrency gradient="bg-gradient-to-r from-brand-400 to-brand-500" iconBg="bg-brand-50 text-brand-600" accentText="text-brand-700" />
+        <SummaryCard icon={<Banknote size={20} />} label="Venda Dinheiro" value={totals.vendaDinheiro} isCurrency gradient="bg-gradient-to-r from-emerald-400 to-emerald-500" iconBg="bg-emerald-50 text-emerald-600" accentText="text-emerald-700" />
+        <SummaryCard icon={<HandCoins size={20} />} label="Fiado" value={totals.fiado} isCurrency gradient="bg-gradient-to-r from-amber-400 to-amber-600" iconBg="bg-amber-50 text-amber-600" accentText="text-amber-700" />
+        <SummaryCard icon={<Smartphone size={20} />} label="Valor Pix" value={totals.valorPix} isCurrency gradient="bg-gradient-to-r from-brand-500 to-brand-700" iconBg="bg-brand-50 text-brand-600" accentText="text-brand-700" />
+        <SummaryCard icon={<TrendingUp size={20} />} label="Total Vendas" value={totalVendas} isCurrency gradient="bg-gradient-to-r from-emerald-400 to-teal-500" iconBg="bg-emerald-50 text-emerald-600" accentText="text-emerald-700" />
+        <SummaryCard icon={resultado >= 0 ? <TrendingUp size={20} /> : <TrendingDown size={20} />} label="Resultado" value={resultado} isCurrency gradient={resultado >= 0 ? 'bg-gradient-to-r from-emerald-400 to-emerald-600' : 'bg-gradient-to-r from-red-400 to-red-600'} iconBg={resultado >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'} accentText={resultado >= 0 ? 'text-emerald-700' : 'text-red-700'} />
       </div>
-
-      {/* Trend chart */}
-      {chartData.length > 0 && (
-        <Card className="p-5 mb-5">
-          <div className="flex items-center gap-2 mb-1">
-            <BarChart3 size={18} className="text-brand-600" />
-            <h3 className="text-sm font-semibold text-slate-800">Comparativo de Vendas e Prejuízo ao Longo do Tempo</h3>
-          </div>
-          <p className="text-xs text-slate-400 mb-4">Venda em Dinheiro, Valor Pix, Venda Marketing e Prejuízo por dia</p>
-          <TrendChart data={chartData} />
-          <div className="flex flex-wrap gap-4 mt-4">
-            {CHART_SERIES.map(s => (
-              <div key={s.key} className="flex items-center gap-2">
-                <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: s.color }} />
-                <span className="text-xs text-slate-600">{s.label}</span>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
 
       {!byBranch.length ? <Card><EmptyState icon={<FileSpreadsheet size={42} />} title="Nenhum bolão" description="Cadastre um bolão para visualizar os totais por filial e período." /> </Card> :
         <div className="space-y-4">{byBranch.map(bg => {
@@ -613,54 +510,95 @@ export function FinancialBolaoGeral() {
           )}
 
           <div className="space-y-3">
-            {entries.map((e, idx) => (
-              <div key={e.id} className="rounded-lg border border-slate-200 p-3 space-y-3 bg-slate-50/50">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><Ticket size={13} /> Bolão {idx + 1}</span>
-                  {!editing && entries.length > 1 && <button onClick={() => removeEntry(e.id)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>}
-                </div>
-
-                {/* Dados do bolão */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Input label="Data" type="date" value={e.bolao_date} onChange={v => updateEntry(e.id, 'bolao_date', v)} />
-                  <Input label="MOD / Modalidade" value={e.modality} onChange={v => updateEntry(e.id, 'modality', v)} placeholder="Ex: Mega-Sena" />
-                  <Input label="Concurso" value={e.contest} onChange={v => updateEntry(e.id, 'contest', v)} placeholder="Ex: 2800" />
-                  {moneyField('Valor Bolão', e.bolao_value, v => updateEntry(e.id, 'bolao_value', v))}
-                  <Input label="% Comissão" type="number" step="0.01" value={e.fee_percentage} onChange={v => {
-                    updateEntry(e.id, 'fee_percentage', v);
-                    const val = parseBRL(e.bolao_value);
-                    const pct = Number(v) || 0;
-                    if (val && pct) updateEntry(e.id, 'fee_value', maskBRL(String(money(val * pct / 100))));
-                  }} placeholder="Ex: 5" min={0} max={100} />
-                  {moneyField('Valor Comissão', e.fee_value, v => updateEntry(e.id, 'fee_value', v))}
-                </div>
-
-                {/* Campos financeiros do mês */}
-                <div className="pt-2 border-t border-slate-200">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Valores do Mês</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {moneyField('Prejuízo', e.prejuizo, v => updateEntry(e.id, 'prejuizo', v))}
-                    {moneyField('Comissão', e.comissao, v => updateEntry(e.id, 'comissao', v))}
-                    {moneyField('Premiação', e.premiacao, v => updateEntry(e.id, 'premiacao', v))}
-                    {moneyField('Venda Marketing', e.venda_marketing, v => updateEntry(e.id, 'venda_marketing', v))}
-                    {moneyField('Venda em Dinheiro', e.venda_dinheiro, v => updateEntry(e.id, 'venda_dinheiro', v))}
-                    {moneyField('Valor Pix', e.valor_pix, v => updateEntry(e.id, 'valor_pix', v))}
-                    {moneyField('Fiado', e.fiado, v => updateEntry(e.id, 'fiado', v))}
-                    <div className="sm:col-span-2">
-                      <Input label="Fiado (observação)" value={e.fiado_obs} onChange={v => updateEntry(e.id, 'fiado_obs', v)} placeholder="Observação sobre o fiado" />
-                    </div>
+            {entries.map((e, idx) => {
+              const addInfoOpen = !!showAddInfo[e.id];
+              return (
+                <div key={e.id} className="rounded-xl border border-slate-200 p-4 space-y-3 bg-white">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-500 flex items-center gap-1.5"><Ticket size={13} /> Bolão {idx + 1}</span>
+                    {!editing && entries.length > 1 && <button onClick={() => removeEntry(e.id)} className="text-red-500 hover:text-red-700"><Trash2 size={15} /></button>}
                   </div>
-                </div>
 
-                <Input label="Observações" value={e.notes} onChange={v => updateEntry(e.id, 'notes', v)} placeholder="Opcional" />
-              </div>
-            ))}
+                  {/* Period toggle: Diário / Mensal */}
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => updateEntry(e.id, 'period', 'daily')}
+                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${e.period === 'daily' ? 'bg-brand-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      <Calendar size={15} /> Diário
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateEntry(e.id, 'period', 'monthly')}
+                      className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium transition-all ${e.period === 'monthly' ? 'bg-brand-500 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                    >
+                      <CalendarDays size={15} /> Mensal
+                    </button>
+                  </div>
+
+                  {/* Dados do bolão */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {e.period === 'monthly'
+                      ? <div>
+                          <span className="block text-sm font-medium text-slate-700 mb-1.5">Mês de referência</span>
+                          <input type="month" value={e.bolao_month} onChange={ev => updateEntry(e.id, 'bolao_month', ev.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 focus:outline-none transition-all" />
+                        </div>
+                      : <Input label="Data" type="date" value={e.bolao_date} onChange={v => updateEntry(e.id, 'bolao_date', v)} />
+                    }
+                    <Input label="MOD / Modalidade" value={e.modality} onChange={v => updateEntry(e.id, 'modality', v)} placeholder="Ex: Mega-Sena" />
+                    <Input label="Concurso" value={e.contest} onChange={v => updateEntry(e.id, 'contest', v)} placeholder="Ex: 2800" />
+                    {moneyField('Valor Bolão', e.bolao_value, v => updateEntry(e.id, 'bolao_value', v))}
+                    <Input label="% Comissão" type="number" step="0.01" value={e.fee_percentage} onChange={v => {
+                      updateEntry(e.id, 'fee_percentage', v);
+                      const val = parseBRL(e.bolao_value);
+                      const pct = Number(v) || 0;
+                      if (val && pct) updateEntry(e.id, 'fee_value', maskBRL(String(money(val * pct / 100))));
+                    }} placeholder="Ex: 5" min={0} max={100} />
+                    {moneyField('Valor Comissão', e.fee_value, v => updateEntry(e.id, 'fee_value', v))}
+                  </div>
+
+                  {/* Botão Informações adicionais */}
+                  <button
+                    type="button"
+                    onClick={() => toggleAddInfo(e.id)}
+                    className="w-full flex items-center justify-between px-4 py-2.5 rounded-lg bg-slate-50 border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-all"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Info size={16} className="text-brand-600" />
+                      Informações adicionais
+                    </span>
+                    {addInfoOpen ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
+                  </button>
+
+                  {/* Campos financeiros adicionais (colapsáveis) */}
+                  {addInfoOpen && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3 space-y-3">
+                      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Valores {e.period === 'monthly' ? 'do Mês' : 'do Dia'}</p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                        {moneyField('Prejuízo', e.prejuizo, v => updateEntry(e.id, 'prejuizo', v))}
+                        {moneyField('Comissão', e.comissao, v => updateEntry(e.id, 'comissao', v))}
+                        {moneyField('Premiação', e.premiacao, v => updateEntry(e.id, 'premiacao', v))}
+                        {moneyField('Venda Marketing', e.venda_marketing, v => updateEntry(e.id, 'venda_marketing', v))}
+                        {moneyField('Venda em Dinheiro', e.venda_dinheiro, v => updateEntry(e.id, 'venda_dinheiro', v))}
+                        {moneyField('Valor Pix', e.valor_pix, v => updateEntry(e.id, 'valor_pix', v))}
+                        {moneyField('Fiado', e.fiado, v => updateEntry(e.id, 'fiado', v))}
+                        <div className="sm:col-span-2">
+                          <Input label="Fiado (observação)" value={e.fiado_obs} onChange={v => updateEntry(e.id, 'fiado_obs', v)} placeholder="Observação sobre o fiado" />
+                        </div>
+                      </div>
+                      <Input label="Observações" value={e.notes} onChange={v => updateEntry(e.id, 'notes', v)} placeholder="Opcional" />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {!editing && <Button variant="secondary" onClick={addEntry}><Plus size={16} /> Adicionar bolão</Button>}
 
           {validEntries.length > 0 && (
-            <div className="rounded-lg border border-slate-200 p-4 space-y-1 bg-slate-50 text-sm">
+            <div className="rounded-xl border border-slate-200 p-4 space-y-1 bg-slate-50 text-sm">
               <div className="flex justify-between"><span className="text-slate-600">Total geral ({validEntries.length} bolão(ões))</span><strong>R$ {formatBRL(validEntries.reduce((s, e) => s + parseBRL(e.bolao_value), 0))}</strong></div>
               <div className="flex justify-between"><span className="text-slate-600">Total comissão</span><strong className="text-accent-700">R$ {formatBRL(validEntries.reduce((s, e) => s + parseBRL(e.comissao || e.fee_value || recalcFee(e)), 0))}</strong></div>
               <div className="flex justify-between"><span className="text-slate-600">Total prejuízo</span><strong className="text-red-600">R$ {formatBRL(validEntries.reduce((s, e) => s + parseBRL(e.prejuizo), 0))}</strong></div>
