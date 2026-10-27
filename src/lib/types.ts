@@ -343,6 +343,14 @@ export interface FinBolaoGeral {
   bolao_value: number;
   fee_percentage: number;
   fee_value: number;
+  prejuizo: number;
+  comissao: number;
+  premiacao: number;
+  venda_marketing: number;
+  venda_dinheiro: number;
+  fiado: number;
+  fiado_obs: string | null;
+  valor_pix: number;
   notes: string | null;
   created_by: string | null;
   created_at: string;
