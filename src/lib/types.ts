@@ -358,6 +358,26 @@ export interface FinBolaoGeral {
   branch?: Branch;
 }
 
+export interface FinBolaoGeralAddInfo {
+  id: string;
+  branch_id: string;
+  period: 'daily' | 'monthly';
+  ref_date: string;
+  prejuizo: number;
+  comissao: number;
+  premiacao: number;
+  venda_marketing: number;
+  venda_dinheiro: number;
+  fiado: number;
+  fiado_obs: string | null;
+  valor_pix: number;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  branch?: Branch;
+}
+
 export interface FinLoan {
   id: string;
   from_branch_id: string;
