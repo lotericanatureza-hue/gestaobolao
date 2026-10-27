@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Building2, Calendar, ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Plus, Trash2, Ticket, TrendingDown, TrendingUp, DollarSign, Megaphone, Banknote, HandCoins, Smartphone, Trophy } from 'lucide-react';
+import { Building2, Calendar, ChevronDown, ChevronRight, FileSpreadsheet, Pencil, Plus, Trash2, Ticket, TrendingDown, TrendingUp, DollarSign, Megaphone, Banknote, HandCoins, Smartphone, Trophy, BarChart3 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -80,6 +80,91 @@ function SummaryCard({ icon, label, value, color }: SummaryCardProps) {
       </div>
       <p className="text-lg font-bold text-slate-900">R$ {formatBRL(value)}</p>
     </Card>
+  );
+}
+
+type ChartPoint = {
+  date: string;
+  label: string;
+  vendaDinheiro: number;
+  valorPix: number;
+  vendaMarketing: number;
+  prejuizo: number;
+};
+
+type ChartSeries = {
+  key: 'vendaDinheiro' | 'valorPix' | 'vendaMarketing' | 'prejuizo';
+  label: string;
+  color: string;
+};
+
+const CHART_SERIES: ChartSeries[] = [
+  { key: 'vendaDinheiro', label: 'Venda Dinheiro', color: '#10b981' },
+  { key: 'valorPix', label: 'Valor Pix', color: '#3b63f6' },
+  { key: 'vendaMarketing', label: 'Venda Marketing', color: '#f97316' },
+  { key: 'prejuizo', label: 'Prejuízo', color: '#ef4444' },
+];
+
+function TrendChart({ data }: { data: ChartPoint[] }) {
+  const W = 760;
+  const H = 260;
+  const padL = 64;
+  const padR = 16;
+  const padT = 16;
+  const padB = 40;
+  const plotW = W - padL - padR;
+  const plotH = H - padT - padB;
+
+  const maxVal = Math.max(1, ...data.flatMap(d => [d.vendaDinheiro, d.valorPix, d.vendaMarketing, d.prejuizo]));
+  const n = data.length;
+  const groupW = n > 0 ? plotW / n : plotW;
+  const barW = Math.min(14, (groupW - 6) / CHART_SERIES.length);
+  const gap = barW + 2;
+
+  const ticks = 4;
+  const tickVals = Array.from({ length: ticks + 1 }, (_, i) => (maxVal * i) / ticks);
+
+  const xForGroup = (i: number) => padL + i * groupW + groupW / 2;
+  const yForVal = (v: number) => padT + plotH - (v / maxVal) * plotH;
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 480 }} preserveAspectRatio="xMidYMid meet">
+        {/* Grid lines + Y labels */}
+        {tickVals.map((tv, i) => {
+          const y = yForVal(tv);
+          return (
+            <g key={i}>
+              <line x1={padL} y1={y} x2={W - padR} y2={y} stroke="#e2e8f0" strokeWidth={1} />
+              <text x={padL - 8} y={y + 4} textAnchor="end" fontSize={10} fill="#94a3b8">R$ {formatBRL(tv)}</text>
+            </g>
+          );
+        })}
+        {/* Bars + X labels */}
+        {data.map((d, i) => {
+          const cx = xForGroup(i);
+          const startX = cx - (gap * CHART_SERIES.length) / 2 + 1;
+          return (
+            <g key={d.date}>
+              {CHART_SERIES.map((s, si) => {
+                const v = d[s.key];
+                const h = (v / maxVal) * plotH;
+                const x = startX + si * gap;
+                const y = padT + plotH - h;
+                return v > 0 ? (
+                  <rect key={s.key} x={x} y={y} width={barW} height={h} rx={2} fill={s.color} opacity={0.85}>
+                    <title>{`${s.label} — ${d.label}: R$ ${formatBRL(v)}`}</title>
+                  </rect>
+                ) : null;
+              })}
+              <text x={cx} y={H - padB + 16} textAnchor="middle" fontSize={10} fill="#64748b">{d.label}</text>
+            </g>
+          );
+        })}
+        {/* X axis baseline */}
+        <line x1={padL} y1={padT + plotH} x2={W - padR} y2={padT + plotH} stroke="#cbd5e1" strokeWidth={1.5} />
+      </svg>
+    </div>
   );
 }
 
@@ -218,6 +303,26 @@ export function FinancialBolaoGeral() {
     return Array.from(map.values()).sort((a, b) => (a.branch?.name ?? '').localeCompare(b.branch?.name ?? ''));
   }, [filtered]);
 
+  const chartData = useMemo<ChartPoint[]>(() => {
+    const map = new Map<string, ChartPoint>();
+    for (const r of filtered) {
+      let p = map.get(r.bolao_date);
+      if (!p) {
+        p = {
+          date: r.bolao_date,
+          label: formatDateBR(r.bolao_date, { day: '2-digit', month: '2-digit' }),
+          vendaDinheiro: 0, valorPix: 0, vendaMarketing: 0, prejuizo: 0,
+        };
+        map.set(r.bolao_date, p);
+      }
+      p.vendaDinheiro += Number(r.venda_dinheiro ?? 0);
+      p.valorPix += Number(r.valor_pix ?? 0);
+      p.vendaMarketing += Number(r.venda_marketing ?? 0);
+      p.prejuizo += Number(r.prejuizo ?? 0);
+    }
+    return Array.from(map.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [filtered]);
+
   const multiBranch = isAdmin && !selectedBranch;
 
   const openNew = () => {
@@ -353,6 +458,26 @@ export function FinancialBolaoGeral() {
         <SummaryCard icon={<TrendingUp size={18} />} label="Total Vendas" value={totalVendas} color="bg-emerald-50 text-emerald-600" />
         <SummaryCard icon={<TrendingUp size={18} />} label="Resultado" value={resultado} color={resultado >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'} />
       </div>
+
+      {/* Trend chart */}
+      {chartData.length > 0 && (
+        <Card className="p-5 mb-5">
+          <div className="flex items-center gap-2 mb-1">
+            <BarChart3 size={18} className="text-brand-600" />
+            <h3 className="text-sm font-semibold text-slate-800">Comparativo de Vendas e Prejuízo ao Longo do Tempo</h3>
+          </div>
+          <p className="text-xs text-slate-400 mb-4">Venda em Dinheiro, Valor Pix, Venda Marketing e Prejuízo por dia</p>
+          <TrendChart data={chartData} />
+          <div className="flex flex-wrap gap-4 mt-4">
+            {CHART_SERIES.map(s => (
+              <div key={s.key} className="flex items-center gap-2">
+                <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: s.color }} />
+                <span className="text-xs text-slate-600">{s.label}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
 
       {!byBranch.length ? <Card><EmptyState icon={<FileSpreadsheet size={42} />} title="Nenhum bolão" description="Cadastre um bolão para visualizar os totais por filial e período." /> </Card> :
         <div className="space-y-4">{byBranch.map(bg => {
