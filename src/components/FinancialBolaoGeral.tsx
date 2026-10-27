@@ -434,23 +434,12 @@ export function FinancialBolaoGeral() {
     if (err) setAddInfoError(err.message); else await refresh();
   };
 
-  if (loading && !rows.length && !addInfoRows.length) return <div className="flex justify-center py-20"><Spinner /></div>;
-
   const totalBruto = totals.bolaoValue + totals.feeValue;
   const totalVendas = totals.vendaDinheiro + totals.vendaMarketing + totals.valorPix;
   const totalReceitas = totals.comissao + totals.premiacao + totals.vendaMarketing;
   const resultado = totalReceitas - totals.prejuizo - totals.fiado;
 
-  // Group addInfo by branch for display
-  const addInfoByBranch = useMemo(() => {
-    const map = new Map<string, FinBolaoGeralAddInfo[]>();
-    for (const a of filteredAddInfo) {
-      const arr = map.get(a.branch_id) ?? [];
-      arr.push(a);
-      map.set(a.branch_id, arr);
-    }
-    return map;
-  }, [filteredAddInfo]);
+  if (loading && !rows.length && !addInfoRows.length) return <div className="flex justify-center py-20"><Spinner /></div>;
 
   return (
     <div>
