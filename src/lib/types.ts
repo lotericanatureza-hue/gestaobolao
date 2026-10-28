@@ -366,6 +366,7 @@ export interface FinBolaoGeralAddInfo {
   prejuizo: number;
   comissao: number;
   premiacao: number;
+  taxa: number;
   venda_marketing: number;
   venda_dinheiro: number;
   fiado: number;

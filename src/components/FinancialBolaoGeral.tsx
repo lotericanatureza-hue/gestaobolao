@@ -40,6 +40,7 @@ type AddInfoEntry = {
   prejuizo: string;
   comissao: string;
   premiacao: string;
+  taxa: string;
   venda_marketing: string;
   venda_dinheiro: string;
   fiado: string;
@@ -56,6 +57,7 @@ const emptyAddInfo = (): AddInfoEntry => ({
   prejuizo: '',
   comissao: '',
   premiacao: '',
+  taxa: '',
   venda_marketing: '',
   venda_dinheiro: '',
   fiado: '',
@@ -88,12 +90,13 @@ type Acc = {
   fee: number;       // comissão dos bolões
   prejuizo: number;
   premiacao: number;
+  taxa: number;
   marketing: number;
   dinheiro: number;
   fiado: number;
   pix: number;
 };
-const emptyAcc = (): Acc => ({ bolao: 0, fee: 0, prejuizo: 0, premiacao: 0, marketing: 0, dinheiro: 0, fiado: 0, pix: 0 });
+const emptyAcc = (): Acc => ({ bolao: 0, fee: 0, prejuizo: 0, premiacao: 0, taxa: 0, marketing: 0, dinheiro: 0, fiado: 0, pix: 0 });
 const n = (v: unknown) => Number(v ?? 0) || 0;
 
 function addRow(acc: Acc, r: FinBolaoGeral) {
@@ -109,6 +112,7 @@ function addRow(acc: Acc, r: FinBolaoGeral) {
 function addInfo(acc: Acc, a: FinBolaoGeralAddInfo) {
   acc.prejuizo += n(a.prejuizo);
   acc.premiacao += n(a.premiacao);
+  acc.taxa += n(a.taxa);
   acc.marketing += n(a.venda_marketing);
   acc.dinheiro += n(a.venda_dinheiro);
   acc.fiado += n(a.fiado);
@@ -117,8 +121,8 @@ function addInfo(acc: Acc, a: FinBolaoGeralAddInfo) {
 
 /** Total arrecadado = Pix + Dinheiro + Fiado + Marketing */
 const totalArrecadado = (a: Acc) => a.pix + a.dinheiro + a.fiado + a.marketing;
-/** Resultado = Total comissão − Total prejuízo  (ajuste aqui se a regra mudar) */
-const resultadoOf = (a: Acc) => a.fee - a.prejuizo;
+/** Resultado = Total comissão − Total prejuízo − Total taxa  (ajuste aqui se a regra mudar) */
+const resultadoOf = (a: Acc) => a.fee - a.prejuizo - a.taxa;
 
 /* ------------------------------------------------------------------ */
 /* Componentes visuais                                                 */
@@ -196,6 +200,7 @@ function Breakdown({ acc }: { acc: Acc }) {
       <div className="px-5 pb-5">
         <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 flex flex-wrap gap-x-8 gap-y-2 text-sm">
           <span className="text-slate-500">Premiação: <strong className="text-emerald-700">R$ {formatBRL(acc.premiacao)}</strong></span>
+          <span className="text-slate-500">Taxa: <strong className="text-red-700">R$ {formatBRL(acc.taxa)}</strong></span>
           <span className="text-slate-500">Fiado em aberto: <strong className="text-amber-700">R$ {formatBRL(acc.fiado)}</strong></span>
         </div>
       </div>
@@ -422,6 +427,7 @@ export function FinancialBolaoGeral() {
       prejuizo: m(a.prejuizo),
       comissao: m(a.comissao),
       premiacao: m(a.premiacao),
+      taxa: m(a.taxa),
       venda_marketing: m(a.venda_marketing),
       venda_dinheiro: m(a.venda_dinheiro),
       fiado: m(a.fiado),
@@ -456,6 +462,7 @@ export function FinancialBolaoGeral() {
         prejuizo: parseBRL(addInfoEntry.prejuizo),
         comissao: parseBRL(addInfoEntry.comissao),
         premiacao: parseBRL(addInfoEntry.premiacao),
+        taxa: parseBRL(addInfoEntry.taxa),
         venda_marketing: parseBRL(addInfoEntry.venda_marketing),
         venda_dinheiro: parseBRL(addInfoEntry.venda_dinheiro),
         fiado: parseBRL(addInfoEntry.fiado),
@@ -590,7 +597,7 @@ export function FinancialBolaoGeral() {
           bar="bg-gradient-to-r from-accent-400 to-accent-600" iconBg="bg-accent-50 text-accent-600" text="text-accent-700" />
         <Kpi icon={<TrendingDown size={20} />} label="Total Prejuízo" hint="Prejuízos lançados no período" value={totals.prejuizo}
           bar="bg-gradient-to-r from-red-400 to-red-600" iconBg="bg-red-50 text-red-600" text="text-red-700" />
-        <Kpi icon={resultPositive ? <TrendingUp size={20} /> : <TrendingDown size={20} />} label="Resultado" hint="Comissão − Prejuízo" value={resultado}
+        <Kpi icon={resultPositive ? <TrendingUp size={20} /> : <TrendingDown size={20} />} label="Resultado" hint="Comissão − Prejuízo − Taxa" value={resultado}
           bar={resultPositive ? 'bg-gradient-to-r from-emerald-400 to-emerald-600' : 'bg-gradient-to-r from-red-400 to-red-600'}
           iconBg={resultPositive ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}
           text={resultPositive ? 'text-emerald-700' : 'text-red-700'} />
@@ -671,6 +678,7 @@ export function FinancialBolaoGeral() {
                     <th className="px-2 py-2 font-medium">Filial</th>
                     <th className="px-2 py-2 font-medium text-right">Prejuízo</th>
                     <th className="px-2 py-2 font-medium text-right">Premiação</th>
+                    <th className="px-2 py-2 font-medium text-right">Taxa</th>
                     <th className="px-2 py-2 font-medium text-right">Marketing</th>
                     <th className="px-2 py-2 font-medium text-right">Dinheiro</th>
                     <th className="px-2 py-2 font-medium text-right">Fiado</th>
@@ -689,6 +697,7 @@ export function FinancialBolaoGeral() {
                         <td className="px-2 py-2 text-slate-600">{a.branch?.name ?? '—'}</td>
                         <td className="px-2 py-2 text-right text-red-600">R$ {formatBRL(n(a.prejuizo))}</td>
                         <td className="px-2 py-2 text-right text-emerald-600">R$ {formatBRL(n(a.premiacao))}</td>
+                        <td className="px-2 py-2 text-right text-red-600">R$ {formatBRL(n(a.taxa))}</td>
                         <td className="px-2 py-2 text-right">R$ {formatBRL(n(a.venda_marketing))}</td>
                         <td className="px-2 py-2 text-right">R$ {formatBRL(n(a.venda_dinheiro))}</td>
                         <td className="px-2 py-2 text-right text-amber-600">R$ {formatBRL(n(a.fiado))}</td>
@@ -791,6 +800,7 @@ export function FinancialBolaoGeral() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {moneyField('Prejuízo', addInfoEntry.prejuizo, v => updateAddInfo('prejuizo', v))}
             {moneyField('Premiação', addInfoEntry.premiacao, v => updateAddInfo('premiacao', v))}
+            {moneyField('Taxa', addInfoEntry.taxa, v => updateAddInfo('taxa', v))}
             {moneyField('Venda Marketing', addInfoEntry.venda_marketing, v => updateAddInfo('venda_marketing', v))}
             {moneyField('Venda em Dinheiro', addInfoEntry.venda_dinheiro, v => updateAddInfo('venda_dinheiro', v))}
             {moneyField('Valor Pix', addInfoEntry.valor_pix, v => updateAddInfo('valor_pix', v))}
