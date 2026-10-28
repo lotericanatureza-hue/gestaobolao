@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Building2, Calendar, Camera, ChevronDown, ChevronRight, FileJson, Lock, Percent, Plus, Trash2, Unlock, Upload, User } from 'lucide-react';
-import { createWorker, PSM } from 'tesseract.js';
+import { createWorker } from 'tesseract.js';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -374,7 +374,7 @@ export function FinancialBolaoClosing() {
         const pre = await preprocessImage(file).catch(() => ({ grayscale: file, binarized: file }));
         let best: { extracted: Extracao; text: string; score: number } | null = null;
         for (const image of [pre.grayscale, pre.binarized]) {
-          for (const mode of [PSM.SINGLE_BLOCK, PSM.SPARSE_TEXT]) {
+          for (const mode of [6, 11]) {
             await worker.setParameters({ tessedit_pageseg_mode: mode, preserve_interword_spaces: '1' });
             const result = await worker.recognize(image);
             const extracted = parseCaixaText(result.data.text);
