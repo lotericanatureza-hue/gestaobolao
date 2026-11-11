@@ -195,10 +195,6 @@ export interface FinDailyControl {
   current_safe_amount: number;
   balance_difference: number;
   withdrawals: DailyWithdrawal[];
-  cover_003: number;
-  cover_003_type: 'deposit' | 'bank_balance' | null;
-  bank_balance: number | null;
-  deposits: DailyDeposit[];
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -213,6 +209,10 @@ export interface FinFinancialControl {
   armored_car: number;
   safe_difference: number;
   games_collection: number;
+  cover_003: number;
+  cover_003_type: 'deposit' | 'bank_balance' | null;
+  bank_balance: number | null;
+  deposits: DailyDeposit[];
   notes: string | null;
   created_by: string | null;
   created_at: string;

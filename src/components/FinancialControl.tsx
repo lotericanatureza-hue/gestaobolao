@@ -4,8 +4,10 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, MoneyInput, Select, Modal, Spinner, EmptyState } from './ui';
-import { formatBRL, formatDateBR, parseBRL } from '../lib/format';
-import type { FinFinancialControl, Branch } from '../lib/types';
+import { formatBRL, formatDateBR, parseBRL, maskBRL } from '../lib/format';
+import type { FinFinancialControl, Branch, DailyDeposit } from '../lib/types';
+import { DailyCoverageFields } from './DailyCoverageFields';
+import type { CoverageType } from './DailyCoverageFields';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const now = new Date();
@@ -19,6 +21,9 @@ const emptyForm = {
   armored_car: '',
   safe_difference: '',
   games_collection: '',
+  cover_003: '',
+  cover_003_type: '' as CoverageType,
+  bank_balance: '',
   notes: '',
 };
 
@@ -45,6 +50,7 @@ export function FinancialControl() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<FinFinancialControl | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [deposits, setDeposits] = useState<DailyDeposit[]>([]);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -85,10 +91,12 @@ export function FinancialControl() {
   const gamesTotal = entries.reduce((s, e) => s + gamesOf(Number(e.games_collection)), 0);
   const saldoTotal = entries.reduce((s, e) => s + saldoOf(Number(e.armored_car), Number(e.end_043)), 0);
   const formSaldo = saldoOf(toNumber(form.armored_car), toNumber(form.end_043));
+  const totalDeposits = entries.reduce((s, e) => s + (e.deposits ?? []).reduce((ds, d) => ds + Number(d.amount), 0), 0);
 
   const openNew = () => {
     setEditing(null);
     setForm(emptyForm);
+    setDeposits([]);
     setFormError(null);
     setModalOpen(true);
   };
@@ -102,14 +110,22 @@ export function FinancialControl() {
       armored_car: String(e.armored_car),
       safe_difference: String(e.safe_difference),
       games_collection: String(Math.abs(e.games_collection)),
+      cover_003: maskBRL(String(Math.round(Number(e.cover_003) * 100))),
+      cover_003_type: (e.cover_003_type ?? '') as CoverageType,
+      bank_balance: maskBRL(String(Math.round(Number(e.bank_balance ?? 0) * 100))),
       notes: e.notes ?? '',
     });
+    setDeposits(e.deposits ?? []);
     setFormError(null);
     setModalOpen(true);
   };
 
   const save = async () => {
     if (!form.entry_date) { setFormError('Informe a data do lançamento.'); return; }
+    const coverAmount = parseBRL(form.cover_003);
+    const coverActive = coverAmount > 0;
+    if (coverActive && !form.cover_003_type) { setFormError('Escolha se a Cobertura 003 foi depósito ou saldo em conta.'); return; }
+    if (coverActive && form.cover_003_type === 'deposit' && !deposits.some((d) => d.amount > 0)) { setFormError('Informe ao menos um depósito.'); return; }
     setSaving(true);
     setFormError(null);
     const payload = {
@@ -120,6 +136,10 @@ export function FinancialControl() {
       armored_car: toNumber(form.armored_car),
       safe_difference: toNumber(form.safe_difference),
       games_collection: gamesOf(toNumber(form.games_collection)),
+      cover_003: coverActive ? coverAmount : 0,
+      cover_003_type: coverActive ? (form.cover_003_type || null) : null,
+      bank_balance: coverActive && form.cover_003_type === 'bank_balance' ? parseBRL(form.bank_balance) : null,
+      deposits: (coverActive && form.cover_003_type === 'deposit' ? deposits.filter((d) => d.amount > 0) : []) as unknown as Record<string, unknown>[],
       notes: form.notes.trim() || null,
     };
     const res = editing
@@ -164,7 +184,7 @@ export function FinancialControl() {
 
       {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3 mb-4">{error}</p>}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center"><Receipt size={22} /></div>
@@ -186,6 +206,13 @@ export function FinancialControl() {
           </div>
           <p className={`text-2xl font-bold ${saldoTotal < 0 ? 'text-red-600' : 'text-slate-900'}`}>R$ {formatBRL(saldoTotal)}</p>
         </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><Wallet size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Depósitos</p>
+          </div>
+          <p className="text-2xl font-bold text-emerald-600">R$ {formatBRL(totalDeposits)}</p>
+        </Card>
       </div>
 
       {!selectedBranch ? (
@@ -205,6 +232,8 @@ export function FinancialControl() {
                   <th className="px-4 py-3 font-medium text-right">Diferença no cofre</th>
                   <th className="px-4 py-3 font-medium text-right">Saldo</th>
                   <th className="px-4 py-3 font-medium text-right">Arrecadação</th>
+                  <th className="px-4 py-3 font-medium text-right">Cobertura 003</th>
+                  <th className="px-4 py-3 font-medium text-right">Depósitos</th>
                   <th className="px-4 py-3 font-medium">Observação</th>
                   <th className="px-4 py-3 font-medium text-right">Ações</th>
                 </tr>
@@ -219,6 +248,8 @@ export function FinancialControl() {
                     <td className="px-4 py-3 text-right text-slate-600">R$ {formatBRL(Number(e.safe_difference))}</td>
                     <td className={`px-4 py-3 text-right font-semibold ${saldoOf(Number(e.armored_car), Number(e.end_043)) < 0 ? 'text-red-600' : 'text-slate-900'}`}>R$ {formatBRL(saldoOf(Number(e.armored_car), Number(e.end_043)))}</td>
                     <td className="px-4 py-3 text-right font-semibold text-red-700">R$ {formatBRL(gamesOf(Number(e.games_collection)))}</td>
+                    <td className="px-4 py-3 text-right text-slate-600">R$ {formatBRL(Number(e.cover_003))}</td>
+                    <td className="px-4 py-3 text-right text-emerald-600">R$ {formatBRL((e.deposits ?? []).reduce((ds, d) => ds + Number(d.amount), 0))}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate">{e.notes ?? '—'}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -250,6 +281,16 @@ export function FinancialControl() {
             <span className={`text-sm font-semibold ${formSaldo < 0 ? 'text-red-600' : 'text-slate-900'}`}>R$ {formatBRL(formSaldo)}</span>
           </div>
           <MoneyInput label="Arrecadação de jogos" value={form.games_collection} onChange={(v) => setForm({ ...form, games_collection: v })} />
+          <DailyCoverageFields
+            cover={form.cover_003}
+            onCoverChange={(v) => setForm({ ...form, cover_003: v })}
+            coverType={form.cover_003_type}
+            onCoverTypeChange={(v) => setForm({ ...form, cover_003_type: v })}
+            bankBalance={form.bank_balance}
+            onBankBalanceChange={(v) => setForm({ ...form, bank_balance: v })}
+            deposits={deposits}
+            onDepositsChange={setDeposits}
+          />
           <Input label="Observação" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Notas adicionais" />
           {formError && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{formError}</p>}
           <div className="flex justify-end gap-2 pt-2">
