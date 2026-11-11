@@ -29,6 +29,8 @@ const toNumber = (value: string) => {
 
 const saldoOf = (cofre: number, end043: number) => cofre - end043;
 
+const gamesOf = (value: number) => -Math.abs(value);
+
 export function FinancialControl() {
   const { profile } = useAuth();
   const isAdmin = profile?.role === 'admin';
@@ -80,7 +82,7 @@ export function FinancialControl() {
   useEffect(() => { fetchData(); }, [fetchData]);
 
   const branchOptions = branches.map((b) => ({ value: b.id, label: b.name }));
-  const gamesTotal = entries.reduce((s, e) => s + Number(e.games_collection), 0);
+  const gamesTotal = entries.reduce((s, e) => s + gamesOf(Number(e.games_collection)), 0);
   const saldoTotal = entries.reduce((s, e) => s + saldoOf(Number(e.armored_car), Number(e.end_043)), 0);
   const formSaldo = saldoOf(toNumber(form.armored_car), toNumber(form.end_043));
 
@@ -99,7 +101,7 @@ export function FinancialControl() {
       end_043: String(e.end_043),
       armored_car: String(e.armored_car),
       safe_difference: String(e.safe_difference),
-      games_collection: String(e.games_collection),
+      games_collection: String(Math.abs(e.games_collection)),
       notes: e.notes ?? '',
     });
     setFormError(null);
@@ -117,7 +119,7 @@ export function FinancialControl() {
       end_043: toNumber(form.end_043),
       armored_car: toNumber(form.armored_car),
       safe_difference: toNumber(form.safe_difference),
-      games_collection: toNumber(form.games_collection),
+      games_collection: gamesOf(toNumber(form.games_collection)),
       notes: form.notes.trim() || null,
     };
     const res = editing
@@ -172,10 +174,10 @@ export function FinancialControl() {
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><Ticket size={22} /></div>
+            <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center"><Ticket size={22} /></div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Arrecadação de jogos</p>
           </div>
-          <p className="text-2xl font-bold text-emerald-600">R$ {formatBRL(gamesTotal)}</p>
+          <p className="text-2xl font-bold text-red-600">R$ {formatBRL(gamesTotal)}</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
@@ -216,7 +218,7 @@ export function FinancialControl() {
                     <td className="px-4 py-3 text-right text-slate-600">R$ {formatBRL(Number(e.armored_car))}</td>
                     <td className="px-4 py-3 text-right text-slate-600">R$ {formatBRL(Number(e.safe_difference))}</td>
                     <td className={`px-4 py-3 text-right font-semibold ${saldoOf(Number(e.armored_car), Number(e.end_043)) < 0 ? 'text-red-600' : 'text-slate-900'}`}>R$ {formatBRL(saldoOf(Number(e.armored_car), Number(e.end_043)))}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-emerald-700">R$ {formatBRL(Number(e.games_collection))}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-red-700">R$ {formatBRL(gamesOf(Number(e.games_collection)))}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate">{e.notes ?? '—'}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
