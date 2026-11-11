@@ -81,8 +81,8 @@ export function FinancialControl() {
 
   const branchOptions = branches.map((b) => ({ value: b.id, label: b.name }));
   const gamesTotal = entries.reduce((s, e) => s + Number(e.games_collection), 0);
-  const saldoTotal = entries.reduce((s, e) => s + saldoOf(Number(e.safe_difference), Number(e.end_043)), 0);
-  const formSaldo = saldoOf(toNumber(form.safe_difference), toNumber(form.end_043));
+  const saldoTotal = entries.reduce((s, e) => s + saldoOf(Number(e.armored_car), Number(e.end_043)), 0);
+  const formSaldo = saldoOf(toNumber(form.armored_car), toNumber(form.end_043));
 
   const openNew = () => {
     setEditing(null);
@@ -215,7 +215,7 @@ export function FinancialControl() {
                     <td className="px-4 py-3 text-right text-slate-600">R$ {formatBRL(Number(e.end_043))}</td>
                     <td className="px-4 py-3 text-right text-slate-600">R$ {formatBRL(Number(e.armored_car))}</td>
                     <td className="px-4 py-3 text-right text-slate-600">R$ {formatBRL(Number(e.safe_difference))}</td>
-                    <td className={`px-4 py-3 text-right font-semibold ${saldoOf(Number(e.safe_difference), Number(e.end_043)) < 0 ? 'text-red-600' : 'text-slate-900'}`}>R$ {formatBRL(saldoOf(Number(e.safe_difference), Number(e.end_043)))}</td>
+                    <td className={`px-4 py-3 text-right font-semibold ${saldoOf(Number(e.armored_car), Number(e.end_043)) < 0 ? 'text-red-600' : 'text-slate-900'}`}>R$ {formatBRL(saldoOf(Number(e.armored_car), Number(e.end_043)))}</td>
                     <td className="px-4 py-3 text-right font-semibold text-emerald-700">R$ {formatBRL(Number(e.games_collection))}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs max-w-[200px] truncate">{e.notes ?? '—'}</td>
                     <td className="px-4 py-3 text-right">
@@ -244,7 +244,7 @@ export function FinancialControl() {
             <MoneyInput label="Diferença no cofre" value={form.safe_difference} onChange={(v) => setForm({ ...form, safe_difference: v })} />
           </div>
           <div className="flex items-center justify-between bg-slate-50 rounded-lg p-3">
-            <span className="text-sm text-slate-600">Saldo (Diferença no cofre - 043 fim do dia)</span>
+            <span className="text-sm text-slate-600">Saldo (Carro forte - 043 fim do dia)</span>
             <span className={`text-sm font-semibold ${formSaldo < 0 ? 'text-red-600' : 'text-slate-900'}`}>R$ {formatBRL(formSaldo)}</span>
           </div>
           <MoneyInput label="Arrecadação de jogos" value={form.games_collection} onChange={(v) => setForm({ ...form, games_collection: v })} />
