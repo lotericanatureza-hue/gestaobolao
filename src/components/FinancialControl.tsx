@@ -17,7 +17,9 @@ const pad = (n: number) => String(n).padStart(2, '0');
 const emptyForm = {
   entry_date: today(),
   start_043: '',
+  start_043_negative: true,
   end_043: '',
+  end_043_negative: true,
   armored_car: '',
   safe_difference: '',
   games_collection: '',
@@ -32,9 +34,38 @@ const toNumber = (value: string) => {
   return isNaN(n) ? 0 : n;
 };
 
-const saldoOf = (cofre: number, end043: number) => cofre - end043;
+const saldoOf = (carroForte: number, end043: number) => carroForte + end043;
+
+const signed043 = (value: string, negative: boolean) => (negative ? -1 : 1) * toNumber(value);
 
 const gamesOf = (value: number) => -Math.abs(value);
+
+function Signed043Field({ label, value, negative, onValueChange, onNegativeChange }: {
+  label: string;
+  value: string;
+  negative: boolean;
+  onValueChange: (v: string) => void;
+  onNegativeChange: (v: boolean) => void;
+}) {
+  return (
+    <div>
+      <span className="block text-sm font-medium text-slate-700 mb-1.5">{label}</span>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={() => onNegativeChange(!negative)}
+          aria-label={negative ? 'Valor negativo, clique para positivo' : 'Valor positivo, clique para negativo'}
+          className="h-10 w-10 shrink-0 rounded-lg border border-slate-200 bg-white text-base font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+        >
+          {negative ? '−' : '+'}
+        </button>
+        <div className="flex-1">
+          <MoneyInput value={value} onChange={onValueChange} />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function FinancialControl() {
   const { profile } = useAuth();
@@ -90,7 +121,7 @@ export function FinancialControl() {
   const branchOptions = branches.map((b) => ({ value: b.id, label: b.name }));
   const gamesTotal = entries.reduce((s, e) => s + gamesOf(Number(e.games_collection)), 0);
   const saldoTotal = entries.reduce((s, e) => s + saldoOf(Number(e.armored_car), Number(e.end_043)), 0);
-  const formSaldo = saldoOf(toNumber(form.armored_car), toNumber(form.end_043));
+  const formSaldo = saldoOf(toNumber(form.armored_car), signed043(form.end_043, form.end_043_negative));
   const totalDeposits = entries.reduce((s, e) => s + (e.deposits ?? []).reduce((ds, d) => ds + Number(d.amount), 0), 0);
 
   const openNew = () => {
@@ -105,8 +136,10 @@ export function FinancialControl() {
     setEditing(e);
     setForm({
       entry_date: e.entry_date,
-      start_043: String(e.start_043),
-      end_043: String(e.end_043),
+      start_043: maskBRL(String(Math.round(Math.abs(Number(e.start_043)) * 100))),
+      start_043_negative: Number(e.start_043) <= 0,
+      end_043: maskBRL(String(Math.round(Math.abs(Number(e.end_043)) * 100))),
+      end_043_negative: Number(e.end_043) <= 0,
       armored_car: String(e.armored_car),
       safe_difference: String(e.safe_difference),
       games_collection: String(Math.abs(e.games_collection)),
@@ -131,8 +164,8 @@ export function FinancialControl() {
     const payload = {
       branch_id: selectedBranch,
       entry_date: form.entry_date,
-      start_043: toNumber(form.start_043),
-      end_043: toNumber(form.end_043),
+      start_043: signed043(form.start_043, form.start_043_negative),
+      end_043: signed043(form.end_043, form.end_043_negative),
       armored_car: toNumber(form.armored_car),
       safe_difference: toNumber(form.safe_difference),
       games_collection: gamesOf(toNumber(form.games_collection)),
@@ -269,8 +302,20 @@ export function FinancialControl() {
         <div className="space-y-4">
           <Input label="Data *" type="date" value={form.entry_date} onChange={(v) => setForm({ ...form, entry_date: v })} required />
           <div className="grid grid-cols-2 gap-4">
-            <MoneyInput label="043 início do dia" value={form.start_043} onChange={(v) => setForm({ ...form, start_043: v })} />
-            <MoneyInput label="043 fim do dia" value={form.end_043} onChange={(v) => setForm({ ...form, end_043: v })} />
+            <Signed043Field
+              label="043 início do dia"
+              value={form.start_043}
+              negative={form.start_043_negative}
+              onValueChange={(v) => setForm({ ...form, start_043: v })}
+              onNegativeChange={(v) => setForm({ ...form, start_043_negative: v })}
+            />
+            <Signed043Field
+              label="043 fim do dia"
+              value={form.end_043}
+              negative={form.end_043_negative}
+              onValueChange={(v) => setForm({ ...form, end_043: v })}
+              onNegativeChange={(v) => setForm({ ...form, end_043_negative: v })}
+            />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <MoneyInput label="Carro forte" value={form.armored_car} onChange={(v) => setForm({ ...form, armored_car: v })} />
