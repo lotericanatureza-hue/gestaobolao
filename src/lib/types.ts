@@ -198,6 +198,21 @@ export interface FinDailyControl {
   created_at: string;
 }
 
+export interface FinFinancialControl {
+  id: string;
+  branch_id: string;
+  entry_date: string;
+  start_043: number;
+  end_043: number;
+  armored_car: number;
+  safe_difference: number;
+  games_collection: number;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DailyWithdrawal {
   id: string;
   description: string;

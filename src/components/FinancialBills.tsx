@@ -5,6 +5,7 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, MoneyInput, Select, Modal, Badge, Spinner, EmptyState } from './ui';
 import { formatBRL, formatDateBR, parseBRL } from '../lib/format';
+import { BillReminders } from './BillReminders';
 import type { FinBill, FinCategory, FinSubcategory, FinPaymentSource, Branch } from '../lib/types';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -228,6 +229,8 @@ export function FinancialBills() {
           </div>
         }
       />
+
+      <BillReminders bills={bills} />
 
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">

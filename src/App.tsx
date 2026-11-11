@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse, Wallet, Receipt, Tag, CalendarCheck, BookX, UserCog, HandCoins, CheckCircle, FileSpreadsheet } from 'lucide-react';
+import { LayoutDashboard, Store, Package, ArrowRightLeft, Users, Ticket, ShoppingBag, Shuffle, Warehouse, Wallet, Receipt, Tag, CalendarCheck, CalendarDays, BookX, UserCog, HandCoins, CheckCircle, FileSpreadsheet } from 'lucide-react';
 import { AuthProvider, useAuth } from './lib/AuthContext';
 import { LoginScreen } from './components/LoginScreen';
 import { Layout, AdminView, OperatorView, FinancialView, NavItem } from './components/Layout';
@@ -23,6 +23,7 @@ import { FinancialEmployees } from './components/FinancialEmployees';
 import { FinancialLoans } from './components/FinancialLoans';
 import { FinancialBolaoClosing } from './components/FinancialBolaoClosing';
 import { FinancialBolaoGeral } from './components/FinancialBolaoGeral';
+import { FinancialControl } from './components/FinancialControl';
 import { ResetPassword, UpdatePassword } from './components/ResetPassword';
 
 function AppContent() {
@@ -94,6 +95,9 @@ function AppContent() {
             { id: 'fin-bills', label: 'Contas a Pagar', icon: <Receipt size={16} /> },
             { id: 'fin-categories', label: 'Categorias', icon: <Tag size={16} /> },
           ]},
+          { id: 'fin-control-group', label: 'Controle Financeiro', icon: <CalendarDays size={18} />, children: [
+            { id: 'fin-control', label: 'Lançamentos Diários', icon: <CalendarDays size={16} /> },
+          ]},
           { id: 'fin-daily', label: 'Controle Diário', icon: <CalendarCheck size={18} /> },
           { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
           { id: 'fin-bolao-closing', label: 'Fechamento Bolão', icon: <Ticket size={18} /> },
@@ -112,6 +116,7 @@ function AppContent() {
         {finView === 'fin-bills' && (isAdmin || isSupervisor) && <FinancialBills />}
         {finView === 'fin-categories' && (isAdmin || isSupervisor) && <FinancialCategories />}
         {finView === 'fin-daily' && (isAdmin || isSupervisor) && <FinancialDailyControl />}
+        {finView === 'fin-control' && (isAdmin || isSupervisor) && <FinancialControl />}
         {finView === 'fin-closing' && <FinancialCashClosing />}
         {finView === 'fin-bolao-closing' && <FinancialBolaoClosing />}
         {finView === 'fin-bolao-geral' && <FinancialBolaoGeral />}
