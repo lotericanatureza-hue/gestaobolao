@@ -173,6 +173,8 @@ export interface FinBill {
   year_ref: number;
   recurring: boolean;
   notes: string | null;
+  attachment_path: string | null;
+  attachment_name: string | null;
   created_by: string | null;
   created_at: string;
   updated_at: string;

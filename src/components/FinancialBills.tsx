@@ -1,11 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Receipt, Plus, Pencil, Trash2, Search, Copy, CheckCircle, Clock, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { Receipt, Plus, Pencil, Trash2, Search, Copy, CheckCircle, Clock, ArrowDownCircle, ArrowUpCircle, Paperclip, Landmark } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, MoneyInput, Select, Modal, Badge, Spinner, EmptyState } from './ui';
 import { formatBRL, formatDateBR, parseBRL } from '../lib/format';
 import { BillReminders } from './BillReminders';
+import { PaymentSourcesModal } from './PaymentSourcesModal';
+import { BillAttachmentPreview } from './BillAttachmentPreview';
+
+const ALLOWED_ATTACHMENT_TYPES = ['image/png', 'application/pdf'];
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 import type { FinBill, FinCategory, FinSubcategory, FinPaymentSource, Branch } from '../lib/types';
 
 const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -44,6 +49,10 @@ export function FinancialBills() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replicating, setReplicating] = useState(false);
+  const [sourcesOpen, setSourcesOpen] = useState(false);
+  const [previewBill, setPreviewBill] = useState<FinBill | null>(null);
+  const [attachFile, setAttachFile] = useState<File | null>(null);
+  const [removeAttachment, setRemoveAttachment] = useState(false);
 
   // Filters
   const [fSearch, setFSearch] = useState('');
@@ -89,6 +98,8 @@ export function FinancialBills() {
   const openNew = () => {
     setEditing(null);
     setForm(emptyForm);
+    setAttachFile(null);
+    setRemoveAttachment(false);
     setError(null);
     setModalOpen(true);
   };
@@ -111,6 +122,8 @@ export function FinancialBills() {
       recurring: b.recurring,
       notes: b.notes ?? '',
     });
+    setAttachFile(null);
+    setRemoveAttachment(false);
     setError(null);
     setModalOpen(true);
   };
@@ -138,14 +151,50 @@ export function FinancialBills() {
       recurring: form.recurring,
       notes: form.notes.trim() || null,
     };
-    if (editing) {
-      await supabase.from('fin_bills').update(payload).eq('id', editing.id);
-    } else {
-      await supabase.from('fin_bills').insert(payload);
+    const oldPath = editing?.attachment_path ?? null;
+    let attachmentPath = removeAttachment ? null : oldPath;
+    let attachmentName = removeAttachment ? null : (editing?.attachment_name ?? null);
+    let uploadedPath: string | null = null;
+    if (attachFile) {
+      const ext = attachFile.name.split('.').pop()?.toLowerCase() ?? 'bin';
+      uploadedPath = `${selectedBranch}/${crypto.randomUUID()}.${ext}`;
+      const { error: uploadError } = await supabase.storage
+        .from('fin-bill-attachments')
+        .upload(uploadedPath, attachFile, { contentType: attachFile.type });
+      if (uploadError) {
+        setError('Erro ao enviar o anexo: ' + uploadError.message);
+        setSaving(false);
+        return;
+      }
+      attachmentPath = uploadedPath;
+      attachmentName = attachFile.name;
     }
+    const fullPayload = { ...payload, attachment_path: attachmentPath, attachment_name: attachmentName };
+    const { error: saveError } = editing
+      ? await supabase.from('fin_bills').update(fullPayload).eq('id', editing.id)
+      : await supabase.from('fin_bills').insert(fullPayload);
     setSaving(false);
+    if (saveError) {
+      if (uploadedPath) await supabase.storage.from('fin-bill-attachments').remove([uploadedPath]);
+      setError('Não foi possível salvar a conta.');
+      return;
+    }
+    if (oldPath && oldPath !== attachmentPath) {
+      await supabase.storage.from('fin-bill-attachments').remove([oldPath]);
+    }
     setModalOpen(false);
     fetchData();
+  };
+
+  const onAttachmentSelected = (file: File | null) => {
+    if (file && (!ALLOWED_ATTACHMENT_TYPES.includes(file.type) || file.size > MAX_ATTACHMENT_BYTES)) {
+      setError('Envie um arquivo PNG ou PDF de até 10 MB.');
+      setAttachFile(null);
+      return;
+    }
+    setError(null);
+    setAttachFile(file);
+    if (file) setRemoveAttachment(false);
   };
 
   const remove = async (b: FinBill) => {
@@ -207,7 +256,8 @@ export function FinancialBills() {
     return true;
   });
 
-  const totalExpenses = filtered.filter((b) => b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
+  const totalPaidExpenses = filtered.filter((b) => b.type === 'expense' && b.status === 'paid').reduce((s, b) => s + Number(b.amount), 0);
+  const totalGeneralExpenses = filtered.filter((b) => b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
   const totalIncome = filtered.filter((b) => b.type === 'income').reduce((s, b) => s + Number(b.amount), 0);
   const totalPending = filtered.filter((b) => b.status === 'pending' && b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
 
@@ -225,6 +275,7 @@ export function FinancialBills() {
             {isAdmin && (
               <Select value={selectedBranch} onChange={setSelectedBranch} options={branchOptions} placeholder="Selecionar filial" />
             )}
+            <Button variant="secondary" onClick={() => setSourcesOpen(true)} disabled={!selectedBranch}><Landmark size={16} /> Fontes</Button>
             <Button onClick={openNew}><Plus size={18} /> Nova Conta</Button>
           </div>
         }
@@ -233,20 +284,27 @@ export function FinancialBills() {
       <BillReminders bills={bills} />
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <Card className="p-5">
-          <div className="flex items-center gap-3 mb-2">
-            <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center"><ArrowDownCircle size={22} /></div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Despesas</p>
-          </div>
-          <p className="text-2xl font-bold text-red-600">R$ {formatBRL(totalExpenses)}</p>
-        </Card>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><ArrowUpCircle size={22} /></div>
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Receitas</p>
           </div>
           <p className="text-2xl font-bold text-emerald-600">R$ {formatBRL(totalIncome)}</p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center"><ArrowDownCircle size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Despesas pagas</p>
+          </div>
+          <p className="text-2xl font-bold text-red-600">R$ {formatBRL(totalPaidExpenses)}</p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center"><Receipt size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Despesas Geral</p>
+          </div>
+          <p className="text-2xl font-bold text-slate-900">R$ {formatBRL(totalGeneralExpenses)}</p>
         </Card>
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
@@ -315,6 +373,7 @@ export function FinancialBills() {
                     </td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        {b.attachment_path && <Button size="sm" variant="ghost" onClick={() => setPreviewBill(b)}><Paperclip size={14} /></Button>}
                         <Button size="sm" variant="ghost" onClick={() => openEdit(b)}><Pencil size={14} /></Button>
                         <Button size="sm" variant="ghost" onClick={() => remove(b)}><Trash2 size={14} /></Button>
                       </div>
@@ -371,6 +430,24 @@ export function FinancialBills() {
             </Button>
           </div>
 
+          {/* Anexo */}
+          <div>
+            <p className="text-sm font-medium text-slate-700 mb-1">Anexo (PNG ou PDF)</p>
+            {editing?.attachment_path && !removeAttachment && !attachFile && (
+              <div className="flex items-center justify-between gap-3 bg-slate-50 rounded-lg p-3 mb-2 text-sm">
+                <span className="truncate text-slate-700">{editing.attachment_name}</span>
+                <button type="button" onClick={() => setRemoveAttachment(true)} className="text-red-600 text-xs font-medium hover:underline">Remover</button>
+              </div>
+            )}
+            <input
+              type="file"
+              accept="image/png,application/pdf"
+              onChange={(e) => onAttachmentSelected(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-50 file:px-3 file:py-2 file:text-brand-700 hover:file:bg-brand-100"
+            />
+            {removeAttachment && <p className="text-xs text-amber-600 mt-1">O anexo será removido ao salvar.</p>}
+          </div>
+
           {error && <p className="text-sm text-red-600 bg-red-50 rounded-lg p-3">{error}</p>}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" onClick={() => setModalOpen(false)}>Cancelar</Button>
@@ -378,6 +455,19 @@ export function FinancialBills() {
           </div>
         </div>
       </Modal>
+
+      <PaymentSourcesModal
+        open={sourcesOpen}
+        onClose={() => setSourcesOpen(false)}
+        branchId={selectedBranch}
+        sources={paymentSources}
+        onChanged={fetchData}
+      />
+      <BillAttachmentPreview
+        path={previewBill?.attachment_path ?? null}
+        name={previewBill?.attachment_name ?? null}
+        onClose={() => setPreviewBill(null)}
+      />
     </div>
   );
 }
