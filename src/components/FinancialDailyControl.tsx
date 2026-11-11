@@ -5,12 +5,17 @@ import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
 import { Card, Button, Input, MoneyInput, Select, Modal, Spinner, EmptyState } from './ui';
 import { formatBRL, formatDateBR, parseBRL, maskBRL } from '../lib/format';
-import type { FinDailyControl, DailyWithdrawal, Branch } from '../lib/types';
+import type { FinDailyControl, DailyWithdrawal, DailyDeposit, Branch } from '../lib/types';
+import { DailyCoverageFields } from './DailyCoverageFields';
+import type { CoverageType } from './DailyCoverageFields';
 
 const emptyForm = {
   control_date: new Date().toISOString().split('T')[0],
   worked_amount: '',
   valor_003: '',
+  cover_003: '',
+  cover_003_type: '' as CoverageType,
+  bank_balance: '',
   safe_amount: '',
   current_safe_amount: '',
   notes: '',
@@ -80,6 +85,7 @@ export function FinancialDailyControl() {
   const [editing, setEditing] = useState<FinDailyControl | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [withdrawals, setWithdrawals] = useState<DailyWithdrawal[]>([]);
+  const [deposits, setDeposits] = useState<DailyDeposit[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fMonth, setFMonth] = useState('');
@@ -113,6 +119,7 @@ export function FinancialDailyControl() {
     setEditing(null);
     setForm(emptyForm);
     setWithdrawals([]);
+    setDeposits([]);
     setError(null);
     setModalOpen(true);
   };
@@ -125,9 +132,13 @@ export function FinancialDailyControl() {
       valor_003: String(r.valor_003 ?? 0),
       safe_amount: String(r.safe_amount),
       current_safe_amount: String(r.current_safe_amount ?? 0),
+      cover_003: maskBRL(String(Math.round(Number(r.cover_003 ?? 0) * 100))),
+      cover_003_type: (r.cover_003_type ?? '') as CoverageType,
+      bank_balance: maskBRL(String(Math.round(Number(r.bank_balance ?? 0) * 100))),
       notes: r.notes ?? '',
     });
     setWithdrawals(r.withdrawals ?? []);
+    setDeposits(r.deposits ?? []);
     setError(null);
     setModalOpen(true);
   };
@@ -145,6 +156,16 @@ export function FinancialDailyControl() {
     const safe = parseBRL(form.safe_amount);
     const currentSafe = parseBRL(form.current_safe_amount);
     const diff = currentSafe - safe;
+    const coverAmount = parseBRL(form.cover_003);
+    const coverActive = coverAmount > 0;
+    if (coverActive && !form.cover_003_type) {
+      setError('Escolha se a Cobertura 003 foi depósito ou saldo em conta.');
+      return;
+    }
+    if (coverActive && form.cover_003_type === 'deposit' && !deposits.some((d) => d.amount > 0)) {
+      setError('Informe ao menos um depósito.');
+      return;
+    }
     setSaving(true);
     setError(null);
     const payload = {
@@ -157,6 +178,10 @@ export function FinancialDailyControl() {
       current_safe_amount: currentSafe,
       balance_difference: diff,
       withdrawals: withdrawals as unknown as Record<string, unknown>[],
+      cover_003: coverActive ? coverAmount : 0,
+      cover_003_type: coverActive ? (form.cover_003_type || null) : null,
+      bank_balance: coverActive && form.cover_003_type === 'bank_balance' ? parseBRL(form.bank_balance) : null,
+      deposits: (coverActive && form.cover_003_type === 'deposit' ? deposits.filter((d) => d.amount > 0) : []) as unknown as Record<string, unknown>[],
       notes: form.notes.trim() || null,
     };
     if (editing) {
@@ -191,6 +216,7 @@ export function FinancialDailyControl() {
   const totalSaldoGeral = filtered.reduce((s, r) => s + (Number(r.current_safe_amount ?? 0) - Number(r.safe_amount)), 0);
   const totalWorked = filtered.reduce((s, r) => s + Number(r.worked_amount), 0);
   const totalValor003 = filtered.reduce((s, r) => s + (r.withdrawals?.reduce((ws, w) => ws + Number(w.amount), 0) ?? Number(r.valor_003 ?? 0)), 0);
+  const totalDeposits = filtered.reduce((s, r) => s + (r.deposits ?? []).reduce((ds, d) => ds + Number(d.amount), 0), 0);
 
   const now = new Date();
   const monthOpts: { value: string; label: string }[] = [];
@@ -220,7 +246,7 @@ export function FinancialDailyControl() {
         }
       />
 
-      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><DollarSign size={22} /></div>
@@ -258,6 +284,13 @@ export function FinancialDailyControl() {
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Saldo Geral</p>
           </div>
           <p className={`text-2xl font-bold ${totalSaldoGeral >= 0 ? 'text-blue-600' : 'text-red-600'}`}>R$ {formatBRL(totalSaldoGeral)}</p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><Wallet size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Depósitos</p>
+          </div>
+          <p className="text-2xl font-bold text-emerald-600">R$ {formatBRL(totalDeposits)}</p>
         </Card>
       </div>
 
@@ -372,6 +405,16 @@ export function FinancialDailyControl() {
               </div>
             )}
           </div>
+          <DailyCoverageFields
+            cover={form.cover_003}
+            onCoverChange={(v) => setForm({ ...form, cover_003: v })}
+            coverType={form.cover_003_type}
+            onCoverTypeChange={(v) => setForm({ ...form, cover_003_type: v })}
+            bankBalance={form.bank_balance}
+            onBankBalanceChange={(v) => setForm({ ...form, bank_balance: v })}
+            deposits={deposits}
+            onDepositsChange={setDeposits}
+          />
           <MoneyInput label="Carro Forte" value={form.safe_amount} onChange={(v) => setForm({ ...form, safe_amount: v })} />
           <MoneyInput label="Valor atual no Cofre" value={form.current_safe_amount} onChange={(v) => setForm({ ...form, current_safe_amount: v })} />
           <div className="bg-slate-50 rounded-lg p-4 space-y-2">

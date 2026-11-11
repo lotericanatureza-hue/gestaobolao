@@ -195,6 +195,10 @@ export interface FinDailyControl {
   current_safe_amount: number;
   balance_difference: number;
   withdrawals: DailyWithdrawal[];
+  cover_003: number;
+  cover_003_type: 'deposit' | 'bank_balance' | null;
+  bank_balance: number | null;
+  deposits: DailyDeposit[];
   notes: string | null;
   created_by: string | null;
   created_at: string;
@@ -218,6 +222,12 @@ export interface FinFinancialControl {
 export interface DailyWithdrawal {
   id: string;
   description: string;
+  amount: number;
+}
+
+export interface DailyDeposit {
+  id: string;
+  origin: string;
   amount: number;
 }
 
