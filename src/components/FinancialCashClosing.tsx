@@ -477,7 +477,7 @@ export function FinancialCashClosing() {
 
   const save = async () => {
     if (saving) return;
-    if (!modalEmployee?.id || (!isOperator && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(modalEmployee.id))) {
+    if (!editing && (!modalEmployee?.id || (!isOperator && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(modalEmployee.id)))) {
       setError('Funcionário inválido. Recarregue a tela e tente novamente.');
       return;
     }
@@ -499,8 +499,12 @@ export function FinancialCashClosing() {
     const computedShortage = diff < 0 ? Math.abs(diff) : 0;
 
     const payload = {
-      branch_id: modalEmployee.branch_id,
-      employee_id: isOperator ? (linkedEmployee?.id ?? null) : modalEmployee.id,
+      ...(editing
+        ? { branch_id: editing.branch_id, employee_id: editing.employee_id }
+        : {
+            branch_id: modalEmployee?.branch_id ?? null,
+            employee_id: isOperator ? (linkedEmployee?.id ?? null) : (modalEmployee?.id ?? null),
+          }),
       created_by: profile?.id || null,
       closing_date: form.closing_date,
       total_sales: form.total_sales,
