@@ -132,6 +132,11 @@ export function FinancialBills() {
     if (!form.description.trim()) { setError('Descrição é obrigatória.'); return; }
     const amount = parseBRL(form.amount);
     if (isNaN(amount)) { setError('Valor inválido.'); return; }
+    const monthRef = parseInt(form.month_ref, 10);
+    const yearRef = parseInt(form.year_ref, 10);
+    if (!selectedBranch) { setError('Selecione uma filial antes de salvar.'); return; }
+    if (isNaN(monthRef) || monthRef < 1 || monthRef > 12) { setError('Mês de referência inválido.'); return; }
+    if (isNaN(yearRef)) { setError('Ano de referência inválido.'); return; }
     setSaving(true);
     setError(null);
     const payload = {
@@ -146,8 +151,8 @@ export function FinancialBills() {
       due_date: form.due_date || null,
       payment_date: form.payment_date || null,
       status: form.status,
-      month_ref: parseInt(form.month_ref),
-      year_ref: parseInt(form.year_ref),
+      month_ref: monthRef,
+      year_ref: yearRef,
       recurring: form.recurring,
       notes: form.notes.trim() || null,
     };
@@ -176,7 +181,7 @@ export function FinancialBills() {
     setSaving(false);
     if (saveError) {
       if (uploadedPath) await supabase.storage.from('fin-bill-attachments').remove([uploadedPath]);
-      setError('Não foi possível salvar a conta.');
+      setError('Não foi possível salvar a conta: ' + saveError.message);
       return;
     }
     if (oldPath && oldPath !== attachmentPath) {
