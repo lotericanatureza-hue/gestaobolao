@@ -536,7 +536,6 @@ export function FinancialBolaoClosing() {
       let og = bg.operators.find(o => o.operatorId === c.operator_id);
       if (!og) { og = { operatorId: c.operator_id, operator: (c.operator as Profile | null) ?? null, days: [], valor: 0, tarifa: 0, gross: 0, house: 0, operatorAmount: 0, count: 0 }; bg.operators.push(og); }
       
-      // Cálculo para o cabeçalho do operador
       let opValor = 0;
       let opTarifa = 0;
       if (isManualClosing(c)) {
@@ -551,8 +550,6 @@ export function FinancialBolaoClosing() {
       og.valor += opValor;
       og.tarifa += opTarifa;
       og.gross += (opValor + opTarifa);
-      og.house += Number(c.house_amount ?? 0);
-      og.operatorAmount += Number(c.operator_amount ?? 0);
       og.count += 1;
       
       let dg = og.days.find(d => d.date === c.closing_date);
@@ -567,7 +564,19 @@ export function FinancialBolaoClosing() {
     }
     for (const bg of branchesMap.values()) {
       bg.operators.sort((a, b) => (a.operator?.name ?? '').localeCompare(b.operator?.name ?? ''));
-      for (const og of bg.operators) og.days.sort((a, b) => b.date.localeCompare(a.date));
+      for (const og of bg.operators) {
+        og.days.sort((a, b) => b.date.localeCompare(a.date));
+        
+        // RECALCULA A COMISSÃO DO OPERADOR INTEIRO BASEADO NO MÊS
+        const gross = og.gross;
+        const pct = operatorPercentageByTotal(gross);
+        
+        og.operatorAmount = og.tarifa * (pct / 100);
+        og.house = og.tarifa * ((100 - pct) / 100);
+      }
+      // Recalcula os totais da filial com base nos operadores recalculados
+      bg.house = bg.operators.reduce((s, o) => s + o.house, 0);
+      bg.operatorAmount = bg.operators.reduce((s, o) => s + o.operatorAmount, 0);
     }
     return Array.from(branchesMap.values()).sort((a, b) => (a.branch?.name ?? '').localeCompare(b.branch?.name ?? ''));
   }, [visible]);
@@ -582,7 +591,8 @@ export function FinancialBolaoClosing() {
     
     const list = closings.filter(c => c.operator_id === summaryOperatorId && c.closing_date.startsWith(kpiMonth));
     
-    const sum = { valor: 0, tarifa: 0, gross: 0, house: 0, operatorAmount: 0, count: list.length };
+    let sumValor = 0;
+    let sumTarifa = 0;
     const days = new Set<string>();
     
     for (const c of list) {
@@ -596,35 +606,45 @@ export function FinancialBolaoClosing() {
         cValor = (c.items ?? []).reduce((s, item) => s + Number(item.quota_value ?? 0), 0);
         cTarifa = (c.items ?? []).reduce((s, item) => s + Number(item.fee_value ?? 0), 0);
       }
-      
-      sum.valor += cValor;
-      sum.tarifa += cTarifa;
-      sum.gross += (cValor + cTarifa);
-      sum.house += Number(c.house_amount ?? 0);
-      sum.operatorAmount += Number(c.operator_amount ?? 0);
+      sumValor += cValor;
+      sumTarifa += cTarifa;
       days.add(c.closing_date);
     }
 
-    const gross = sum.gross;
+    const gross = sumValor + sumTarifa;
     const pct = operatorPercentageByTotal(gross);
-    
-    // A comissão É RECALCULADA com base na tarifa total do mês e na faixa do bruto.
-    // O valor salvo no banco pode ter sido calculado por lançamento, mas aqui mostramos a regra exata consolidada.
-    const calculatedCommission = sum.tarifa * (pct / 100);
-    
+    const operatorAmount = sumTarifa * (pct / 100);
+    const houseAmount = sumTarifa * ((100 - pct) / 100);
+
     const nextTier = gross <= 10000 ? 10000 : gross < 30000 ? 30000 : null;
-    const prevTier = gross < 30000 ? (gross <= 10000 ? 0 : 10000) : 30000;
     
-    let progress = 100;
-    if (nextTier) {
-      const stepSize = nextTier - prevTier;
-      const currentInStep = gross - prevTier;
-      progress = Math.min(100, (currentInStep / stepSize) * 100);
+    let progress = 0;
+    if (gross >= 30000) progress = 100;
+    else if (gross >= 10000) {
+       progress = ((gross) / 30000) * 100; // Progresso total até 30k
+    } else {
+       progress = (gross / 10000) * 50; // Se for até 10k, ele enche até 33% (10k é 1/3 de 30k)
     }
+    // Melhor visualização: O eixo vai de 0 a 30.000.
+    progress = Math.min(100, (gross / 30000) * 100);
 
     const missingForNext = nextTier ? nextTier - gross : 0;
 
-    return { op, list, days: Array.from(days).sort((a, b) => b.localeCompare(a)), ...sum, pct, progress, nextTier, missingForNext, calculatedCommission };
+    return { 
+      op, 
+      list, 
+      days: Array.from(days).sort((a, b) => b.localeCompare(a)), 
+      valor: sumValor, 
+      tarifa: sumTarifa, 
+      gross, 
+      house: houseAmount, 
+      operatorAmount: operatorAmount, 
+      count: list.length, 
+      pct, 
+      progress, 
+      nextTier, 
+      missingForNext 
+    };
   }, [summaryOperatorId, closings, operators, kpiMonth]);
 
   if (loading && !closings.length) return <div className="flex justify-center py-20"><Spinner /></div>;
@@ -899,7 +919,7 @@ export function FinancialBolaoClosing() {
               </div>
               <div className="text-right">
                 <span className="text-xs font-semibold inline-block text-brand-600">
-                  {monthSummary.progress.toFixed(0)}% da faixa atual
+                  {monthSummary.progress.toFixed(0)}% do total
                 </span>
               </div>
             </div>
