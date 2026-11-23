@@ -521,7 +521,7 @@ export function FinancialBolaoClosing() {
   const totalOperator = visible.reduce((s, c) => s + Number(c.operator_amount ?? 0), 0);
 
   type DayGroup = { date: string; closings: FinBolaoClosing[]; total: number; tarifa: number; house: number; operator: number; games: { game: string; value: number; tarifa: number; drawDate: string }[] };
-  type OperatorGroup = { operatorId: string; operator: Profile | null; days: DayGroup[]; total: number; tarifa: number; house: number; operatorAmount: number; count: number };
+  type OperatorGroup = { operatorId: string; operator: Profile | null; days: DayGroup[]; valor: number; tarifa: number; gross: number; house: number; operatorAmount: number; count: number };
   type BranchGroup = { branchId: string; branch: Branch | null; operators: OperatorGroup[]; total: number; house: number; operatorAmount: number; count: number };
 
   const byBranch = useMemo<BranchGroup[]>(() => {
@@ -534,12 +534,27 @@ export function FinancialBolaoClosing() {
       bg.operatorAmount += Number(c.operator_amount ?? 0);
       bg.count += 1;
       let og = bg.operators.find(o => o.operatorId === c.operator_id);
-      if (!og) { og = { operatorId: c.operator_id, operator: (c.operator as Profile | null) ?? null, days: [], total: 0, tarifa: 0, house: 0, operatorAmount: 0, count: 0 }; bg.operators.push(og); }
-      og.total += Number(c.total_value ?? 0);
-      og.tarifa += Number(c.total_fee ?? 0);
+      if (!og) { og = { operatorId: c.operator_id, operator: (c.operator as Profile | null) ?? null, days: [], valor: 0, tarifa: 0, gross: 0, house: 0, operatorAmount: 0, count: 0 }; bg.operators.push(og); }
+      
+      // Cálculo para o cabeçalho do operador
+      let opValor = 0;
+      let opTarifa = 0;
+      if (isManualClosing(c)) {
+        const mg = closingToManualGames(c);
+        opValor = mg.reduce((s, g) => s + (numberBR(g.value) || 0), 0);
+        opTarifa = mg.reduce((s, g) => s + (numberBR(g.tarifa) || 0), 0);
+      } else {
+        opValor = (c.items ?? []).reduce((s, item) => s + Number(item.quota_value ?? 0), 0);
+        opTarifa = (c.items ?? []).reduce((s, item) => s + Number(item.fee_value ?? 0), 0);
+      }
+
+      og.valor += opValor;
+      og.tarifa += opTarifa;
+      og.gross += (opValor + opTarifa);
       og.house += Number(c.house_amount ?? 0);
       og.operatorAmount += Number(c.operator_amount ?? 0);
       og.count += 1;
+      
       let dg = og.days.find(d => d.date === c.closing_date);
       if (!dg) { dg = { date: c.closing_date, closings: [], total: 0, tarifa: 0, house: 0, operator: 0, games: [] }; og.days.push(dg); }
       dg.closings.push(c);
@@ -565,27 +580,41 @@ export function FinancialBolaoClosing() {
     const op = operators.find(p => p.id === summaryOperatorId)
       ?? (closings.find(c => c.operator_id === summaryOperatorId)?.operator as Profile | undefined) ?? null;
     
-    // Filtra todos os fechamentos do mês do operador
     const list = closings.filter(c => c.operator_id === summaryOperatorId && c.closing_date.startsWith(kpiMonth));
     
-    const sum = { total: 0, tarifa: 0, house: 0, operatorAmount: 0, count: list.length };
+    const sum = { valor: 0, tarifa: 0, gross: 0, house: 0, operatorAmount: 0, count: list.length };
     const days = new Set<string>();
     
     for (const c of list) {
-      sum.total += Number(c.total_value ?? 0); // Faturamento Bruto (Valor + Tarifa)
-      sum.tarifa += Number(c.total_fee ?? 0);  // Tarifa acumulada
-      sum.house += Number(c.house_amount ?? 0); // Casa acumulada
-      sum.operatorAmount += Number(c.operator_amount ?? 0); // Comissão acumulada
+      let cValor = 0;
+      let cTarifa = 0;
+      if (isManualClosing(c)) {
+        const mg = closingToManualGames(c);
+        cValor = mg.reduce((s, g) => s + (numberBR(g.value) || 0), 0);
+        cTarifa = mg.reduce((s, g) => s + (numberBR(g.tarifa) || 0), 0);
+      } else {
+        cValor = (c.items ?? []).reduce((s, item) => s + Number(item.quota_value ?? 0), 0);
+        cTarifa = (c.items ?? []).reduce((s, item) => s + Number(item.fee_value ?? 0), 0);
+      }
+      
+      sum.valor += cValor;
+      sum.tarifa += cTarifa;
+      sum.gross += (cValor + cTarifa);
+      sum.house += Number(c.house_amount ?? 0);
+      sum.operatorAmount += Number(c.operator_amount ?? 0);
       days.add(c.closing_date);
     }
 
-    // Progressão baseada no Faturamento Bruto Acumulado do Mês
-    const gross = sum.total;
+    const gross = sum.gross;
     const pct = operatorPercentageByTotal(gross);
+    
+    // A comissão É RECALCULADA com base na tarifa total do mês e na faixa do bruto.
+    // O valor salvo no banco pode ter sido calculado por lançamento, mas aqui mostramos a regra exata consolidada.
+    const calculatedCommission = sum.tarifa * (pct / 100);
+    
     const nextTier = gross <= 10000 ? 10000 : gross < 30000 ? 30000 : null;
     const prevTier = gross < 30000 ? (gross <= 10000 ? 0 : 10000) : 30000;
     
-    // Cálculo para a barra de progresso: o "tamanho" do degrau atual
     let progress = 100;
     if (nextTier) {
       const stepSize = nextTier - prevTier;
@@ -593,10 +622,9 @@ export function FinancialBolaoClosing() {
       progress = Math.min(100, (currentInStep / stepSize) * 100);
     }
 
-    // Quanto falta em R$ para a próxima faixa
     const missingForNext = nextTier ? nextTier - gross : 0;
 
-    return { op, list, days: Array.from(days).sort((a, b) => b.localeCompare(a)), ...sum, pct, nextTier, progress, missingForNext };
+    return { op, list, days: Array.from(days).sort((a, b) => b.localeCompare(a)), ...sum, pct, progress, nextTier, missingForNext, calculatedCommission };
   }, [summaryOperatorId, closings, operators, kpiMonth]);
 
   if (loading && !closings.length) return <div className="flex justify-center py-20"><Spinner /></div>;
@@ -654,10 +682,12 @@ export function FinancialBolaoClosing() {
                     </button>
                     <Badge color={allClosed ? 'blue' : 'amber'}>{allClosed ? 'Fechado' : 'Aberto'}</Badge>
                   </strong>
-                  <span className="text-xs text-slate-400 flex items-center gap-3 mt-0.5">
-                    <span className="text-slate-700 font-semibold">Total: R$ {formatBRL(og.total)}</span>
-                    <span className="text-brand-600">Casa: R$ {formatBRL(og.house)}</span>
-                    <span className="text-accent-600">Operador: R$ {formatBRL(og.operatorAmount)}</span>
+                  <span className="text-xs text-slate-500 flex flex-wrap items-center gap-3 mt-1">
+                    <span className="font-medium">Valor: R$ {formatBRL(og.valor)}</span>
+                    <span className="font-medium">Tarifa: R$ {formatBRL(og.tarifa)}</span>
+                    <span className="font-semibold text-slate-700">Faturamento Bruto: R$ {formatBRL(og.gross)}</span>
+                    <span className="text-brand-600 font-medium">Casa: R$ {formatBRL(og.house)}</span>
+                    <span className="text-accent-600 font-medium">Comissão: R$ {formatBRL(og.operatorAmount)}</span>
                   </span>
                 </span>
               </span>
@@ -846,7 +876,7 @@ export function FinancialBolaoClosing() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Card className="p-3"><p className="text-xs text-slate-400">Fechamentos</p><strong>{monthSummary.count}</strong></Card>
           <Card className="p-3"><p className="text-xs text-slate-400">Dias com fechamento</p><strong>{monthSummary.days.length}</strong></Card>
-          <Card className="p-3"><p className="text-xs text-slate-400">Faturamento Bruto</p><strong>R$ {formatBRL(monthSummary.total)}</strong></Card>
+          <Card className="p-3"><p className="text-xs text-slate-400">Faturamento Bruto</p><strong>R$ {formatBRL(monthSummary.gross)}</strong></Card>
           <Card className="p-3"><p className="text-xs text-slate-400">Tarifas</p><strong>R$ {formatBRL(monthSummary.tarifa)}</strong></Card>
           <Card className="p-3"><p className="text-xs text-slate-400">Casa</p><strong className="text-brand-700">R$ {formatBRL(monthSummary.house)}</strong></Card>
           <Card className="p-3"><p className="text-xs text-slate-400">Comissão do operador</p><strong className="text-accent-700">R$ {formatBRL(monthSummary.operatorAmount)}</strong></Card>
@@ -860,12 +890,11 @@ export function FinancialBolaoClosing() {
               : <Badge color="green">Faixa máxima atingida</Badge>}
           </div>
           
-          {/* Barra de Progresso com Marcadores */}
           <div className="relative pt-1">
             <div className="flex mb-2 items-center justify-between">
               <div>
                 <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-brand-600 bg-brand-200">
-                  R$ {formatBRL(monthSummary.total)} Faturados
+                  R$ {formatBRL(monthSummary.gross)} Faturados
                 </span>
               </div>
               <div className="text-right">
@@ -879,8 +908,8 @@ export function FinancialBolaoClosing() {
             </div>
             <div className="flex justify-between text-xs text-slate-400">
               <span>R$ 0</span>
-              <span className={monthSummary.total >= 10000 ? 'font-bold text-accent-600' : ''}>R$ 10k (20%)</span>
-              <span className={monthSummary.total >= 30000 ? 'font-bold text-emerald-600' : ''}>R$ 30k (30%)</span>
+              <span className={monthSummary.gross >= 10000 ? 'font-bold text-accent-600' : ''}>R$ 10k (20%)</span>
+              <span className={monthSummary.gross >= 30000 ? 'font-bold text-emerald-600' : ''}>R$ 30k (30%)</span>
             </div>
           </div>
           <p className="text-xs text-slate-400 mt-3">Regra: Até R$ 10.000 = 10% · De R$ 10.000,01 a R$ 29.999,99 = 20% · A partir de R$ 30.000 = 30%</p>
@@ -892,24 +921,39 @@ export function FinancialBolaoClosing() {
                 <th className="px-2 py-2 font-medium">Data</th>
                 <th className="px-2 py-2 font-medium text-right">Valor</th>
                 <th className="px-2 py-2 font-medium text-right">Tarifa</th>
+                <th className="px-2 py-2 font-medium text-right">Bruto</th>
                 <th className="px-2 py-2 font-medium text-right">Casa</th>
                 <th className="px-2 py-2 font-medium text-right">Comissão</th>
                 <th className="px-2 py-2 font-medium">Status</th>
               </tr>
             </thead>
             <tbody>
-              {monthSummary.list.sort((a, b) => b.closing_date.localeCompare(a.closing_date)).map(c => <tr key={c.id} className="border-b border-slate-50">
-                <td className="px-2 py-2">{formatDateBR(c.closing_date)}</td>
-                <td className="px-2 py-2 text-right">R$ {formatBRL(Number(c.total_value ?? 0))}</td>
-                <td className="px-2 py-2 text-right">R$ {formatBRL(Number(c.total_fee ?? 0))}</td>
-                <td className="px-2 py-2 text-right text-brand-700">R$ {formatBRL(Number(c.house_amount ?? 0))}</td>
-                <td className="px-2 py-2 text-right text-accent-700">R$ {formatBRL(Number(c.operator_amount ?? 0))}</td>
-                <td className="px-2 py-2"><Badge color={c.status === 'closed' ? 'blue' : 'amber'}>{c.status === 'closed' ? 'Fechado' : 'Aberto'}</Badge></td>
-              </tr>)}
+              {monthSummary.list.sort((a, b) => b.closing_date.localeCompare(a.closing_date)).map(c => {
+                let cValor = 0;
+                let cTarifa = 0;
+                if (isManualClosing(c)) {
+                  const mg = closingToManualGames(c);
+                  cValor = mg.reduce((s, g) => s + (numberBR(g.value) || 0), 0);
+                  cTarifa = mg.reduce((s, g) => s + (numberBR(g.tarifa) || 0), 0);
+                } else {
+                  cValor = (c.items ?? []).reduce((s, item) => s + Number(item.quota_value ?? 0), 0);
+                  cTarifa = (c.items ?? []).reduce((s, item) => s + Number(item.fee_value ?? 0), 0);
+                }
+                return <tr key={c.id} className="border-b border-slate-50">
+                  <td className="px-2 py-2">{formatDateBR(c.closing_date)}</td>
+                  <td className="px-2 py-2 text-right">R$ {formatBRL(cValor)}</td>
+                  <td className="px-2 py-2 text-right">R$ {formatBRL(cTarifa)}</td>
+                  <td className="px-2 py-2 text-right font-medium">R$ {formatBRL(cValor + cTarifa)}</td>
+                  <td className="px-2 py-2 text-right text-brand-700">R$ {formatBRL(Number(c.house_amount ?? 0))}</td>
+                  <td className="px-2 py-2 text-right text-accent-700">R$ {formatBRL(Number(c.operator_amount ?? 0))}</td>
+                  <td className="px-2 py-2"><Badge color={c.status === 'closed' ? 'blue' : 'amber'}>{c.status === 'closed' ? 'Fechado' : 'Aberto'}</Badge></td>
+                </tr>;
+              })}
               <tr className="bg-slate-100/60 font-semibold">
                 <td className="px-2 py-2">Total do mês</td>
-                <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.total)}</td>
+                <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.valor)}</td>
                 <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.tarifa)}</td>
+                <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.gross)}</td>
                 <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.house)}</td>
                 <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.operatorAmount)}</td>
                 <td></td>
