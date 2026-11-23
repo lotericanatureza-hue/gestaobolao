@@ -101,20 +101,30 @@ export function FinancialCaixaBolao() {
   const refresh = useCallback(async () => {
     setLoading(true);
     setError('');
+
+    // Calcula o primeiro dia do mês seguinte para usar como limite superior
+    const [year, monthNum] = month.split('-').map(Number);
+    const nextMonthDate = new Date(year, monthNum, 1);
+    const nextMonthStr = nextMonthDate.toLocaleDateString('en-CA');
+
     let q = supabase.from('fin_caixa_bolao').select('*, operator:profiles(*), branch:branches(*)')
       .gte('entry_date', `${month}-01`)
-      .lte('entry_date', `${month}-31`)
+      .lt('entry_date', nextMonthStr)
       .order('entry_date', { ascending: false });
+
     if (!isAdmin) {
       if (!profile?.branch_id) { setRows([]); setLoading(false); return; }
       q = q.eq('branch_id', profile.branch_id);
     } else if (selectedBranch) q = q.eq('branch_id', selectedBranch);
+
     if (selectedOperator) q = q.eq('operator_id', selectedOperator);
+
     const { data, error: err } = await q;
     if (err) setError(err.message);
     setRows((data ?? []) as FinCaixaBolao[]);
     setLoading(false);
   }, [isAdmin, month, profile?.branch_id, selectedBranch, selectedOperator]);
+
   useEffect(() => { void refresh(); }, [refresh]);
 
   useEffect(() => {
@@ -143,6 +153,7 @@ export function FinancialCaixaBolao() {
     setError('');
     setModalOpen(true);
   };
+
   const openEdit = (r: FinCaixaBolao) => {
     setEditing(r);
     setEntryDate(r.entry_date);
