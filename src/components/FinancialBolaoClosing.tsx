@@ -220,9 +220,6 @@ function isManualClosing(c: FinBolaoClosing): boolean {
   return !!(c.bolao_game && c.bolao_contest);
 }
 
-/**
- * Retorna o percentual do operador conforme faixa de faturamento (valor + tarifa).
- */
 function operatorPercentageByTotal(total: number): number {
   if (total <= 10000) return 10;
   if (total < 30000) return 20;
@@ -309,7 +306,6 @@ export function FinancialBolaoClosing() {
 
   const kpiMonth = viewMode === 'month' ? month : filterDate.slice(0, 7);
 
-  // KPIs do Caixa Bolão (Tabela: fin_caixa_bolao)
   useEffect(() => {
     const [year, monthNum] = kpiMonth.split('-').map(Number);
     const nextMonthDate = new Date(year, monthNum, 1);
@@ -563,37 +559,44 @@ export function FinancialBolaoClosing() {
 
   const multiBranch = isAdmin && !selectedBranch;
 
-  // RESUMO MENSAL DO OPERADOR (Clique no nome)
   const monthSummary = useMemo(() => {
     if (!summaryOperatorId) return null;
     
-    // 1. Pega o operador para exibir o nome no título
     const op = operators.find(p => p.id === summaryOperatorId)
       ?? (closings.find(c => c.operator_id === summaryOperatorId)?.operator as Profile | undefined) ?? null;
     
-    // 2. Filtra os fechamentos do mês selecionado
+    // Filtra todos os fechamentos do mês do operador
     const list = closings.filter(c => c.operator_id === summaryOperatorId && c.closing_date.startsWith(kpiMonth));
     
-    // 3. Calcula os totais
     const sum = { total: 0, tarifa: 0, house: 0, operatorAmount: 0, count: list.length };
     const days = new Set<string>();
     
     for (const c of list) {
-      sum.total += Number(c.total_value ?? 0); // Total (Valor + Tarifa)
-      sum.tarifa += Number(c.total_fee ?? 0);  // Tarifa
-      sum.house += Number(c.house_amount ?? 0); // Parte da casa
-      sum.operatorAmount += Number(c.operator_amount ?? 0); // Comissão do operador
+      sum.total += Number(c.total_value ?? 0); // Faturamento Bruto (Valor + Tarifa)
+      sum.tarifa += Number(c.total_fee ?? 0);  // Tarifa acumulada
+      sum.house += Number(c.house_amount ?? 0); // Casa acumulada
+      sum.operatorAmount += Number(c.operator_amount ?? 0); // Comissão acumulada
       days.add(c.closing_date);
     }
 
-    // 4. Calcula a progressão com base no faturamento BRUTO (total_value)
+    // Progressão baseada no Faturamento Bruto Acumulado do Mês
     const gross = sum.total;
     const pct = operatorPercentageByTotal(gross);
     const nextTier = gross <= 10000 ? 10000 : gross < 30000 ? 30000 : null;
     const prevTier = gross < 30000 ? (gross <= 10000 ? 0 : 10000) : 30000;
-    const progress = nextTier ? Math.min(100, ((gross - prevTier) / (nextTier - prevTier)) * 100) : 100;
+    
+    // Cálculo para a barra de progresso: o "tamanho" do degrau atual
+    let progress = 100;
+    if (nextTier) {
+      const stepSize = nextTier - prevTier;
+      const currentInStep = gross - prevTier;
+      progress = Math.min(100, (currentInStep / stepSize) * 100);
+    }
 
-    return { op, list, days: Array.from(days).sort((a, b) => b.localeCompare(a)), ...sum, pct, nextTier, progress };
+    // Quanto falta em R$ para a próxima faixa
+    const missingForNext = nextTier ? nextTier - gross : 0;
+
+    return { op, list, days: Array.from(days).sort((a, b) => b.localeCompare(a)), ...sum, pct, nextTier, progress, missingForNext };
   }, [summaryOperatorId, closings, operators, kpiMonth]);
 
   if (loading && !closings.length) return <div className="flex justify-center py-20"><Spinner /></div>;
@@ -853,13 +856,34 @@ export function FinancialBolaoClosing() {
           <div className="flex justify-between items-center mb-2">
             <span className="text-sm font-medium text-slate-700">Progresso da comissão ({monthSummary.pct}% da tarifa)</span>
             {monthSummary.nextTier
-              ? <span className="text-xs text-slate-400">Faltam R$ {formatBRL(monthSummary.nextTier - monthSummary.total)} para {monthSummary.nextTier >= 30000 ? '30%' : '20%'}</span>
+              ? <span className="text-xs text-slate-400">Faltam R$ {formatBRL(monthSummary.missingForNext)} para {monthSummary.nextTier >= 30000 ? '30%' : '20%'}</span>
               : <Badge color="green">Faixa máxima atingida</Badge>}
           </div>
-          <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
-            <div className={`h-full rounded-full transition-all ${monthSummary.pct >= 30 ? 'bg-emerald-500' : monthSummary.pct >= 20 ? 'bg-accent-500' : 'bg-brand-500'}`} style={{ width: `${monthSummary.progress}%` }} />
+          
+          {/* Barra de Progresso com Marcadores */}
+          <div className="relative pt-1">
+            <div className="flex mb-2 items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full text-brand-600 bg-brand-200">
+                  R$ {formatBRL(monthSummary.total)} Faturados
+                </span>
+              </div>
+              <div className="text-right">
+                <span className="text-xs font-semibold inline-block text-brand-600">
+                  {monthSummary.progress.toFixed(0)}% da faixa atual
+                </span>
+              </div>
+            </div>
+            <div className="overflow-hidden h-4 mb-4 text-xs flex rounded bg-slate-200">
+              <div style={{ width: `${monthSummary.progress}%` }} className={`shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center transition-all ${monthSummary.pct >= 30 ? 'bg-emerald-500' : monthSummary.pct >= 20 ? 'bg-accent-500' : 'bg-brand-500'}`}></div>
+            </div>
+            <div className="flex justify-between text-xs text-slate-400">
+              <span>R$ 0</span>
+              <span className={monthSummary.total >= 10000 ? 'font-bold text-accent-600' : ''}>R$ 10k (20%)</span>
+              <span className={monthSummary.total >= 30000 ? 'font-bold text-emerald-600' : ''}>R$ 30k (30%)</span>
+            </div>
           </div>
-          <p className="text-xs text-slate-400 mt-2">até R$ 10.000 = 10% · até R$ 29.999,99 = 20% · R$ 30.000+ = 30%</p>
+          <p className="text-xs text-slate-400 mt-3">Regra: Até R$ 10.000 = 10% · De R$ 10.000,01 a R$ 29.999,99 = 20% · A partir de R$ 30.000 = 30%</p>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
