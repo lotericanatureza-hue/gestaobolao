@@ -36,6 +36,7 @@ type ManualGame = {
 const today = () => new Date().toLocaleDateString('en-CA');
 const money = (v: number) => Math.round((v + Number.EPSILON) * 100);
 const fromCents = (v: number) => Math.round(v) / 100;
+
 function numberBR(value: unknown): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
   if (typeof value !== 'string') return NaN;
@@ -44,6 +45,7 @@ function numberBR(value: unknown): number {
   const normalized = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw;
   return /^-?\d+(?:\.\d+)?$/.test(normalized) ? Number(normalized) : NaN;
 }
+
 function createExtraction(jogos: Jogo[], meta: Partial<Extracao> = {}, impresso?: { cotas: number | null; taxas: number | null }, avisos: string[] = []): Extracao {
   const cotas = fromCents(jogos.reduce((s, j) => s + money(j.valor_bolao), 0));
   const taxas = fromCents(jogos.reduce((s, j) => s + money(j.valor_taxa), 0));
@@ -55,10 +57,12 @@ function createExtraction(jogos: Jogo[], meta: Partial<Extracao> = {}, impresso?
     conferencia: { total_impresso_cotas: impresso?.cotas ?? null, total_impresso_taxas: impresso?.taxas ?? null, avisos },
   };
 }
+
 function parseDate(text: string): string {
   const m = text.match(/(?:DATA\s+DE\s+REFER[EÊ]NCIA[^\d]*)?(\d{2})\s*[/.\-]\s*(\d{2})\s*[/.\-]\s*(20\d{2})/i);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : today();
 }
+
 function parseCaixaText(text: string): Extracao {
   const clean = text.toUpperCase().replace(/[–—]/g, '-').replace(/\u00a0/g, ' ');
   const lines = clean.split(/\r?\n/).map(x => x.replace(/[|]/g, ' ').replace(/\s+/g, ' ').trim()).filter(Boolean);
@@ -110,6 +114,7 @@ function parseCaixaText(text: string): Extracao {
     operador_caixa: operator?.[1] ?? '', proprietario: owner?.[1]?.trim() ?? '',
   }, { cotas: printedQuota, taxas: printedFee }, chosen === compact ? [] : warnings);
 }
+
 function parseJsonInput(raw: string): Extracao {
   const obj: unknown = JSON.parse(raw);
   if (!obj || typeof obj !== 'object') throw new Error('O conteúdo precisa ser um objeto JSON.');
@@ -141,6 +146,7 @@ function parseJsonInput(raw: string): Extracao {
     operador_caixa: String(data.operador_caixa ?? data.operador ?? ''), proprietario: String(data.proprietario ?? ''),
   }, { cotas: printedCotas, taxas: printedTaxas }, Array.isArray(conf.avisos) ? conf.avisos.map(String) : []);
 }
+
 function validation(data: Extracao): string[] {
   const errors = [...data.conferencia.avisos];
   if (!data.jogos.length) errors.push('Nenhum jogo identificado.');
@@ -153,6 +159,7 @@ function validation(data: Extracao): string[] {
   }
   return errors;
 }
+
 function toStored(data: Extracao, drawDate: string): BolaoClosingItem[] {
   return data.jogos.map((j, index) => {
     const [modality, ...parts] = j.concurso.replace(/^\+/, '').split('-');
@@ -170,6 +177,7 @@ function toStored(data: Extracao, drawDate: string): BolaoClosingItem[] {
     } as BolaoClosingItem;
   });
 }
+
 function storedToJson(closing: FinBolaoClosing): Extracao {
   const jogos: Jogo[] = (closing.items ?? []).map(item => ({
     concurso: `${item.modality ?? item.product_name?.split('-')[0] ?? ''}-${item.contest ?? item.product_name?.split('-').slice(1).join('-') ?? ''}`,
@@ -214,9 +222,6 @@ function isManualClosing(c: FinBolaoClosing): boolean {
 
 /**
  * Retorna o percentual do operador conforme faixa de faturamento (valor + tarifa).
- * - Até R$ 10.000,00 → 10%
- * - De R$ 10.000,01 a R$ 29.999,99 → 20%
- * - A partir de R$ 30.000,00 → 30%
  */
 function operatorPercentageByTotal(total: number): number {
   if (total <= 10000) return 10;
@@ -299,16 +304,26 @@ export function FinancialBolaoClosing() {
     }
     setLoading(false);
   }, [canManageAll, isAdmin, profile?.branch_id, selectedBranch]);
+  
   useEffect(() => { void refresh(); }, [refresh]);
 
   const kpiMonth = viewMode === 'month' ? month : filterDate.slice(0, 7);
+
+  // KPIs do Caixa Bolão (Tabela: fin_caixa_bolao)
   useEffect(() => {
+    const [year, monthNum] = kpiMonth.split('-').map(Number);
+    const nextMonthDate = new Date(year, monthNum, 1);
+    const nextMonthStr = nextMonthDate.toLocaleDateString('en-CA');
+
     let q = supabase.from('fin_caixa_bolao').select('total_done, commission, encalhe')
-      .gte('entry_date', `${kpiMonth}-01`).lte('entry_date', `${kpiMonth}-31`);
+      .gte('entry_date', `${kpiMonth}-01`)
+      .lt('entry_date', nextMonthStr);
+
     if (!isAdmin) {
       if (!profile?.branch_id) { setCaixaTotals({ total_done: 0, commission: 0, encalhe: 0 }); return; }
       q = q.eq('branch_id', profile.branch_id);
     } else if (selectedBranch) q = q.eq('branch_id', selectedBranch);
+    
     void q.then(({ data }) => {
       const rows = (data ?? []) as Pick<FinCaixaBolao, 'total_done' | 'commission' | 'encalhe'>[];
       setCaixaTotals({
@@ -328,6 +343,7 @@ export function FinancialBolaoClosing() {
     setTab('manual');
     setModalOpen(true);
   };
+  
   const openEdit = (closing: FinBolaoClosing) => {
     setEditing(closing); setClosingDate(closing.closing_date);
     setDrawDate(closing.items?.[0]?.draw_date ?? closing.closing_date);
@@ -340,7 +356,7 @@ export function FinancialBolaoClosing() {
     try {
       const previous = JSON.parse(closing.ocr_text ?? '{}');
       if (previous.extracao?.jogos) restored = parseJsonInput(JSON.stringify(previous.extracao));
-    } catch { /* Fechamentos antigos podem guardar texto OCR simples. */ }
+    } catch { }
     setData(restored); setJsonText(JSON.stringify(restored, null, 2));
     setError(''); setMessage(''); setModalOpen(true);
   };
@@ -353,7 +369,6 @@ export function FinancialBolaoClosing() {
   const totalTarifa = useMemo(() => manualGames.reduce((s, g) => s + (numberBR(g.tarifa) || 0), 0), [manualGames]);
   const grossValue = useMemo(() => totalValue + totalTarifa, [totalValue, totalTarifa]);
 
-  // Percentuais automáticos por faixa de faturamento (soma valor + tarifa)
   const autoOperatorPct = useMemo(() => operatorPercentageByTotal(grossValue), [grossValue]);
   const autoHousePct = useMemo(() => 100 - autoOperatorPct, [autoOperatorPct]);
 
@@ -383,6 +398,7 @@ export function FinancialBolaoClosing() {
       setMessage(`${parsed.jogos.length} jogos importados. Confira a validação e os totais.`);
     } catch (e) { setError(e instanceof Error ? e.message : 'JSON inválido.'); }
   };
+  
   const runOcr = async (files: File[]) => {
     setBusy(true); setError(''); setMessage('Lendo comprovante...');
     let worker: Awaited<ReturnType<typeof createWorker>> | null = null;
@@ -431,8 +447,8 @@ export function FinancialBolaoClosing() {
     } catch (e) { setError(e instanceof Error ? e.message : 'Falha ao ler as fotos.'); }
     finally { if (worker) await worker.terminate(); setBusy(false); }
   };
+  
   const issues = useMemo(() => data ? validation(data) : [], [data]);
-
   const validManualGames = useMemo(() => manualGames.filter(g => g.game.trim() && (numberBR(g.value) || 0) > 0 && (numberBR(g.tarifa) || 0) > 0), [manualGames]);
 
   const save = async () => {
@@ -466,7 +482,6 @@ export function FinancialBolaoClosing() {
     } else {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(drawDate)) { setError('Informe a data do sorteio.'); setBusy(false); return; }
       const parsed = data as Extracao;
-      // Percentual automático também para o modo JSON, baseado no total com taxas
       const jsonTotal = parsed.resumo.valor_total_com_taxas;
       const jsonOperatorPct = operatorPercentageByTotal(jsonTotal);
       const jsonHousePct = 100 - jsonOperatorPct;
@@ -492,15 +507,18 @@ export function FinancialBolaoClosing() {
     if (result.error) { setError(result.error.message); return; }
     setModalOpen(false); await refresh();
   };
+  
   const remove = async (closing: FinBolaoClosing) => {
     if (!window.confirm(`Excluir fechamento de ${formatDateBR(closing.closing_date)}?`)) return;
     const { error: err } = await supabase.from('fin_bolao_closing').delete().eq('id', closing.id);
     if (err) setError(err.message); else await refresh();
   };
+  
   const toggle = async (closing: FinBolaoClosing) => {
     const { error: err } = await supabase.from('fin_bolao_closing').update({ status: closing.status === 'open' ? 'closed' : 'open' }).eq('id', closing.id);
     if (err) setError(err.message); else await refresh();
   };
+  
   const visible = closings.filter(c => viewMode === 'day' ? c.closing_date === filterDate : c.closing_date.startsWith(month));
   const total = visible.reduce((s, c) => s + Number(c.total_value ?? 0), 0);
   const totalHouse = visible.reduce((s, c) => s + Number(c.house_amount ?? 0), 0);
@@ -545,29 +563,41 @@ export function FinancialBolaoClosing() {
 
   const multiBranch = isAdmin && !selectedBranch;
 
+  // RESUMO MENSAL DO OPERADOR (Clique no nome)
   const monthSummary = useMemo(() => {
     if (!summaryOperatorId) return null;
+    
+    // 1. Pega o operador para exibir o nome no título
     const op = operators.find(p => p.id === summaryOperatorId)
       ?? (closings.find(c => c.operator_id === summaryOperatorId)?.operator as Profile | undefined) ?? null;
+    
+    // 2. Filtra os fechamentos do mês selecionado
     const list = closings.filter(c => c.operator_id === summaryOperatorId && c.closing_date.startsWith(kpiMonth));
+    
+    // 3. Calcula os totais
     const sum = { total: 0, tarifa: 0, house: 0, operatorAmount: 0, count: list.length };
     const days = new Set<string>();
+    
     for (const c of list) {
-      sum.total += Number(c.total_value ?? 0);
-      sum.tarifa += Number(c.total_fee ?? 0);
-      sum.house += Number(c.house_amount ?? 0);
-      sum.operatorAmount += Number(c.operator_amount ?? 0);
+      sum.total += Number(c.total_value ?? 0); // Total (Valor + Tarifa)
+      sum.tarifa += Number(c.total_fee ?? 0);  // Tarifa
+      sum.house += Number(c.house_amount ?? 0); // Parte da casa
+      sum.operatorAmount += Number(c.operator_amount ?? 0); // Comissão do operador
       days.add(c.closing_date);
     }
+
+    // 4. Calcula a progressão com base no faturamento BRUTO (total_value)
     const gross = sum.total;
     const pct = operatorPercentageByTotal(gross);
     const nextTier = gross <= 10000 ? 10000 : gross < 30000 ? 30000 : null;
     const prevTier = gross < 30000 ? (gross <= 10000 ? 0 : 10000) : 30000;
     const progress = nextTier ? Math.min(100, ((gross - prevTier) / (nextTier - prevTier)) * 100) : 100;
+
     return { op, list, days: Array.from(days).sort((a, b) => b.localeCompare(a)), ...sum, pct, nextTier, progress };
   }, [summaryOperatorId, closings, operators, kpiMonth]);
 
   if (loading && !closings.length) return <div className="flex justify-center py-20"><Spinner /></div>;
+  
   return <div>
     <PageHeader title="Fechamento de Bolão" subtitle="Cadastro de bolões por operador com vários jogos por dia e comissão automática sobre a tarifa"
       action={<div className="flex flex-wrap gap-2 items-center">
@@ -576,13 +606,16 @@ export function FinancialBolaoClosing() {
         {viewMode === 'day' ? <Input type="date" value={filterDate} onChange={setFilterDate} /> : <input type="month" value={month} onChange={e => setMonth(e.target.value)} className="rounded-lg border p-2" />}
         <Button onClick={openNew}><Camera size={17} /> Novo fechamento</Button>
       </div>} />
+      
     {error && !modalOpen && !configOpen && <p className="p-3 bg-red-50 text-red-700 rounded-lg mb-4">{error}</p>}
+    
     <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-3">
       <Card className="p-4"><p>Fechamentos</p><strong>{visible.length}</strong></Card>
       <Card className="p-4"><p>Total geral</p><strong>R$ {formatBRL(total)}</strong></Card>
       <Card className="p-4"><p>Parte da casa</p><strong className="text-brand-700">R$ {formatBRL(totalHouse)}</strong></Card>
       <Card className="p-4"><p>Parte do operador</p><strong className="text-accent-700">R$ {formatBRL(totalOperator)}</strong></Card>
     </div>
+    
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
       <Card className="p-4 border-l-4 border-l-brand-500">
         <p className="text-xs text-slate-400 uppercase tracking-wide">Caixa Bolão · Total feito</p>
@@ -597,6 +630,7 @@ export function FinancialBolaoClosing() {
         <strong className="text-lg text-red-600">R$ {formatBRL(caixaTotals.encalhe)}</strong>
       </Card>
     </div>
+    
     {!byBranch.length ? <Card><EmptyState icon={<FileJson size={42} />} title="Nenhum fechamento" description="Cadastre um bolão manualmente ou envie o comprovante." /> </Card> :
       <div className="space-y-4">{byBranch.map(bg => {
         const branchKey = bg.branchId;
@@ -809,7 +843,7 @@ export function FinancialBolaoClosing() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <Card className="p-3"><p className="text-xs text-slate-400">Fechamentos</p><strong>{monthSummary.count}</strong></Card>
           <Card className="p-3"><p className="text-xs text-slate-400">Dias com fechamento</p><strong>{monthSummary.days.length}</strong></Card>
-          <Card className="p-3"><p className="text-xs text-slate-400">Total geral</p><strong>R$ {formatBRL(monthSummary.total)}</strong></Card>
+          <Card className="p-3"><p className="text-xs text-slate-400">Faturamento Bruto</p><strong>R$ {formatBRL(monthSummary.total)}</strong></Card>
           <Card className="p-3"><p className="text-xs text-slate-400">Tarifas</p><strong>R$ {formatBRL(monthSummary.tarifa)}</strong></Card>
           <Card className="p-3"><p className="text-xs text-slate-400">Casa</p><strong className="text-brand-700">R$ {formatBRL(monthSummary.house)}</strong></Card>
           <Card className="p-3"><p className="text-xs text-slate-400">Comissão do operador</p><strong className="text-accent-700">R$ {formatBRL(monthSummary.operatorAmount)}</strong></Card>
