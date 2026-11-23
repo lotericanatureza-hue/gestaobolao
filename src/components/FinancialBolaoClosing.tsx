@@ -530,8 +530,6 @@ export function FinancialBolaoClosing() {
       let bg = branchesMap.get(c.branch_id);
       if (!bg) { bg = { branchId: c.branch_id, branch: (c.branch as Branch | null) ?? null, operators: [], total: 0, house: 0, operatorAmount: 0, count: 0 }; branchesMap.set(c.branch_id, bg); }
       bg.total += Number(c.total_value ?? 0);
-      bg.house += Number(c.house_amount ?? 0);
-      bg.operatorAmount += Number(c.operator_amount ?? 0);
       bg.count += 1;
       let og = bg.operators.find(o => o.operatorId === c.operator_id);
       if (!og) { og = { operatorId: c.operator_id, operator: (c.operator as Profile | null) ?? null, days: [], valor: 0, tarifa: 0, gross: 0, house: 0, operatorAmount: 0, count: 0 }; bg.operators.push(og); }
@@ -567,7 +565,7 @@ export function FinancialBolaoClosing() {
       for (const og of bg.operators) {
         og.days.sort((a, b) => b.date.localeCompare(a.date));
         
-        // RECALCULA A COMISSÃO DO OPERADOR INTEIRO BASEADO NO MÊS
+        // RECALCULA A COMISSÃO DO OPERADOR INTEIRO BASEADO NA REGRA DO MÊS
         const gross = og.gross;
         const pct = operatorPercentageByTotal(gross);
         
@@ -618,15 +616,8 @@ export function FinancialBolaoClosing() {
 
     const nextTier = gross <= 10000 ? 10000 : gross < 30000 ? 30000 : null;
     
-    let progress = 0;
-    if (gross >= 30000) progress = 100;
-    else if (gross >= 10000) {
-       progress = ((gross) / 30000) * 100; // Progresso total até 30k
-    } else {
-       progress = (gross / 10000) * 50; // Se for até 10k, ele enche até 33% (10k é 1/3 de 30k)
-    }
-    // Melhor visualização: O eixo vai de 0 a 30.000.
-    progress = Math.min(100, (gross / 30000) * 100);
+    // Progresso da barra (0 a 30.000 total)
+    const progress = Math.min(100, (gross / 30000) * 100);
 
     const missingForNext = nextTier ? nextTier - gross : 0;
 
