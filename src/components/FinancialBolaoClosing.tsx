@@ -7,7 +7,7 @@ import { PageHeader } from './Layout';
 import { Badge, Button, Card, EmptyState, Input, Modal, Select, Spinner } from './ui';
 import { formatBRL, formatDateBR } from '../lib/format';
 import { preprocessImage } from '../lib/imageProcessing';
-import type { BolaoClosingItem, Branch, FinBolaoClosing, FinBolaoClosingConfig, Profile } from '../lib/types';
+import type { BolaoClosingItem, Branch, FinBolaoClosing, FinBolaoClosingConfig, FinCaixaBolao, Profile } from '../lib/types';
 
 type Jogo = {
   concurso: string;
@@ -261,6 +261,8 @@ export function FinancialBolaoClosing() {
   const [configSaving, setConfigSaving] = useState(false);
   const [tab, setTab] = useState<'manual' | 'json'>('manual');
   const [manualGames, setManualGames] = useState<ManualGame[]>([{ id: crypto.randomUUID(), game: '', value: '', tarifa: '' }]);
+  const [caixaTotals, setCaixaTotals] = useState({ total_done: 0, commission: 0, encalhe: 0 });
+  const [summaryOperatorId, setSummaryOperatorId] = useState<string | null>(null);
 
   useEffect(() => {
     void supabase.from('branches').select('*').order('name').then(({ data: rows }) => setBranches((rows ?? []) as Branch[]));
@@ -298,6 +300,24 @@ export function FinancialBolaoClosing() {
     setLoading(false);
   }, [canManageAll, isAdmin, profile?.branch_id, selectedBranch]);
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const kpiMonth = viewMode === 'month' ? month : filterDate.slice(0, 7);
+  useEffect(() => {
+    let q = supabase.from('fin_caixa_bolao').select('total_done, commission, encalhe')
+      .gte('entry_date', `${kpiMonth}-01`).lte('entry_date', `${kpiMonth}-31`);
+    if (!isAdmin) {
+      if (!profile?.branch_id) { setCaixaTotals({ total_done: 0, commission: 0, encalhe: 0 }); return; }
+      q = q.eq('branch_id', profile.branch_id);
+    } else if (selectedBranch) q = q.eq('branch_id', selectedBranch);
+    void q.then(({ data }) => {
+      const rows = (data ?? []) as Pick<FinCaixaBolao, 'total_done' | 'commission' | 'encalhe'>[];
+      setCaixaTotals({
+        total_done: rows.reduce((s, r) => s + Number(r.total_done ?? 0), 0),
+        commission: rows.reduce((s, r) => s + Number(r.commission ?? 0), 0),
+        encalhe: rows.reduce((s, r) => s + Number(r.encalhe ?? 0), 0),
+      });
+    });
+  }, [kpiMonth, isAdmin, profile?.branch_id, selectedBranch]);
 
   const openNew = () => {
     setEditing(null); setClosingDate(filterDate); setDrawDate(filterDate);
@@ -525,6 +545,28 @@ export function FinancialBolaoClosing() {
 
   const multiBranch = isAdmin && !selectedBranch;
 
+  const monthSummary = useMemo(() => {
+    if (!summaryOperatorId) return null;
+    const op = operators.find(p => p.id === summaryOperatorId)
+      ?? (closings.find(c => c.operator_id === summaryOperatorId)?.operator as Profile | undefined) ?? null;
+    const list = closings.filter(c => c.operator_id === summaryOperatorId && c.closing_date.startsWith(kpiMonth));
+    const sum = { total: 0, tarifa: 0, house: 0, operatorAmount: 0, count: list.length };
+    const days = new Set<string>();
+    for (const c of list) {
+      sum.total += Number(c.total_value ?? 0);
+      sum.tarifa += Number(c.total_fee ?? 0);
+      sum.house += Number(c.house_amount ?? 0);
+      sum.operatorAmount += Number(c.operator_amount ?? 0);
+      days.add(c.closing_date);
+    }
+    const gross = sum.total;
+    const pct = operatorPercentageByTotal(gross);
+    const nextTier = gross <= 10000 ? 10000 : gross < 30000 ? 30000 : null;
+    const prevTier = gross < 30000 ? (gross <= 10000 ? 0 : 10000) : 30000;
+    const progress = nextTier ? Math.min(100, ((gross - prevTier) / (nextTier - prevTier)) * 100) : 100;
+    return { op, list, days: Array.from(days).sort((a, b) => b.localeCompare(a)), ...sum, pct, nextTier, progress };
+  }, [summaryOperatorId, closings, operators, kpiMonth]);
+
   if (loading && !closings.length) return <div className="flex justify-center py-20"><Spinner /></div>;
   return <div>
     <PageHeader title="Fechamento de Bolão" subtitle="Cadastro de bolões por operador com vários jogos por dia e comissão automática sobre a tarifa"
@@ -535,11 +577,25 @@ export function FinancialBolaoClosing() {
         <Button onClick={openNew}><Camera size={17} /> Novo fechamento</Button>
       </div>} />
     {error && !modalOpen && !configOpen && <p className="p-3 bg-red-50 text-red-700 rounded-lg mb-4">{error}</p>}
-    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-5">
+    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-3">
       <Card className="p-4"><p>Fechamentos</p><strong>{visible.length}</strong></Card>
       <Card className="p-4"><p>Total geral</p><strong>R$ {formatBRL(total)}</strong></Card>
       <Card className="p-4"><p>Parte da casa</p><strong className="text-brand-700">R$ {formatBRL(totalHouse)}</strong></Card>
       <Card className="p-4"><p>Parte do operador</p><strong className="text-accent-700">R$ {formatBRL(totalOperator)}</strong></Card>
+    </div>
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+      <Card className="p-4 border-l-4 border-l-brand-500">
+        <p className="text-xs text-slate-400 uppercase tracking-wide">Caixa Bolão · Total feito</p>
+        <strong className="text-lg text-brand-700">R$ {formatBRL(caixaTotals.total_done)}</strong>
+      </Card>
+      <Card className="p-4 border-l-4 border-l-accent-500">
+        <p className="text-xs text-slate-400 uppercase tracking-wide">Caixa Bolão · Total Comissão</p>
+        <strong className="text-lg text-accent-700">R$ {formatBRL(caixaTotals.commission)}</strong>
+      </Card>
+      <Card className="p-4 border-l-4 border-l-red-500">
+        <p className="text-xs text-slate-400 uppercase tracking-wide">Caixa Bolão · Total Encalhe</p>
+        <strong className="text-lg text-red-600">R$ {formatBRL(caixaTotals.encalhe)}</strong>
+      </Card>
     </div>
     {!byBranch.length ? <Card><EmptyState icon={<FileJson size={42} />} title="Nenhum fechamento" description="Cadastre um bolão manualmente ou envie o comprovante." /> </Card> :
       <div className="space-y-4">{byBranch.map(bg => {
@@ -554,7 +610,13 @@ export function FinancialBolaoClosing() {
               <span className="flex items-center gap-3">
                 <span className="w-10 h-10 rounded-xl bg-brand-50 text-brand-600 flex items-center justify-center"><User size={20} /></span>
                 <span>
-                  <strong className="flex items-center gap-2 flex-wrap">{og.operator?.name ?? 'Operador'} <Badge color={allClosed ? 'blue' : 'amber'}>{allClosed ? 'Fechado' : 'Aberto'}</Badge></strong>
+                  <strong className="flex items-center gap-2 flex-wrap">
+                    <button type="button" className="underline-offset-2 hover:underline hover:text-brand-700 transition-colors"
+                      onClick={e => { e.stopPropagation(); setSummaryOperatorId(og.operatorId); }}>
+                      {og.operator?.name ?? 'Operador'}
+                    </button>
+                    <Badge color={allClosed ? 'blue' : 'amber'}>{allClosed ? 'Fechado' : 'Aberto'}</Badge>
+                  </strong>
                   <span className="text-xs text-slate-400 flex items-center gap-3 mt-0.5">
                     <span className="text-slate-700 font-semibold">Total: R$ {formatBRL(og.total)}</span>
                     <span className="text-brand-600">Casa: R$ {formatBRL(og.house)}</span>
@@ -740,6 +802,64 @@ export function FinancialBolaoClosing() {
         {error && <p className="rounded-lg bg-red-50 text-red-700 p-3 text-sm">{error}</p>}
         <div className="flex justify-end gap-2"><Button variant="secondary" onClick={() => setModalOpen(false)} disabled={busy}>Cancelar</Button><Button onClick={() => void save()} disabled={busy || (tab === 'json' && (!data || issues.length > 0))}>{busy ? 'Processando...' : 'Salvar fechamento'}</Button></div>
       </div>
+    </Modal>
+
+    <Modal open={!!summaryOperatorId} onClose={() => setSummaryOperatorId(null)} title={`Resumo do mês — ${monthSummary?.op?.name ?? 'Operador'}`} maxWidth="max-w-2xl">
+      {monthSummary && <div className="space-y-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <Card className="p-3"><p className="text-xs text-slate-400">Fechamentos</p><strong>{monthSummary.count}</strong></Card>
+          <Card className="p-3"><p className="text-xs text-slate-400">Dias com fechamento</p><strong>{monthSummary.days.length}</strong></Card>
+          <Card className="p-3"><p className="text-xs text-slate-400">Total geral</p><strong>R$ {formatBRL(monthSummary.total)}</strong></Card>
+          <Card className="p-3"><p className="text-xs text-slate-400">Tarifas</p><strong>R$ {formatBRL(monthSummary.tarifa)}</strong></Card>
+          <Card className="p-3"><p className="text-xs text-slate-400">Casa</p><strong className="text-brand-700">R$ {formatBRL(monthSummary.house)}</strong></Card>
+          <Card className="p-3"><p className="text-xs text-slate-400">Comissão do operador</p><strong className="text-accent-700">R$ {formatBRL(monthSummary.operatorAmount)}</strong></Card>
+          <Card className="p-3"><p className="text-xs text-slate-400">Faixa de comissão</p><strong className="text-accent-700">{monthSummary.pct}%</strong></Card>
+        </div>
+        <div className="rounded-lg border border-slate-200 p-4">
+          <div className="flex justify-between items-center mb-2">
+            <span className="text-sm font-medium text-slate-700">Progresso da comissão ({monthSummary.pct}% da tarifa)</span>
+            {monthSummary.nextTier
+              ? <span className="text-xs text-slate-400">Faltam R$ {formatBRL(monthSummary.nextTier - monthSummary.total)} para {monthSummary.nextTier >= 30000 ? '30%' : '20%'}</span>
+              : <Badge color="green">Faixa máxima atingida</Badge>}
+          </div>
+          <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+            <div className={`h-full rounded-full transition-all ${monthSummary.pct >= 30 ? 'bg-emerald-500' : monthSummary.pct >= 20 ? 'bg-accent-500' : 'bg-brand-500'}`} style={{ width: `${monthSummary.progress}%` }} />
+          </div>
+          <p className="text-xs text-slate-400 mt-2">até R$ 10.000 = 10% · até R$ 29.999,99 = 20% · R$ 30.000+ = 30%</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-slate-400 border-b border-slate-100">
+                <th className="px-2 py-2 font-medium">Data</th>
+                <th className="px-2 py-2 font-medium text-right">Valor</th>
+                <th className="px-2 py-2 font-medium text-right">Tarifa</th>
+                <th className="px-2 py-2 font-medium text-right">Casa</th>
+                <th className="px-2 py-2 font-medium text-right">Comissão</th>
+                <th className="px-2 py-2 font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {monthSummary.list.sort((a, b) => b.closing_date.localeCompare(a.closing_date)).map(c => <tr key={c.id} className="border-b border-slate-50">
+                <td className="px-2 py-2">{formatDateBR(c.closing_date)}</td>
+                <td className="px-2 py-2 text-right">R$ {formatBRL(Number(c.total_value ?? 0))}</td>
+                <td className="px-2 py-2 text-right">R$ {formatBRL(Number(c.total_fee ?? 0))}</td>
+                <td className="px-2 py-2 text-right text-brand-700">R$ {formatBRL(Number(c.house_amount ?? 0))}</td>
+                <td className="px-2 py-2 text-right text-accent-700">R$ {formatBRL(Number(c.operator_amount ?? 0))}</td>
+                <td className="px-2 py-2"><Badge color={c.status === 'closed' ? 'blue' : 'amber'}>{c.status === 'closed' ? 'Fechado' : 'Aberto'}</Badge></td>
+              </tr>)}
+              <tr className="bg-slate-100/60 font-semibold">
+                <td className="px-2 py-2">Total do mês</td>
+                <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.total)}</td>
+                <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.tarifa)}</td>
+                <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.house)}</td>
+                <td className="px-2 py-2 text-right">R$ {formatBRL(monthSummary.operatorAmount)}</td>
+                <td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>}
     </Modal>
   </div>;
 }

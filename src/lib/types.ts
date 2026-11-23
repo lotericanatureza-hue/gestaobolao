@@ -385,6 +385,29 @@ export interface FinBolaoGeral {
   branch?: Branch;
 }
 
+export interface FinCaixaBolao {
+  id: string;
+  branch_id: string;
+  operator_id: string;
+  entry_date: string;
+  total_done: number;
+  commission: number;
+  encalhe: number;
+  fee: number;
+  sangria: number;
+  marketplace: number;
+  premiacao: number;
+  separate_commission: number;
+  pix: number;
+  receivable: number;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  operator?: Profile;
+  branch?: Branch;
+}
+
 export interface FinBolaoGeralAddInfo {
   id: string;
   branch_id: string;

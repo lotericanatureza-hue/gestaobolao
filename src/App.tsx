@@ -22,6 +22,7 @@ import { FinancialCashClosing } from './components/FinancialCashClosing';
 import { FinancialEmployees } from './components/FinancialEmployees';
 import { FinancialLoans } from './components/FinancialLoans';
 import { FinancialBolaoClosing } from './components/FinancialBolaoClosing';
+import { FinancialCaixaBolao } from './components/FinancialCaixaBolao';
 import { FinancialBolaoGeral } from './components/FinancialBolaoGeral';
 import { FinancialControl } from './components/FinancialControl';
 import { ResetPassword, UpdatePassword } from './components/ResetPassword';
@@ -100,12 +101,14 @@ function AppContent() {
           ]},
           { id: 'fin-daily', label: 'Controle Diário', icon: <CalendarCheck size={18} /> },
           { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
+          { id: 'fin-caixa-bolao', label: 'Caixa Bolão', icon: <FileSpreadsheet size={18} /> },
           { id: 'fin-bolao-closing', label: 'Fechamento Bolão', icon: <Ticket size={18} /> },
           { id: 'fin-bolao-geral', label: 'Bolão Geral', icon: <FileSpreadsheet size={18} /> },
           { id: 'fin-loans', label: 'Empréstimos', icon: <HandCoins size={18} /> },
           { id: 'fin-employees', label: 'Funcionários', icon: <UserCog size={18} /> },
         ]
       : [
+          { id: 'fin-caixa-bolao', label: 'Caixa Bolão', icon: <FileSpreadsheet size={18} /> },
           { id: 'fin-bolao-closing', label: 'Fechamento Bolão', icon: <Ticket size={18} /> },
           { id: 'fin-bolao-geral', label: 'Bolão Geral', icon: <FileSpreadsheet size={18} /> },
           { id: 'fin-closing', label: 'Fechamento de Caixa', icon: <BookX size={18} /> },
@@ -118,6 +121,7 @@ function AppContent() {
         {finView === 'fin-daily' && (isAdmin || isSupervisor) && <FinancialDailyControl />}
         {finView === 'fin-control' && (isAdmin || isSupervisor) && <FinancialControl />}
         {finView === 'fin-closing' && <FinancialCashClosing />}
+        {finView === 'fin-caixa-bolao' && <FinancialCaixaBolao />}
         {finView === 'fin-bolao-closing' && <FinancialBolaoClosing />}
         {finView === 'fin-bolao-geral' && <FinancialBolaoGeral />}
         {finView === 'fin-loans' && (isAdmin || isSupervisor) && <FinancialLoans />}
