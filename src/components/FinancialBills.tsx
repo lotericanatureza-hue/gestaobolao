@@ -291,12 +291,12 @@ export function FinancialBills() {
 
       <BillReminders bills={bills} />
 
-      {/* Summary cards */}
+      {/* KPIs principais: Receitas e Saldo Final centralizados */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 max-w-2xl mx-auto">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><ArrowUpCircle size={22} /></div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Entradas</p>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Receitas</p>
           </div>
           <p className="text-2xl font-bold text-emerald-600">R$ {formatBRL(totalIncome)}</p>
         </Card>
@@ -308,6 +308,8 @@ export function FinancialBills() {
           <p className={`text-2xl font-bold ${finalBalance >= 0 ? 'text-brand-600' : 'text-red-600'}`}>R$ {formatBRL(finalBalance)}</p>
         </Card>
       </div>
+
+      {/* Demais KPIs */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
