@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Receipt, Plus, Pencil, Trash2, Search, Copy, CheckCircle, Clock, ArrowDownCircle, ArrowUpCircle, Paperclip, Landmark, Zap } from 'lucide-react';
+import { Receipt, Plus, Pencil, Trash2, Search, Copy, CheckCircle, Clock, ArrowDownCircle, ArrowUpCircle, Paperclip, Landmark, Zap, Wallet } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -267,6 +267,7 @@ export function FinancialBills() {
   const totalIncome = filtered.filter((b) => b.type === 'income').reduce((s, b) => s + Number(b.amount), 0);
   const totalPending = filtered.filter((b) => b.status === 'pending' && b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
   const totalExceptional = filtered.filter((b) => b.type === 'expense' && isExceptional(b)).reduce((s, b) => s + Number(b.amount), 0);
+  const finalBalance = totalIncome - totalGeneralExpenses;
 
   if (loading && !bills.length) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
@@ -291,14 +292,23 @@ export function FinancialBills() {
       <BillReminders bills={bills} />
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 max-w-2xl mx-auto">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><ArrowUpCircle size={22} /></div>
-            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Receitas</p>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Entradas</p>
           </div>
           <p className="text-2xl font-bold text-emerald-600">R$ {formatBRL(totalIncome)}</p>
         </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${finalBalance >= 0 ? 'bg-brand-50 text-brand-600' : 'bg-red-50 text-red-600'}`}><Wallet size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Saldo Final</p>
+          </div>
+          <p className={`text-2xl font-bold ${finalBalance >= 0 ? 'text-brand-600' : 'text-red-600'}`}>R$ {formatBRL(finalBalance)}</p>
+        </Card>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center"><ArrowDownCircle size={22} /></div>
