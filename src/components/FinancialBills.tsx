@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Receipt, Plus, Pencil, Trash2, Search, Copy, CheckCircle, Clock, ArrowDownCircle, ArrowUpCircle, Paperclip, Landmark } from 'lucide-react';
+import { Receipt, Plus, Pencil, Trash2, Search, Copy, CheckCircle, Clock, ArrowDownCircle, ArrowUpCircle, Paperclip, Landmark, Zap } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../lib/AuthContext';
 import { PageHeader } from './Layout';
@@ -265,6 +265,7 @@ export function FinancialBills() {
   const totalGeneralExpenses = filtered.filter((b) => b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
   const totalIncome = filtered.filter((b) => b.type === 'income').reduce((s, b) => s + Number(b.amount), 0);
   const totalPending = filtered.filter((b) => b.status === 'pending' && b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
+  const totalExceptional = filtered.filter((b) => b.type === 'expense' && b.category?.name?.trim().toLowerCase() === 'saídas excepcionais').reduce((s, b) => s + Number(b.amount), 0);
 
   if (loading && !bills.length) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
@@ -289,7 +290,7 @@ export function FinancialBills() {
       <BillReminders bills={bills} />
 
       {/* Summary cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
         <Card className="p-5">
           <div className="flex items-center gap-3 mb-2">
             <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center"><ArrowUpCircle size={22} /></div>
@@ -317,6 +318,13 @@ export function FinancialBills() {
             <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Pendentes</p>
           </div>
           <p className="text-2xl font-bold text-amber-600">R$ {formatBRL(totalPending)}</p>
+        </Card>
+        <Card className="p-5">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center"><Zap size={22} /></div>
+            <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Saídas Excepcionais</p>
+          </div>
+          <p className="text-2xl font-bold text-orange-600">R$ {formatBRL(totalExceptional)}</p>
         </Card>
       </div>
 
