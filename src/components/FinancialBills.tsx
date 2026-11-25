@@ -261,11 +261,12 @@ export function FinancialBills() {
     return true;
   });
 
-  const totalPaidExpenses = filtered.filter((b) => b.type === 'expense' && b.status === 'paid').reduce((s, b) => s + Number(b.amount), 0);
+  const isExceptional = (b: FinBill) => b.category?.name?.trim().toLowerCase() === 'saídas excepcionais';
+  const totalPaidExpenses = filtered.filter((b) => b.type === 'expense' && b.status === 'paid' && !isExceptional(b)).reduce((s, b) => s + Number(b.amount), 0);
   const totalGeneralExpenses = filtered.filter((b) => b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
   const totalIncome = filtered.filter((b) => b.type === 'income').reduce((s, b) => s + Number(b.amount), 0);
   const totalPending = filtered.filter((b) => b.status === 'pending' && b.type === 'expense').reduce((s, b) => s + Number(b.amount), 0);
-  const totalExceptional = filtered.filter((b) => b.type === 'expense' && b.category?.name?.trim().toLowerCase() === 'saídas excepcionais').reduce((s, b) => s + Number(b.amount), 0);
+  const totalExceptional = filtered.filter((b) => b.type === 'expense' && isExceptional(b)).reduce((s, b) => s + Number(b.amount), 0);
 
   if (loading && !bills.length) {
     return <div className="flex items-center justify-center py-20"><Spinner className="text-brand-500" /></div>;
